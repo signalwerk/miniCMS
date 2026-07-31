@@ -99,9 +99,15 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 - The active collection is stored as `#<collection-name>`.
 - Settings is a full-screen overlay organized around project, collection, and
   content-type tasks. Common changes must be additive and understandable
-  without knowing the persisted structure. Keep technical controls collapsed
-  by default, never expose a raw YAML/source editor, and retain proper modal
-  confirmation for destructive/discard flows.
+  without knowing the persisted structure. Fields and table columns use
+  compact disclosure rows; technical controls stay collapsed by default.
+  Communicate through labels, state, hierarchy, and interaction rather than
+  instructional paragraphs, and never expose a raw YAML/source editor.
+- Settings must retain visible keyboard focus, trap focus within the active
+  modal, restore focus on close, expose selected/expanded states to assistive
+  technology, support reduced motion, and remain usable in its stacked
+  small-screen layout.
+- Retain proper modal confirmation for destructive/discard flows.
 
 ## API and testing
 

@@ -362,6 +362,7 @@ function ConfirmationDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirmation-dialog-title"
+        aria-describedby="confirmation-dialog-description"
         onSubmit={submit}
       >
         <div className="dialog__top">
@@ -370,21 +371,27 @@ function ConfirmationDialog({
               "dialog__icon",
               danger && "dialog__icon--danger"
             )}
+            aria-hidden="true"
           >
             {danger ? <Trash2 size={18} /> : <CircleAlert size={18} />}
           </span>
           <div>
             <h2 id="confirmation-dialog-title">{title}</h2>
-            <p>{description}</p>
+            <p id="confirmation-dialog-description">{description}</p>
           </div>
-          <button type="button" onClick={onCancel} disabled={busy}>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onCancel}
+            disabled={busy}
+          >
             <X size={18} />
           </button>
         </div>
         {error && (
           <div className="dialog__body">
-            <div className="inline-error">
-              <CircleAlert size={15} />
+            <div className="inline-error" role="alert">
+              <CircleAlert size={15} aria-hidden="true" />
               {error}
             </div>
           </div>
@@ -393,6 +400,7 @@ function ConfirmationDialog({
           <button
             type="button"
             className="button button--secondary"
+            autoFocus
             onClick={onCancel}
             disabled={busy}
           >

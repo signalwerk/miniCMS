@@ -123,9 +123,11 @@ collections, media uploads, and UUID-backed collection references.
 The top-bar Settings overlay provides a guided editor for project defaults,
 collections, content types, fields, dropdown options, content areas, table
 columns, hierarchy, references, and inspector layout. Common settings are
-shown first, while technical behavior is available in collapsed advanced
-sections. Every supported option has a form control; Settings never exposes
-raw configuration source. Saving validates the complete model before
+shown first; fields and table columns use compact disclosure rows, while
+technical behavior is available in collapsed advanced sections. Every
+supported option has a form control; Settings never exposes raw configuration
+source. The overlay supports keyboard focus containment, reduced motion, and a
+stacked small-screen layout. Saving validates the complete model before
 atomically replacing `cms.config.yml`.
 
 ## API

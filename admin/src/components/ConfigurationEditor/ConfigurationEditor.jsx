@@ -19,7 +19,15 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { cx } from "../../model/editor.js";
 import { ConfirmationDialog } from "../Dialogs/Dialogs.jsx";
 import { Spinner } from "../Common/Common.jsx";
@@ -141,15 +149,23 @@ function Switch({ checked, onChange, label }) {
 }
 
 function FormField({ label, hint, optional = false, children }) {
+  const labelId = useId();
+  const control = isValidElement(children)
+    ? cloneElement(children, {
+        "aria-labelledby":
+          children.props["aria-labelledby"] ||
+          (children.props["aria-label"] ? undefined : labelId)
+      })
+    : children;
   return (
-    <label className="configuration-form-field">
-      <span className="configuration-form-field__label">
+    <div className="configuration-form-field">
+      <span id={labelId} className="configuration-form-field__label">
         <strong>{label}</strong>
         {optional && <small>Optional</small>}
       </span>
-      {children}
+      {control}
       {hint && <small className="configuration-form-field__hint">{hint}</small>}
-    </label>
+    </div>
   );
 }
 
@@ -178,29 +194,28 @@ function SelectInput({ value, onChange, children, ...props }) {
   );
 }
 
-function SectionHeading({ icon: Icon, title, description, action }) {
+function SectionHeading({ icon: Icon, title, meta, action }) {
   return (
     <div className="configuration-section-heading">
-      <span><Icon size={16} /></span>
+      <span aria-hidden="true"><Icon size={16} /></span>
       <div>
-        <h2>{title}</h2>
-        {description && <p>{description}</p>}
+        <h1>{title}</h1>
+        {meta && <code>{meta}</code>}
       </div>
       {action}
     </div>
   );
 }
 
-function AdvancedSection({ title, description, children }) {
+function AdvancedSection({ title, children }) {
   return (
     <details className="configuration-advanced">
       <summary>
         <span>
-          <SlidersHorizontal size={14} />
+          <SlidersHorizontal size={14} aria-hidden="true" />
           <strong>{title}</strong>
-          {description && <small>{description}</small>}
         </span>
-        <ChevronDown size={14} />
+        <ChevronDown size={14} aria-hidden="true" />
       </summary>
       <div className="configuration-advanced__body">{children}</div>
     </details>
@@ -216,10 +231,11 @@ function EntryActions({
 }) {
   return (
     <div className="configuration-entry-actions">
-      <GripVertical size={14} />
+      <GripVertical size={14} aria-hidden="true" />
       <button
         type="button"
         title="Move up"
+        aria-label="Move up"
         disabled={index === 0}
         onClick={() => onMove(-1)}
       >
@@ -228,13 +244,19 @@ function EntryActions({
       <button
         type="button"
         title="Move down"
+        aria-label="Move down"
         disabled={index === count - 1}
         onClick={() => onMove(1)}
       >
         <ArrowDown size={13} />
       </button>
       {onDuplicate && (
-        <button type="button" title="Duplicate" onClick={onDuplicate}>
+        <button
+          type="button"
+          title="Duplicate"
+          aria-label="Duplicate"
+          onClick={onDuplicate}
+        >
           <Copy size={13} />
         </button>
       )}
@@ -242,6 +264,7 @@ function EntryActions({
         type="button"
         className="danger"
         title="Delete"
+        aria-label="Delete"
         onClick={onDelete}
       >
         <Trash2 size={13} />
@@ -250,12 +273,22 @@ function EntryActions({
   );
 }
 
-function MultiChoice({ options, value = [], onChange, emptyLabel }) {
+function MultiChoice({
+  options,
+  value = [],
+  onChange,
+  emptyLabel,
+  ...props
+}) {
   if (!options.length) {
     return <p className="configuration-muted">{emptyLabel || "No options available."}</p>;
   }
   return (
-    <div className="configuration-choice-grid">
+    <div
+      {...props}
+      className="configuration-choice-grid"
+      role="group"
+    >
       {options.map(([key, label]) => {
         const selected = value.includes(key);
         return (
@@ -263,6 +296,7 @@ function MultiChoice({ options, value = [], onChange, emptyLabel }) {
             type="button"
             key={key}
             className={cx(selected && "is-selected")}
+            aria-pressed={selected}
             onClick={() =>
               onChange(
                 selected
@@ -282,7 +316,6 @@ function MultiChoice({ options, value = [], onChange, emptyLabel }) {
 
 function AddEntryDialog({
   title,
-  description,
   existing,
   label = "Name",
   onCancel,
@@ -306,18 +339,22 @@ function AddEntryDialog({
     <div className="dialog-backdrop configuration-dialog-backdrop">
       <form
         className="dialog configuration-add-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="configuration-add-dialog-title"
         onSubmit={(event) => {
           event.preventDefault();
           if (!invalid) onCreate({ key: resolvedKey, label: name.trim() });
         }}
       >
         <div className="dialog__top">
-          <span className="dialog__icon"><Plus size={18} /></span>
+          <span className="dialog__icon" aria-hidden="true"><Plus size={18} /></span>
           <div>
-            <h2>{title}</h2>
-            <p>{description}</p>
+            <h2 id="configuration-add-dialog-title">{title}</h2>
           </div>
-          <button type="button" onClick={onCancel}><X size={18} /></button>
+          <button type="button" aria-label="Close" onClick={onCancel}>
+            <X size={18} />
+          </button>
         </div>
         <div className="dialog__body configuration-add-dialog__body">
           <FormField label={label}>
@@ -331,8 +368,7 @@ function AddEntryDialog({
             />
           </FormField>
           <FormField
-            label="Configuration key"
-            hint="A stable technical identifier. It cannot contain spaces."
+            label="Key"
           >
             <TextInput
               value={key}
@@ -367,7 +403,6 @@ function SiteEditor({ site, update }) {
       <SectionHeading
         icon={Settings2}
         title="Project settings"
-        description="The public identity and media defaults for this project."
       />
       <section className="configuration-card configuration-card--form">
         <FormField label="Project name">
@@ -390,7 +425,6 @@ function SiteEditor({ site, update }) {
       </section>
       <AdvancedSection
         title="Media paths"
-        description="Change these only when the project’s public file setup differs."
       >
         <FormField label="Media storage folder">
           <TextInput
@@ -424,7 +458,6 @@ function SelectOptionsEditor({ options = [], onChange }) {
       <div className="configuration-subheading">
         <div>
           <strong>Dropdown options</strong>
-          <small>Add the choices editors can select.</small>
         </div>
         <button
           type="button"
@@ -504,20 +537,46 @@ function FieldEditor({
   onDelete
 }) {
   const widget = field.widget || "string";
+  const widgetLabel =
+    WIDGET_OPTIONS.find(([value]) => value === widget)?.[1] || widget;
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
   const targetCollection = collections[field.collection];
   const targetFields = Object.entries(
     nodeTypes[targetCollection?.node_type]?.fields ?? {}
   ).map(([key, targetField]) => [key, targetField.label || key]);
   return (
-    <article className="configuration-entry-card">
+    <article
+      className={cx(
+        "configuration-entry-card",
+        "configuration-entry-card--field",
+        open && "is-open"
+      )}
+    >
       <div className="configuration-entry-card__top">
-        <span className="configuration-entry-card__identity">
-          <FileCog size={15} />
-          <span>
-            <strong>{field.label || labelFromKey(fieldKey)}</strong>
-            <code>{fieldKey}</code>
+        <button
+          type="button"
+          className="configuration-entry-card__toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          aria-label={`${field.label || labelFromKey(fieldKey)}, ${widgetLabel}${
+            field.required === false ? ", optional" : ""
+          }`}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span className="configuration-entry-card__identity">
+            <FileCog size={15} aria-hidden="true" />
+            <span>
+              <strong>{field.label || labelFromKey(fieldKey)}</strong>
+              <code>{fieldKey}</code>
+            </span>
           </span>
-        </span>
+          <span className="configuration-entry-card__badges" aria-hidden="true">
+            <i>{widgetLabel}</i>
+            {field.required === false && <i>Optional</i>}
+          </span>
+          <ChevronDown size={15} aria-hidden="true" />
+        </button>
         <EntryActions
           index={index}
           count={count}
@@ -526,6 +585,8 @@ function FieldEditor({
           onDelete={onDelete}
         />
       </div>
+      {open && (
+        <div id={bodyId} className="configuration-entry-card__body">
       <div className="configuration-entry-card__grid">
         <FormField label="Label">
           <TextInput
@@ -560,7 +621,6 @@ function FieldEditor({
       <div className="configuration-inline-setting">
         <span>
           <strong>Required</strong>
-          <small>Editors must provide a value.</small>
         </span>
         <Switch
           checked={field.required !== false}
@@ -604,7 +664,6 @@ function FieldEditor({
       )}
       <AdvancedSection
         title="Advanced field settings"
-        description="Defaults, help text, and widget-specific behavior."
       >
         <FormField label="Help text" optional>
           <TextInput
@@ -674,7 +733,6 @@ function FieldEditor({
         {widget === "image" && (
           <FormField
             label="Accepted file types"
-            hint="A comma-separated browser accept value."
             optional
           >
             <TextInput
@@ -689,7 +747,6 @@ function FieldEditor({
         {widget === "reference" && (
           <FormField
             label="Stored reference field"
-            hint="Leave empty to use the collection’s reference view value."
             optional
           >
             <SelectInput
@@ -712,7 +769,6 @@ function FieldEditor({
           <div className="configuration-inline-setting">
             <span>
               <strong>Read only</strong>
-              <small>Show the value without allowing edits.</small>
             </span>
             <Switch
               checked={field.readonly === true}
@@ -728,7 +784,6 @@ function FieldEditor({
           <div className="configuration-inline-setting">
             <span>
               <strong>Read only</strong>
-              <small>Keep generated UUIDs protected from manual edits.</small>
             </span>
             <Switch
               checked={field.readonly !== false}
@@ -740,6 +795,8 @@ function FieldEditor({
           </div>
         )}
       </AdvancedSection>
+        </div>
+      )}
     </article>
   );
 }
@@ -859,7 +916,6 @@ function InspectorFieldsEditor({ references = [], fields, onChange }) {
       <div className="configuration-subheading">
         <div>
           <strong>Fields</strong>
-          <small>Ordered values shown in this inspector group.</small>
         </div>
         <span className="configuration-add-field">
           <SelectInput
@@ -935,7 +991,6 @@ function InspectorFieldsEditor({ references = [], fields, onChange }) {
             </div>
             <AdvancedSection
               title="Field presentation"
-              description="Override how this value behaves inside this group."
             >
               <div className="configuration-entry-card__grid">
                 <FormField label="Mode">
@@ -1013,12 +1068,10 @@ function InspectorLayoutEditor({
   return (
     <AdvancedSection
       title="Inspector layout"
-      description="Organize fields into ordered tabs and groups."
     >
       <div className="configuration-subheading">
         <div>
           <strong>Inspector panels</strong>
-          <small>Panel and group order follows this list.</small>
         </div>
         <button
           type="button"
@@ -1064,7 +1117,6 @@ function InspectorLayoutEditor({
           <div className="configuration-subheading">
             <div>
               <strong>Groups</strong>
-              <small>Groups separate related editing tasks.</small>
             </div>
             <button
               type="button"
@@ -1163,16 +1215,32 @@ function TypeEditor({
       <SectionHeading
         icon={Layers3}
         title={type.label || labelFromKey(typeKey)}
-        description={`Content type · ${typeKey}`}
+        meta={typeKey}
         action={
           <div className="configuration-heading-actions">
-            <button type="button" title="Move type up" onClick={() => onMoveType(-1)}>
+            <button
+              type="button"
+              title="Move type up"
+              aria-label="Move content type up"
+              onClick={() => onMoveType(-1)}
+            >
               <ArrowUp size={14} />
             </button>
-            <button type="button" title="Move type down" onClick={() => onMoveType(1)}>
+            <button
+              type="button"
+              title="Move type down"
+              aria-label="Move content type down"
+              onClick={() => onMoveType(1)}
+            >
               <ArrowDown size={14} />
             </button>
-            <button type="button" className="danger" title="Delete type" onClick={onDeleteType}>
+            <button
+              type="button"
+              className="danger"
+              title="Delete type"
+              aria-label="Delete content type"
+              onClick={onDeleteType}
+            >
               <Trash2 size={14} />
             </button>
           </div>
@@ -1216,7 +1284,6 @@ function TypeEditor({
       <div className="configuration-subheading configuration-subheading--major">
         <div>
           <strong>Fields</strong>
-          <small>The properties editors can fill in for this type.</small>
         </div>
         <button
           type="button"
@@ -1298,21 +1365,18 @@ function TypeEditor({
         ))}
         {!Object.keys(fields).length && (
           <div className="configuration-empty-list">
-            <FileCog size={20} />
+            <FileCog size={20} aria-hidden="true" />
             <strong>No fields yet</strong>
-            <span>Add the first editable property.</span>
           </div>
         )}
       </div>
 
       <AdvancedSection
         title="Content areas"
-        description="Allow this type to contain other structured content."
       >
         <div className="configuration-subheading">
           <div>
             <strong>Slots</strong>
-            <small>Named places where child content may be inserted.</small>
           </div>
           <button
             type="button"
@@ -1355,6 +1419,163 @@ function TypeEditor({
   );
 }
 
+function TableColumnEditor({
+  column,
+  fields,
+  index,
+  count,
+  onChange,
+  onMove,
+  onDelete
+}) {
+  const configured = typeof column === "string" ? { field: column } : column;
+  const system = configured.field?.startsWith("$");
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
+  const fieldLabel =
+    fields.find(([key]) => key === configured.field)?.[1] ||
+    labelFromKey(configured.field);
+
+  return (
+    <article className={cx("configuration-table-column", open && "is-open")}>
+      <div className="configuration-table-column__top">
+        <button
+          type="button"
+          className="configuration-table-column__toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          aria-label={`${configured.label || fieldLabel}, table column`}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span>
+            <strong>{configured.label || fieldLabel}</strong>
+            <code>{configured.field}</code>
+          </span>
+          <span className="configuration-entry-card__badges" aria-hidden="true">
+            <i>{configured.mode === "edit" && !system ? "Editable" : "Read only"}</i>
+          </span>
+          <ChevronDown size={15} aria-hidden="true" />
+        </button>
+        <EntryActions
+          index={index}
+          count={count}
+          onMove={onMove}
+          onDelete={onDelete}
+        />
+      </div>
+      {open && (
+        <div id={bodyId} className="configuration-table-column__body">
+          <div className="configuration-entry-card__grid">
+            <FormField label="Field">
+              <SelectInput
+                value={configured.field}
+                onChange={(value) => onChange({
+                  ...configured,
+                  field: value,
+                  ...(value.startsWith("$") ? { mode: "read" } : {})
+                })}
+              >
+                {fields.map(([key, label]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </SelectInput>
+            </FormField>
+            <FormField label="Column label">
+              <TextInput
+                value={configured.label}
+                onChange={(value) => onChange({
+                  ...configured,
+                  label: value
+                })}
+              />
+            </FormField>
+          </div>
+          <AdvancedSection title="Column behavior">
+            <div className="configuration-entry-card__grid">
+              <FormField label="Width">
+                <TextInput
+                  value={configured.width}
+                  placeholder="minmax(10rem, 1fr)"
+                  onChange={(value) => onChange({
+                    ...configured,
+                    width: value
+                  })}
+                />
+              </FormField>
+              <FormField label="Mode">
+                <SelectInput
+                  value={system ? "read" : configured.mode || "read"}
+                  disabled={system}
+                  onChange={(value) => onChange({
+                    ...configured,
+                    mode: value
+                  })}
+                >
+                  <option value="read">Read only</option>
+                  <option value="edit">Editable</option>
+                </SelectInput>
+              </FormField>
+              <FormField label="Display">
+                <SelectInput
+                  value={configured.display || "text"}
+                  onChange={(value) => onChange({
+                    ...configured,
+                    display: value
+                  })}
+                >
+                  {FIELD_DISPLAY_OPTIONS.filter(([value]) => value).map(
+                    ([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    )
+                  )}
+                </SelectInput>
+              </FormField>
+              <FormField label="Alignment">
+                <SelectInput
+                  value={configured.align || "left"}
+                  onChange={(value) => onChange({
+                    ...configured,
+                    align: value
+                  })}
+                >
+                  <option value="left">Left</option>
+                  <option value="center">Center</option>
+                  <option value="right">Right</option>
+                </SelectInput>
+              </FormField>
+              <FormField label="Appearance">
+                <SelectInput
+                  value={configured.appearance || ""}
+                  onChange={(value) => {
+                    const nextColumn = { ...configured };
+                    setOptional(nextColumn, "appearance", value);
+                    onChange(nextColumn);
+                  }}
+                >
+                  {FIELD_APPEARANCE_OPTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </SelectInput>
+              </FormField>
+            </div>
+            <div className="configuration-inline-setting">
+              <span><strong>Sortable</strong></span>
+              <Switch
+                checked={configured.sortable !== false}
+                label={`${configured.label || configured.field} sortable`}
+                onChange={(checked) => onChange({
+                  ...configured,
+                  sortable: checked
+                })}
+              />
+            </div>
+          </AdvancedSection>
+        </div>
+      )}
+    </article>
+  );
+}
+
 function TableColumnsEditor({ collection, type, updateCollection }) {
   const fields = [
     ...Object.entries(type?.fields ?? {}).map(([key, field]) => [
@@ -1369,7 +1590,6 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
       <div className="configuration-subheading">
         <div>
           <strong>Table columns</strong>
-          <small>Choose what editors see in the collection list.</small>
         </div>
         <button
           type="button"
@@ -1392,155 +1612,30 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
         </button>
       </div>
       <div className="configuration-table-columns">
-        {columns.map((column, index) => {
-          const configured =
-            typeof column === "string" ? { field: column } : column;
-          const system = configured.field?.startsWith("$");
-          return (
-            <article className="configuration-table-column" key={index}>
-              <EntryActions
-                index={index}
-                count={columns.length}
-                onMove={(direction) => updateCollection((nextCollection) => {
-                  const nextColumns = [...nextCollection.views.list.columns];
-                  const destination = index + direction;
-                  if (destination < 0 || destination >= nextColumns.length) return;
-                  const [moving] = nextColumns.splice(index, 1);
-                  nextColumns.splice(destination, 0, moving);
-                  nextCollection.views.list.columns = nextColumns;
-                })}
-                onDelete={() => updateCollection((nextCollection) => {
-                  nextCollection.views.list.columns =
-                    nextCollection.views.list.columns.filter((_, itemIndex) => itemIndex !== index);
-                })}
-              />
-              <div className="configuration-entry-card__grid">
-                <FormField label="Field">
-                  <SelectInput
-                    value={configured.field}
-                    onChange={(value) => updateCollection((nextCollection) => {
-                      nextCollection.views.list.columns[index] = {
-                        ...configured,
-                        field: value,
-                        ...(value.startsWith("$") ? { mode: "read" } : {})
-                      };
-                    })}
-                  >
-                    {fields.map(([key, label]) => (
-                      <option key={key} value={key}>{label}</option>
-                    ))}
-                  </SelectInput>
-                </FormField>
-                <FormField label="Column label">
-                  <TextInput
-                    value={configured.label}
-                    onChange={(value) => updateCollection((nextCollection) => {
-                      nextCollection.views.list.columns[index] = {
-                        ...configured,
-                        label: value
-                      };
-                    })}
-                  />
-                </FormField>
-              </div>
-              <AdvancedSection title="Column behavior">
-                <div className="configuration-entry-card__grid">
-                  <FormField label="Width">
-                    <TextInput
-                      value={configured.width}
-                      placeholder="minmax(10rem, 1fr)"
-                      onChange={(value) => updateCollection((nextCollection) => {
-                        nextCollection.views.list.columns[index] = {
-                          ...configured,
-                          width: value
-                        };
-                      })}
-                    />
-                  </FormField>
-                  <FormField label="Mode">
-                    <SelectInput
-                      value={system ? "read" : configured.mode || "read"}
-                      disabled={system}
-                      onChange={(value) => updateCollection((nextCollection) => {
-                        nextCollection.views.list.columns[index] = {
-                          ...configured,
-                          mode: value
-                        };
-                      })}
-                    >
-                      <option value="read">Read only</option>
-                      <option value="edit">Editable</option>
-                    </SelectInput>
-                  </FormField>
-                  <FormField label="Display">
-                    <SelectInput
-                      value={configured.display || "text"}
-                      onChange={(value) => updateCollection((nextCollection) => {
-                        nextCollection.views.list.columns[index] = {
-                          ...configured,
-                          display: value
-                        };
-                      })}
-                    >
-                      {FIELD_DISPLAY_OPTIONS.filter(([value]) => value).map(
-                        ([value, label]) => (
-                          <option key={value} value={value}>{label}</option>
-                        )
-                      )}
-                    </SelectInput>
-                  </FormField>
-                  <FormField label="Alignment">
-                    <SelectInput
-                      value={configured.align || "left"}
-                      onChange={(value) => updateCollection((nextCollection) => {
-                        nextCollection.views.list.columns[index] = {
-                          ...configured,
-                          align: value
-                        };
-                      })}
-                    >
-                      <option value="left">Left</option>
-                      <option value="center">Center</option>
-                      <option value="right">Right</option>
-                    </SelectInput>
-                  </FormField>
-                  <FormField label="Appearance">
-                    <SelectInput
-                      value={configured.appearance || ""}
-                      onChange={(value) => updateCollection((nextCollection) => {
-                        const nextColumn = {
-                          ...configured
-                        };
-                        setOptional(nextColumn, "appearance", value);
-                        nextCollection.views.list.columns[index] = nextColumn;
-                      })}
-                    >
-                      {FIELD_APPEARANCE_OPTIONS.map(([value, label]) => (
-                        <option key={value} value={value}>{label}</option>
-                      ))}
-                    </SelectInput>
-                  </FormField>
-                </div>
-                <div className="configuration-inline-setting">
-                  <span>
-                    <strong>Sortable</strong>
-                    <small>Allow editors to sort the table by this column.</small>
-                  </span>
-                  <Switch
-                    checked={configured.sortable !== false}
-                    label={`${configured.label || configured.field} sortable`}
-                    onChange={(checked) => updateCollection((nextCollection) => {
-                      nextCollection.views.list.columns[index] = {
-                        ...configured,
-                        sortable: checked
-                      };
-                    })}
-                  />
-                </div>
-              </AdvancedSection>
-            </article>
-          );
-        })}
+        {columns.map((column, index) => (
+          <TableColumnEditor
+            key={index}
+            column={column}
+            fields={fields}
+            index={index}
+            count={columns.length}
+            onChange={(value) => updateCollection((nextCollection) => {
+              nextCollection.views.list.columns[index] = value;
+            })}
+            onMove={(direction) => updateCollection((nextCollection) => {
+              const nextColumns = [...nextCollection.views.list.columns];
+              const [moving] = nextColumns.splice(index, 1);
+              nextColumns.splice(index + direction, 0, moving);
+              nextCollection.views.list.columns = nextColumns;
+            })}
+            onDelete={() => updateCollection((nextCollection) => {
+              nextCollection.views.list.columns =
+                nextCollection.views.list.columns.filter(
+                  (_, itemIndex) => itemIndex !== index
+                );
+            })}
+          />
+        ))}
       </div>
     </section>
   );
@@ -1567,16 +1662,32 @@ function CollectionEditor({
       <SectionHeading
         icon={Database}
         title={collection.label || labelFromKey(collectionKey)}
-        description={`Collection · ${collectionKey}`}
+        meta={collectionKey}
         action={
           <div className="configuration-heading-actions">
-            <button type="button" title="Move collection up" onClick={() => onMove(-1)}>
+            <button
+              type="button"
+              title="Move collection up"
+              aria-label="Move collection up"
+              onClick={() => onMove(-1)}
+            >
               <ArrowUp size={14} />
             </button>
-            <button type="button" title="Move collection down" onClick={() => onMove(1)}>
+            <button
+              type="button"
+              title="Move collection down"
+              aria-label="Move collection down"
+              onClick={() => onMove(1)}
+            >
               <ArrowDown size={14} />
             </button>
-            <button type="button" className="danger" title="Delete collection" onClick={onDelete}>
+            <button
+              type="button"
+              className="danger"
+              title="Delete collection"
+              aria-label="Delete collection"
+              onClick={onDelete}
+            >
               <Trash2 size={14} />
             </button>
           </div>
@@ -1659,7 +1770,6 @@ function CollectionEditor({
         <div className="configuration-subheading">
           <div>
             <strong>Storage</strong>
-            <small>Where complete content records are saved.</small>
           </div>
         </div>
         <div className="configuration-entry-card__grid">
@@ -1696,7 +1806,6 @@ function CollectionEditor({
           <div className="configuration-inline-setting">
             <span>
               <strong>Nested collection items</strong>
-              <small>Allow records to be placed inside other records.</small>
             </span>
             <Switch
               checked={hierarchyEnabled}
@@ -1745,7 +1854,6 @@ function CollectionEditor({
 
       <AdvancedSection
         title="Advanced collection settings"
-        description="Technical identifiers, search, hierarchy, and reference cards."
       >
         <div className="configuration-entry-card__grid">
           <FormField label="Icon" optional>
@@ -1867,7 +1975,6 @@ function CollectionEditor({
         <div className="configuration-subheading">
           <div>
             <strong>Reference card</strong>
-            <small>How this collection appears in reference pickers.</small>
           </div>
         </div>
         <div className="configuration-entry-card__grid">
@@ -1923,6 +2030,8 @@ export default function ConfigurationEditor({
   const [confirmation, setConfirmation] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const overlayRef = useRef(null);
+  const modalOpen = Boolean(entryDialog || confirmation);
   const dirty = useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(savedDraft),
     [draft, savedDraft]
@@ -1980,13 +2089,46 @@ export default function ConfigurationEditor({
   }
 
   useEffect(() => {
-    function handleEscape(event) {
+    const previousFocus = document.activeElement;
+    overlayRef.current?.focus();
+    return () => {
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleKeyboard(event) {
+      if (event.key === "Tab") {
+        const overlay = overlayRef.current;
+        if (!overlay) return;
+        const focusable = [...overlay.querySelectorAll(
+          'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), summary, [tabindex]:not([tabindex="-1"])'
+        )].filter((element) =>
+          !element.closest("[inert]") &&
+          element.getAttribute("aria-hidden") !== "true" &&
+          element.getClientRects().length > 0
+        );
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        } else if (!overlay.contains(document.activeElement)) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
       if (event.key !== "Escape" || entryDialog || confirmation || saving) return;
       event.preventDefault();
       requestClose();
     }
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
+    document.addEventListener("keydown", handleKeyboard);
+    return () => document.removeEventListener("keydown", handleKeyboard);
   });
 
   function createEntry({ key, label }) {
@@ -2233,17 +2375,30 @@ export default function ConfigurationEditor({
       : null;
 
   return (
-    <div className="configuration-overlay" role="dialog" aria-modal="true" aria-label="CMS Settings">
-      <header className="configuration-overlay__topbar">
+    <div
+      ref={overlayRef}
+      className="configuration-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="configuration-settings-title"
+      tabIndex="-1"
+    >
+      <header
+        className="configuration-overlay__topbar"
+        inert={modalOpen ? true : undefined}
+      >
         <span className="configuration-overlay__title">
-          <span><Settings2 size={17} /></span>
+          <span aria-hidden="true"><Settings2 size={17} /></span>
           <span>
-            <strong>Settings</strong>
-            <small>Project configuration</small>
+            <strong id="configuration-settings-title">Settings</strong>
           </span>
         </span>
-        <span className={cx("save-state", dirty && "save-state--dirty")}>
-          <i />
+        <span
+          className={cx("save-state", dirty && "save-state--dirty")}
+          role="status"
+          aria-live="polite"
+        >
+          <i aria-hidden="true" />
           {dirty ? "Unsaved configuration" : "Configuration saved"}
         </span>
         <button
@@ -2271,6 +2426,7 @@ export default function ConfigurationEditor({
           type="button"
           className="configuration-overlay__close"
           title="Close Settings"
+          aria-label="Close Settings"
           onClick={requestClose}
           disabled={saving}
         >
@@ -2278,27 +2434,38 @@ export default function ConfigurationEditor({
         </button>
       </header>
 
-      <div className="configuration-overlay__workspace">
+      <div
+        className="configuration-overlay__workspace"
+        inert={modalOpen ? true : undefined}
+      >
         <aside className="configuration-navigation">
           <div className="configuration-navigation__search">
-            <Search size={14} />
+            <Search size={14} aria-hidden="true" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Find a setting…"
+              aria-label="Filter settings"
+              placeholder="Filter…"
             />
             {search && (
-              <button type="button" onClick={() => setSearch("")}><X size={12} /></button>
+              <button
+                type="button"
+                aria-label="Clear filter"
+                onClick={() => setSearch("")}
+              >
+                <X size={12} />
+              </button>
             )}
           </div>
-          <nav>
+          <nav aria-label="Project settings">
             <button
               type="button"
               className={cx(selection.section === "site" && "is-active")}
+              aria-current={selection.section === "site" ? "page" : undefined}
               onClick={() => setSelection({ section: "site", key: null })}
             >
-              <Settings2 size={15} />
-              <span><strong>Project</strong><small>Identity and media</small></span>
+              <Settings2 size={15} aria-hidden="true" />
+              <span><strong>Project</strong></span>
             </button>
           </nav>
           <div className="configuration-navigation__group">
@@ -2307,12 +2474,13 @@ export default function ConfigurationEditor({
               <button
                 type="button"
                 title="Add collection"
+                aria-label="Add collection"
                 onClick={() => setEntryDialog({ kind: "collection" })}
               >
                 <Plus size={14} />
               </button>
             </div>
-            <nav>
+            <nav aria-label="Collections">
               {visibleCollections.map(([key, collection]) => (
                 <button
                   type="button"
@@ -2322,9 +2490,14 @@ export default function ConfigurationEditor({
                     selection.key === key &&
                     "is-active"
                   )}
+                  aria-current={
+                    selection.section === "collections" && selection.key === key
+                      ? "page"
+                      : undefined
+                  }
                   onClick={() => setSelection({ section: "collections", key })}
                 >
-                  <Database size={15} />
+                  <Database size={15} aria-hidden="true" />
                   <span>
                     <strong>{collection.label || labelFromKey(key)}</strong>
                     <small>{collection.views?.list?.type || "tree"} collection</small>
@@ -2339,12 +2512,13 @@ export default function ConfigurationEditor({
               <button
                 type="button"
                 title="Add content type"
+                aria-label="Add content type"
                 onClick={() => setEntryDialog({ kind: "type" })}
               >
                 <Plus size={14} />
               </button>
             </div>
-            <nav>
+            <nav aria-label="Content types">
               {visibleTypes.map(([key, type]) => (
                 <button
                   type="button"
@@ -2354,9 +2528,14 @@ export default function ConfigurationEditor({
                     selection.key === key &&
                     "is-active"
                   )}
+                  aria-current={
+                    selection.section === "types" && selection.key === key
+                      ? "page"
+                      : undefined
+                  }
                   onClick={() => setSelection({ section: "types", key })}
                 >
-                  <Layers3 size={15} />
+                  <Layers3 size={15} aria-hidden="true" />
                   <span>
                     <strong>{type.label || labelFromKey(key)}</strong>
                     <small>{Object.keys(type.fields ?? {}).length} fields</small>
@@ -2408,19 +2587,28 @@ export default function ConfigurationEditor({
             (selection.section === "types" && !selectedType)
           ) && (
             <div className="configuration-empty-selection">
-              <FileText size={22} />
+              <FileText size={22} aria-hidden="true" />
               <strong>Choose an item</strong>
-              <span>Select an entry from the Settings navigation.</span>
             </div>
           )}
         </main>
       </div>
 
       {error && (
-        <div className="error-banner configuration-error-banner">
-          <CircleAlert size={15} />
+        <div
+          className="error-banner configuration-error-banner"
+          role="alert"
+          aria-live="assertive"
+        >
+          <CircleAlert size={15} aria-hidden="true" />
           <span>{error}</span>
-          <button type="button" onClick={() => setError("")}><X size={14} /></button>
+          <button
+            type="button"
+            aria-label="Dismiss error"
+            onClick={() => setError("")}
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
 
@@ -2439,7 +2627,6 @@ export default function ConfigurationEditor({
                       ? "Add inspector panel"
                       : "Add inspector group"
           }
-          description="Give it an editor-facing name and a stable configuration key."
           existing={entryDialogMapping()}
           onCancel={() => setEntryDialog(null)}
           onCreate={createEntry}
