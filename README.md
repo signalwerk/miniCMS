@@ -200,6 +200,24 @@ available for keyboard operation. Icon settings use a keyboard-accessible
 picker that previews every option from the shared icon registry. Saving
 validates the complete model before atomically replacing `cms.config.yml`.
 
+### Icons
+
+miniCMS uses [Lucide React](https://lucide.dev/icons/) for both interface and
+configurable content icons. The Settings picker currently exposes this curated
+registry:
+
+```text
+align-left       columns-3        file-text       files
+image            layout-template layers          menu
+newspaper        panel-left       search          settings
+```
+
+Lucide provides many more icons in its online catalog. To make another icon
+configurable, import its React component and add its kebab-case configuration
+name to the shared `ICONS` registry in `admin/src/model/editor.js`. Icons used
+directly by interface controls do not automatically appear in the Settings
+picker.
+
 ## Node API
 
 - `GET /api/config`
