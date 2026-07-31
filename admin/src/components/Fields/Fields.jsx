@@ -2,7 +2,7 @@ import {
   Check,
   ChevronDown,
   CircleAlert,
-  Image,
+  Files as FilesIcon,
   Search,
   X
 } from "lucide-react";
@@ -11,7 +11,9 @@ import "./Fields.scss";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import {
   cx,
-  defaultFieldValue
+  defaultFieldValue,
+  iconFor,
+  referenceItemsForField
 } from "../../model/editor.js";
 import { imageSource } from "../../model/image.js";
 import { EmptyState, Spinner } from "../Common/Common.jsx";
@@ -32,6 +34,7 @@ function referenceItemValue(item, name, collection) {
 
 function ReferenceCard({ item, view, collection, compact = false }) {
   const adapter = useAdapter();
+  const ReferenceIcon = iconFor(collection?.icon, FilesIcon);
   const image = adapter.resolveMediaUrl(
     imageSource(referenceItemValue(item, view.image, collection))
   );
@@ -50,7 +53,7 @@ function ReferenceCard({ item, view, collection, compact = false }) {
   return (
     <span className={cx("reference-card", compact && "reference-card--compact")}>
       <span className="reference-card__image">
-        {image ? <img src={image} alt="" /> : <Image size={18} />}
+        {image ? <img src={image} alt="" /> : <ReferenceIcon size={18} />}
       </span>
       <span className="reference-card__body">
         <strong>{title}</strong>
@@ -69,12 +72,16 @@ function ReferenceField({ field, value, onChange, collections }) {
   );
   const referenceView = targetCollection?.views?.reference ?? {};
   const valueField = field.value_field || referenceView.value || "id";
+  const ReferenceIcon = iconFor(targetCollection?.icon, FilesIcon);
+  const singularLabel =
+    targetCollection?.label_singular?.toLowerCase() || "item";
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const selected = items.find(
+  const allowedItems = referenceItemsForField(items, field);
+  const selected = allowedItems.find(
     (item) => referenceItemValue(item, valueField, targetCollection) === value
   );
 
@@ -111,7 +118,7 @@ function ReferenceField({ field, value, onChange, collections }) {
 
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const visibleItems = normalizedSearch
-    ? items.filter((item) => {
+    ? allowedItems.filter((item) => {
         const values = [
           item.id,
           item.title,
@@ -121,7 +128,7 @@ function ReferenceField({ field, value, onChange, collections }) {
           String(entry).toLocaleLowerCase().includes(normalizedSearch)
         );
       })
-    : items;
+    : allowedItems;
 
   if (!targetCollection) {
     return (
@@ -147,7 +154,7 @@ function ReferenceField({ field, value, onChange, collections }) {
           Missing reference <code>{value}</code>
         </div>
       ) : (
-        <div className="reference-field__empty">No image selected</div>
+        <div className="reference-field__empty">No {singularLabel} selected</div>
       )}
       <div className="reference-field__actions">
         <button
@@ -156,7 +163,7 @@ function ReferenceField({ field, value, onChange, collections }) {
           onClick={() => setOpen(true)}
         >
           <Search size={14} />
-          {value ? "Change image" : "Choose image"}
+          {value ? `Change ${singularLabel}` : `Choose ${singularLabel}`}
         </button>
         {value && (
           <button
@@ -179,7 +186,7 @@ function ReferenceField({ field, value, onChange, collections }) {
           >
             <div className="dialog__top">
               <span className="dialog__icon">
-                <Image size={18} />
+                <ReferenceIcon size={18} />
               </span>
               <div>
                 <h2 id="reference-dialog-title">
@@ -237,7 +244,10 @@ function ReferenceField({ field, value, onChange, collections }) {
                   </button>
                 ))}
                 {!loading && !visibleItems.length && (
-                  <EmptyState icon={Image} title="No matching images" />
+                  <EmptyState
+                    icon={ReferenceIcon}
+                    title={`No matching ${targetCollection.label.toLowerCase()}`}
+                  />
                 )}
                 {loading && (
                   <div className="panel-loader">

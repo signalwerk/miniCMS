@@ -1119,6 +1119,7 @@ function AcceptedFileTypesEditor({ value, onChange }) {
 function FieldEditor({
   fieldKey,
   field,
+  fields,
   count,
   collections,
   nodeTypes,
@@ -1133,9 +1134,38 @@ function FieldEditor({
   const [open, setOpen] = useState(false);
   const bodyId = useId();
   const targetCollection = collections[field.collection];
-  const targetFields = Object.entries(
-    nodeTypes[targetCollection?.node_type]?.fields ?? {}
-  ).map(([key, targetField]) => [key, targetField.label || key]);
+  const targetTypeKeys = targetCollection
+    ? targetCollection.allowed_types ?? [targetCollection.node_type]
+    : [];
+  const targetTypeOptions = targetTypeKeys.map((key) => [
+    key,
+    nodeTypes[key]?.label || key
+  ]);
+  const targetFieldMap = new Map();
+  for (const typeKey of targetTypeKeys) {
+    for (const [key, targetField] of Object.entries(
+      nodeTypes[typeKey]?.fields ?? {}
+    )) {
+      if (!targetFieldMap.has(key)) {
+        targetFieldMap.set(key, targetField.label || key);
+      }
+    }
+  }
+  const targetFields = [...targetFieldMap];
+  const conditionFields = Object.entries(fields).filter(
+    ([key]) => key !== fieldKey
+  );
+  const conditionField = fields[field.visible_when?.field];
+
+  function defaultConditionValue(sourceField) {
+    if (sourceField?.default !== undefined) return sourceField.default;
+    if (sourceField?.widget === "boolean") return false;
+    if (sourceField?.widget === "select") {
+      const option = sourceField.options?.[0];
+      return typeof option === "object" ? option.value : option ?? "";
+    }
+    return "";
+  }
   return (
     <article
       className={cx(
@@ -1200,6 +1230,7 @@ function FieldEditor({
               if (value !== "reference") {
                 delete nextField.collection;
                 delete nextField.value_field;
+                delete nextField.allowed_types;
               }
               if (!["image", "file"].includes(value)) {
                 delete nextField.accept;
@@ -1246,6 +1277,7 @@ function FieldEditor({
               onChange={(value) => onChange((nextField) => {
                 nextField.collection = value;
                 delete nextField.value_field;
+                delete nextField.allowed_types;
               })}
             >
               <option value="">Choose a collection…</option>
@@ -1254,6 +1286,18 @@ function FieldEditor({
               ))}
             </SelectInput>
           </FormField>
+          {targetCollection && (
+            <FormField label="Allowed record types" optional>
+              <MultiChoice
+                options={targetTypeOptions}
+                value={field.allowed_types ?? []}
+                onChange={(value) => onChange((nextField) => {
+                  if (value.length) nextField.allowed_types = value;
+                  else delete nextField.allowed_types;
+                })}
+              />
+            </FormField>
+          )}
         </div>
       )}
       <AdvancedSection
@@ -1267,6 +1311,87 @@ function FieldEditor({
             })}
           />
         </FormField>
+        {conditionFields.length > 0 && (
+          <>
+            <div className="configuration-inline-setting">
+              <span><strong>Conditional visibility</strong></span>
+              <Switch
+                checked={Boolean(field.visible_when)}
+                label={`${field.label || fieldKey} conditional visibility`}
+                onChange={(checked) => onChange((nextField) => {
+                  if (!checked) {
+                    delete nextField.visible_when;
+                    return;
+                  }
+                  const [sourceKey, sourceField] = conditionFields[0];
+                  nextField.visible_when = {
+                    field: sourceKey,
+                    equals: defaultConditionValue(sourceField)
+                  };
+                })}
+              />
+            </div>
+            {field.visible_when && (
+              <div className="configuration-entry-card__grid">
+                <FormField label="Show when field">
+                  <SelectInput
+                    value={field.visible_when.field}
+                    onChange={(value) => onChange((nextField) => {
+                      nextField.visible_when = {
+                        field: value,
+                        equals: defaultConditionValue(fields[value])
+                      };
+                    })}
+                  >
+                    {conditionFields.map(([key, candidate]) => (
+                      <option key={key} value={key}>
+                        {candidate.label || labelFromKey(key)}
+                      </option>
+                    ))}
+                  </SelectInput>
+                </FormField>
+                <FormField label="Required value">
+                  {conditionField?.widget === "boolean" ? (
+                    <SelectInput
+                      value={String(field.visible_when.equals)}
+                      onChange={(value) => onChange((nextField) => {
+                        nextField.visible_when.equals = value === "true";
+                      })}
+                    >
+                      <option value="true">On</option>
+                      <option value="false">Off</option>
+                    </SelectInput>
+                  ) : conditionField?.widget === "select" ? (
+                    <SelectInput
+                      value={field.visible_when.equals}
+                      onChange={(value) => onChange((nextField) => {
+                        nextField.visible_when.equals = value;
+                      })}
+                    >
+                      {(conditionField.options ?? []).map((option) => {
+                        const item = typeof option === "object"
+                          ? option
+                          : { label: option, value: option };
+                        return (
+                          <option key={item.value} value={item.value}>
+                            {item.label}
+                          </option>
+                        );
+                      })}
+                    </SelectInput>
+                  ) : (
+                    <TextInput
+                      value={field.visible_when.equals}
+                      onChange={(value) => onChange((nextField) => {
+                        nextField.visible_when.equals = value;
+                      })}
+                    />
+                  )}
+                </FormField>
+              </div>
+            )}
+          </>
+        )}
         {widget === "boolean" ? (
           <div className="configuration-inline-setting">
             <span><strong>Default value</strong></span>
@@ -1940,6 +2065,7 @@ function TypeEditor({
           <FieldEditor
             fieldKey={fieldKey}
             field={field}
+            fields={fields}
             count={Object.keys(fields).length}
             collections={collections}
             nodeTypes={nodeTypes}
@@ -2973,6 +3099,11 @@ export default function ConfigurationEditor({
             group.fields = (group.fields ?? []).filter((reference) =>
               (typeof reference === "string" ? reference : reference.field) !== fieldKey
             );
+          }
+        }
+        for (const candidateField of Object.values(type.fields ?? {})) {
+          if (candidateField.visible_when?.field === fieldKey) {
+            delete candidateField.visible_when;
           }
         }
         for (const collection of Object.values(next.collections)) {

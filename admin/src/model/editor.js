@@ -6,6 +6,7 @@ import {
   Image,
   Layers3,
   LayoutTemplate,
+  Link2,
   Menu,
   Newspaper,
   PanelLeft,
@@ -21,6 +22,7 @@ const ICONS = {
   files: Files,
   image: Image,
   "layout-template": LayoutTemplate,
+  link: Link2,
   layers: Layers3,
   menu: Menu,
   newspaper: Newspaper,
@@ -437,6 +439,12 @@ function optionValue(option) {
   return typeof option === "object" ? option.value : option;
 }
 
+function referenceItemsForField(items, field) {
+  const allowedTypes = field?.allowed_types;
+  if (!allowedTypes?.length) return items;
+  return items.filter((item) => allowedTypes.includes(item.type));
+}
+
 function createUuid() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
@@ -687,6 +695,7 @@ export {
   nextTreeSelection,
   optionValue,
   readLayoutPreferences,
+  referenceItemsForField,
   refreshUuidFields,
   replaceCollectionHash,
   selectedTopLevelContentNodes,

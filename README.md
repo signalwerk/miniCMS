@@ -169,6 +169,26 @@ runtime still reads older detail-field presentation configuration.
 Select fields marked `required: false` start empty and retain a `None` option,
 so editors can clear a previously selected value.
 
+Fields can be shown only for a matching sibling value. References can also
+limit a mixed collection to specific record types:
+
+```yaml
+mode:
+  label: Mode
+  widget: select
+  options:
+    - {label: Automatic, value: automatic}
+    - {label: Selected target, value: selected_target}
+target:
+  label: Target
+  widget: reference
+  collection: pages
+  allowed_types: [page]
+  visible_when: {field: mode, equals: selected_target}
+```
+
+Both options are editable through the field forms in Settings.
+
 Image fields keep their compact path-string value until a region or point is
 added. Annotated values expand without losing backwards compatibility:
 

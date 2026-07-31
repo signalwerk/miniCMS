@@ -112,7 +112,12 @@ function Inspector({
   const panels = panelsFor(type, isDocument);
   const currentPanel =
     panels.find((panel) => panel.name === activePanel) || panels[0];
-  const groups = groupsForPanel(type, currentPanel.name, isDocument);
+  const groups = groupsForPanel(
+    type,
+    currentPanel.name,
+    isDocument,
+    node.properties ?? {}
+  );
   const currentItem = items.find((item) => item.id === record.id);
   return (
     <div className="inspector">

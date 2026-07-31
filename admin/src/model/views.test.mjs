@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { groupsForPanel, panelsFor } from "./views.js";
+import { fieldIsVisible, groupsForPanel, panelsFor } from "./views.js";
 
 const type = {
   fields: {
@@ -44,5 +44,50 @@ test("uses YAML mapping order for detail panels and groups", () => {
   assert.deepEqual(
     groupsForPanel(type, "inspector", true).map((group) => group.name),
     ["content", "metadata"]
+  );
+});
+
+test("filters inspector fields using the current record properties", () => {
+  const conditionalType = {
+    fields: {
+      mode: {
+        label: "Mode",
+        widget: "select",
+        options: ["first_child", "selected_target"]
+      },
+      target: {
+        label: "Target",
+        widget: "reference",
+        visible_when: { field: "mode", equals: "selected_target" }
+      }
+    },
+    views: {
+      detail: {
+        panels: {
+          inspector: {
+            groups: {
+              target: { fields: ["mode", "target"] }
+            }
+          }
+        }
+      }
+    }
+  };
+
+  assert.equal(
+    fieldIsVisible(conditionalType.fields.target, { mode: "first_child" }),
+    false
+  );
+  assert.deepEqual(
+    groupsForPanel(conditionalType, "inspector", false, {
+      mode: "first_child"
+    })[0].fields.map((field) => field.name),
+    ["mode"]
+  );
+  assert.deepEqual(
+    groupsForPanel(conditionalType, "inspector", false, {
+      mode: "selected_target"
+    })[0].fields.map((field) => field.name),
+    ["mode", "target"]
   );
 });

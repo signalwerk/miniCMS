@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultFieldValue } from "./editor.js";
+import { defaultFieldValue, referenceItemsForField } from "./editor.js";
 
 test("keeps optional selects empty until an option is chosen", () => {
   const options = [
@@ -24,5 +24,18 @@ test("keeps optional selects empty until an option is chosen", () => {
       options
     }),
     "2"
+  );
+});
+
+test("filters reference choices by configured record types", () => {
+  const items = [
+    { id: "home", type: "page" },
+    { id: "news", type: "shortcut" }
+  ];
+
+  assert.deepEqual(referenceItemsForField(items, {}), items);
+  assert.deepEqual(
+    referenceItemsForField(items, { allowed_types: ["page"] }),
+    [{ id: "home", type: "page" }]
   );
 });

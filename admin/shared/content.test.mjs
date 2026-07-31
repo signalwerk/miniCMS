@@ -77,6 +77,48 @@ test("normalizes legacy image accept strings to the array config shape", () => {
   ]);
 });
 
+test("validates conditional fields and type-restricted references", () => {
+  const config = fixtureConfig();
+  config.node_types.shortcut = {
+    fields: {
+      title: { widget: "string" },
+      mode: {
+        widget: "select",
+        options: ["first_child", "selected_target"]
+      },
+      target: {
+        widget: "reference",
+        collection: "pages",
+        allowed_types: ["page"],
+        visible_when: { field: "mode", equals: "selected_target" }
+      }
+    }
+  };
+  config.collections.pages.allowed_types.push("shortcut");
+
+  assert.equal(
+    validateConfig(config).node_types.shortcut.fields.target.visible_when.equals,
+    "selected_target"
+  );
+
+  const invalidCondition = structuredClone(config);
+  invalidCondition.node_types.shortcut.fields.target.visible_when.field =
+    "missing";
+  assert.throws(
+    () => validateConfig(invalidCondition, 400),
+    /unknown controlling field/
+  );
+
+  const invalidTargetType = structuredClone(config);
+  invalidTargetType.node_types.shortcut.fields.target.allowed_types = [
+    "article"
+  ];
+  assert.throws(
+    () => validateConfig(invalidTargetType, 400),
+    /outside its target collection/
+  );
+});
+
 test("summarizes records consistently across storage adapters", () => {
   const summary = summarizeRecord(
     {

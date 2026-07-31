@@ -75,6 +75,12 @@ function detailField(type, reference) {
     : null;
 }
 
+function fieldIsVisible(field, properties) {
+  const condition = field?.visible_when;
+  if (!condition || properties === undefined) return true;
+  return properties?.[condition.field] === condition.equals;
+}
+
 function panelsFor(type, includeInfo = false) {
   const configuredPanels = type?.views?.detail?.panels ?? {};
   let panels = Object.entries(configuredPanels)
@@ -99,7 +105,12 @@ function panelsFor(type, includeInfo = false) {
   return panels;
 }
 
-function groupsForPanel(type, panelName, includeInfo = false) {
+function groupsForPanel(
+  type,
+  panelName,
+  includeInfo = false,
+  properties
+) {
   const panels = panelsFor(type, includeInfo);
   const activePanel = panels.find((panel) => panel.name === panelName) || panels[0];
   const definitions = activePanel.groups;
@@ -111,7 +122,7 @@ function groupsForPanel(type, panelName, includeInfo = false) {
       description: definition.description,
       fields: (definition.fields ?? [])
         .map((reference) => detailField(type, reference))
-        .filter(Boolean)
+        .filter((field) => field && fieldIsVisible(field, properties))
     }))
     .filter((group) => group.fields.length);
 
@@ -120,10 +131,12 @@ function groupsForPanel(type, panelName, includeInfo = false) {
       {
         name: "properties",
         label: "Properties",
-        fields: typeFields(type).map((field) => ({
-          mode: "edit",
-          ...field
-        }))
+        fields: typeFields(type)
+          .filter((field) => fieldIsVisible(field, properties))
+          .map((field) => ({
+            mode: "edit",
+            ...field
+          }))
       }
     ];
   }
@@ -153,6 +166,7 @@ export {
   SYSTEM_FIELD_DEFINITIONS,
   detailField,
   displayValue,
+  fieldIsVisible,
   groupsForPanel,
   panelsFor,
   systemFieldValue

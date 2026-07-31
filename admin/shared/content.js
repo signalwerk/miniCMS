@@ -265,6 +265,25 @@ function validateConfig(config, status = 500) {
       ) {
         field.accept = acceptTokens(field.accept);
       }
+      if (field.visible_when !== undefined) {
+        if (
+          !isMapping(field.visible_when) ||
+          typeof field.visible_when.field !== "string" ||
+          !Object.hasOwn(field.visible_when, "equals")
+        ) {
+          fail(
+            `Field "${typeName}.${fieldName}" visible_when must define a field and equals value.`
+          );
+        }
+        if (
+          field.visible_when.field === fieldName ||
+          !type.fields[field.visible_when.field]
+        ) {
+          fail(
+            `Field "${typeName}.${fieldName}" visible_when references unknown controlling field "${field.visible_when.field}".`
+          );
+        }
+      }
     }
     if (type.slots !== undefined && !isMapping(type.slots)) {
       fail(`Node type "${typeName}" must define slots as a mapping.`);
@@ -472,8 +491,26 @@ function validateConfig(config, status = 500) {
           `Node type "${typeName}" reference field "${fieldName}" uses unknown collection "${field.collection}".`
         );
       }
+      const targetCollection = config.collections[field.collection];
+      if (
+        field.allowed_types !== undefined &&
+        !Array.isArray(field.allowed_types)
+      ) {
+        fail(
+          `Node type "${typeName}" reference field "${fieldName}" allowed_types must be an array.`
+        );
+      }
+      const targetTypes = targetCollection.allowed_types ?? [
+        targetCollection.node_type
+      ];
+      for (const allowedType of field.allowed_types ?? []) {
+        if (!targetTypes.includes(allowedType)) {
+          fail(
+            `Node type "${typeName}" reference field "${fieldName}" uses type "${allowedType}" outside its target collection.`
+          );
+        }
+      }
       if (field.value_field) {
-        const targetCollection = config.collections[field.collection];
         validateFieldName(
           field.value_field,
           config.node_types[targetCollection.node_type].fields,

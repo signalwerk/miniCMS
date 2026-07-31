@@ -93,9 +93,13 @@ Rejected media errors include the normalized MIME type received from the
 browser or request header; use the shared media error formatter.
 Unannotated image values remain path strings; annotated values use
 `{src, regions, points}` with labeled integer coordinates in original-image
-pixels. Always read images through `model/image.js` so both shapes remain compatible. Reference
-presentation belongs to the target collection’s `views.reference` and may
-configure `value`, `image`, `title`, and `description`.
+pixels. Always read images through `model/image.js` so both shapes remain
+compatible. Reference presentation belongs to the target collection’s
+`views.reference` and may configure `value`, `image`, `title`, and
+`description`. Reference fields may limit choices to a target collection
+subset with `allowed_types`. Fields may set `visible_when: {field, equals}`;
+the inspector evaluates the condition against the current node properties and
+Settings exposes it as conditional visibility rather than raw configuration.
 Optional select fields default to an empty value and retain a clearable `None`
 option; required selects may fall back to their first configured option.
 
