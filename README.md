@@ -196,7 +196,11 @@ configured types in addition to the browser picker. SVG is part of the default:
 ```yaml
 file:
   widget: image
-  accept: image/jpeg,image/png,image/webp,image/svg+xml
+  accept:
+    - image/jpeg
+    - image/png
+    - image/webp
+    - image/svg+xml
 ```
 
 The top-bar Settings overlay provides a guided editor for project defaults,

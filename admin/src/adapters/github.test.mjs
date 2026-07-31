@@ -25,7 +25,7 @@ function fixtureConfig() {
         label: "Page",
         fields: {
           title: { widget: "string" },
-          image: { widget: "image", accept: "image/png,image/svg+xml" }
+          image: { widget: "image", accept: ["image/png", "image/svg+xml"] }
         }
       }
     },

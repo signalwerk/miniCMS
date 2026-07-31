@@ -19,7 +19,7 @@ node_types:
     fields:
       uuid: { widget: uuid }
       title: { widget: string }
-      image: { widget: image, accept: "image/png,image/svg+xml" }
+      image: { widget: image, accept: [image/png, image/svg+xml] }
     views:
       detail:
         panels:

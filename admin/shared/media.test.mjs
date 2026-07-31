@@ -12,28 +12,28 @@ test("matches configurable media MIME types, extensions, and wildcards", () => {
   assert.equal(
     mediaFileMatchesAccept(
       { name: "diagram.svg", type: "image/svg+xml" },
-      "image/svg+xml"
+      ["image/svg+xml"]
     ),
     true
   );
   assert.equal(
     mediaFileMatchesAccept(
       { name: "diagram.svg", type: "application/octet-stream" },
-      ".svg"
+      [".svg"]
     ),
     true
   );
   assert.equal(
     mediaFileMatchesAccept(
       { name: "diagram.svg", type: "image/svg+xml; charset=utf-8" },
-      "image/*"
+      ["image/*"]
     ),
     true
   );
   assert.equal(
     mediaFileMatchesAccept(
       { name: "photo.jpg", type: "image/jpeg" },
-      "image/png,image/svg+xml"
+      ["image/png", "image/svg+xml"]
     ),
     false
   );
@@ -44,8 +44,8 @@ test("collects accepted image types from configured image fields", () => {
     node_types: {
       page: {
         fields: {
-          hero: { widget: "image", accept: "image/png, .svg" },
-          thumbnail: { widget: "image", accept: "image/webp,image/png" },
+          hero: { widget: "image", accept: ["image/png", ".svg"] },
+          thumbnail: { widget: "image", accept: ["image/webp", "image/png"] },
           title: { widget: "string" }
         }
       }
@@ -56,8 +56,15 @@ test("collects accepted image types from configured image fields", () => {
   assert.ok(acceptTokens(DEFAULT_IMAGE_ACCEPT).includes("image/svg+xml"));
 });
 
-test("validates HTML accept-list syntax", () => {
-  assert.equal(validateMediaAccept("image/png,image/svg+xml,.svg,image/*"), true);
-  assert.equal(validateMediaAccept("image/png,"), false);
-  assert.equal(validateMediaAccept("svg"), false);
+test("validates array accept-list syntax and reads the legacy string shape", () => {
+  assert.equal(
+    validateMediaAccept(["image/png", "image/svg+xml", ".svg", "image/*"]),
+    true
+  );
+  assert.deepEqual(acceptTokens("image/png,image/svg+xml"), [
+    "image/png",
+    "image/svg+xml"
+  ]);
+  assert.equal(validateMediaAccept(["image/png", ""]), false);
+  assert.equal(validateMediaAccept(["svg"]), false);
 });

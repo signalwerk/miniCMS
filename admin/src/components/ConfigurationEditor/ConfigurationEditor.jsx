@@ -47,7 +47,11 @@ import {
   cx,
   iconFor
 } from "../../model/editor.js";
-import { DEFAULT_IMAGE_ACCEPT } from "../../../shared/media.js";
+import {
+  DEFAULT_IMAGE_ACCEPT,
+  acceptTokens,
+  validateMediaAccept
+} from "../../../shared/media.js";
 import { ConfirmationDialog } from "../Dialogs/Dialogs.jsx";
 import { Spinner } from "../Common/Common.jsx";
 import "./ConfigurationEditor.scss";
@@ -1025,6 +1029,91 @@ function SelectOptionsEditor({ options = [], onChange }) {
   );
 }
 
+function AcceptedFileTypesEditor({ value, onChange }) {
+  const [newType, setNewType] = useState("");
+  const accepted = Array.isArray(value)
+    ? value.map((token) => String(token))
+    : acceptTokens(value);
+  const normalizedNewType = acceptTokens([newType])[0] || "";
+  const canAdd =
+    validateMediaAccept([newType]) &&
+    !accepted.some(
+      (token) => token.trim().toLowerCase() === normalizedNewType
+    );
+
+  return (
+    <div className="configuration-options configuration-accept-types">
+      <div className="configuration-subheading">
+        <div>
+          <strong>Accepted file types</strong>
+        </div>
+        <span className="configuration-add-field configuration-accept-types__add">
+          <TextInput
+            value={newType}
+            aria-label="File type to add"
+            placeholder="image/svg+xml or .svg"
+            onChange={setNewType}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || !canAdd) return;
+              event.preventDefault();
+              onChange([...accepted, normalizedNewType]);
+              setNewType("");
+            }}
+          />
+          <button
+            type="button"
+            className="configuration-small-button"
+            disabled={!canAdd}
+            onClick={() => {
+              onChange([...accepted, normalizedNewType]);
+              setNewType("");
+            }}
+          >
+            <Plus size={13} /> Add type
+          </button>
+        </span>
+      </div>
+      <ConfigurationDndList
+        className="configuration-accept-list"
+        ariaLabel="Accepted file types"
+        items={accepted.map((token, index) => ({
+          id: `accepted-type-${index}`,
+          label: token || `File type ${index + 1}`
+        }))}
+        onReorder={(sourceIndex, destinationIndex) =>
+          onChange(moveArrayEntry(accepted, sourceIndex, destinationIndex))
+        }
+      >
+        {(_, index, { dragHandleProps }) => (
+          <div className="configuration-accept-row">
+            <TextInput
+              value={accepted[index]}
+              aria-label={`Accepted file type ${index + 1}`}
+              placeholder="image/png or .png"
+              onChange={(token) =>
+                onChange(accepted.map((current, itemIndex) =>
+                  itemIndex === index ? token : current
+                ))
+              }
+            />
+            <EntryActions
+              count={accepted.length}
+              dragHandleProps={dragHandleProps}
+              dragLabel={accepted[index] || `file type ${index + 1}`}
+              onDelete={() =>
+                onChange(accepted.filter((_, itemIndex) => itemIndex !== index))
+              }
+            />
+          </div>
+        )}
+      </ConfigurationDndList>
+      {!accepted.length && (
+        <p className="configuration-muted">No file types yet.</p>
+      )}
+    </div>
+  );
+}
+
 function FieldEditor({
   fieldKey,
   field,
@@ -1231,18 +1320,12 @@ function FieldEditor({
           </FormField>
         ) : null}
         {widget === "image" && (
-          <FormField
-            label="Accepted file types"
-            optional
-          >
-            <TextInput
-              value={field.accept}
-              placeholder={DEFAULT_IMAGE_ACCEPT}
-              onChange={(value) => onChange((nextField) => {
-                setOptional(nextField, "accept", value);
-              })}
-            />
-          </FormField>
+          <AcceptedFileTypesEditor
+            value={field.accept || DEFAULT_IMAGE_ACCEPT}
+            onChange={(accept) => onChange((nextField) => {
+              nextField.accept = accept;
+            })}
+          />
         )}
         {widget === "reference" && (
           <FormField

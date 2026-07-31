@@ -16,6 +16,7 @@ import {
 } from "../../model/image.js";
 import {
   DEFAULT_IMAGE_ACCEPT,
+  acceptTokens,
   mediaFileMatchesAccept
 } from "../../../shared/media.js";
 import { cx } from "../../model/editor.js";
@@ -195,9 +196,9 @@ function AnnotatedImageField({ id, field, value, onChange }) {
   async function upload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const acceptedTypes = field.accept || DEFAULT_IMAGE_ACCEPT;
+    const acceptedTypes = acceptTokens(field.accept);
     if (!mediaFileMatchesAccept(file, acceptedTypes)) {
-      setError(`Choose a file matching ${acceptedTypes}.`);
+      setError(`Choose a file matching ${acceptedTypes.join(", ")}.`);
       event.target.value = "";
       return;
     }
@@ -698,7 +699,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
         id={id}
         className="visually-hidden"
         type="file"
-        accept={field.accept || DEFAULT_IMAGE_ACCEPT}
+        accept={acceptTokens(field.accept || DEFAULT_IMAGE_ACCEPT).join(",")}
         onChange={upload}
       />
       {error && <small className="field-error">{error}</small>}

@@ -969,6 +969,7 @@
 }
 
 .configuration-option-list,
+.configuration-accept-list,
 .configuration-panel-list,
 .configuration-group-list,
 .configuration-inspector-field-list {
@@ -984,6 +985,7 @@
 }
 
 .configuration-option-list .configuration-option-row,
+.configuration-accept-list .configuration-accept-row,
 .configuration-group-list .configuration-layout-group,
 .configuration-inspector-field-list .configuration-field-reference {
   margin-top: 0;
@@ -998,6 +1000,29 @@
 }
 
 .configuration-option-row input {
+  height: 30px;
+  padding: 0 8px;
+  color: #dedfd8;
+  background: #191a17;
+  border: 1px solid #3a3c36;
+  border-radius: 3px;
+}
+
+.configuration-accept-types__add input {
+  width: 190px;
+  height: 28px;
+  padding: 0 8px;
+}
+
+.configuration-accept-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.configuration-accept-row input {
   height: 30px;
   padding: 0 8px;
   color: #dedfd8;

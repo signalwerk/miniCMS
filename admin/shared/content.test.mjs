@@ -64,6 +64,19 @@ test("validates GitHub backend and repository content paths", () => {
   );
 });
 
+test("normalizes legacy image accept strings to the array config shape", () => {
+  const config = fixtureConfig();
+  config.node_types.page.fields.image = {
+    widget: "image",
+    accept: "image/png,image/svg+xml"
+  };
+
+  assert.deepEqual(validateConfig(config).node_types.page.fields.image.accept, [
+    "image/png",
+    "image/svg+xml"
+  ]);
+});
+
 test("summarizes records consistently across storage adapters", () => {
   const summary = summarizeRecord(
     {

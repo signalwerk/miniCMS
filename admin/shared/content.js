@@ -1,5 +1,5 @@
 import yaml from "js-yaml";
-import { validateMediaAccept } from "./media.js";
+import { acceptTokens, validateMediaAccept } from "./media.js";
 
 const YAML_OPTIONS = {
   schema: yaml.JSON_SCHEMA
@@ -254,8 +254,11 @@ function validateConfig(config, status = 500) {
         !validateMediaAccept(field.accept)
       ) {
         fail(
-          `Image field "${typeName}.${fieldName}" must define accepted file types as a comma-separated list of MIME types or extensions.`
+          `Image field "${typeName}.${fieldName}" must define accepted file types as an array of MIME types or extensions.`
         );
+      }
+      if (field.widget === "image" && typeof field.accept === "string") {
+        field.accept = acceptTokens(field.accept);
       }
     }
     if (type.slots !== undefined && !isMapping(type.slots)) {

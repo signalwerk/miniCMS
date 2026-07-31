@@ -1,5 +1,11 @@
-const DEFAULT_IMAGE_ACCEPT =
-  "image/jpeg,image/png,image/gif,image/webp,image/avif,image/svg+xml";
+const DEFAULT_IMAGE_ACCEPT = Object.freeze([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+  "image/svg+xml"
+]);
 
 const MIME_EXTENSIONS = new Map([
   ["image/jpeg", new Set([".jpg", ".jpeg"])],
@@ -11,21 +17,30 @@ const MIME_EXTENSIONS = new Map([
 ]);
 
 function acceptTokens(value = DEFAULT_IMAGE_ACCEPT) {
-  const source = typeof value === "string" && value.trim()
+  const source = Array.isArray(value)
     ? value
-    : DEFAULT_IMAGE_ACCEPT;
+    : typeof value === "string"
+      ? value.split(",")
+      : DEFAULT_IMAGE_ACCEPT;
   return [...new Set(
     source
-      .split(",")
-      .map((token) => token.trim().toLowerCase())
+      .map((token) => String(token).trim().toLowerCase())
       .filter(Boolean)
   )];
 }
 
 function validateMediaAccept(value) {
-  if (typeof value !== "string" || !value.trim()) return false;
-  const rawTokens = value.split(",");
-  if (rawTokens.some((token) => !token.trim())) return false;
+  const rawTokens = Array.isArray(value)
+    ? value
+    : typeof value === "string" && value.trim()
+      ? value.split(",")
+      : [];
+  if (
+    !rawTokens.length ||
+    rawTokens.some((token) => typeof token !== "string" || !token.trim())
+  ) {
+    return false;
+  }
   return rawTokens.every((rawToken) => {
     const token = rawToken.trim();
     if (/^\.[a-z0-9][a-z0-9._+-]*$/i.test(token)) return true;
@@ -72,7 +87,7 @@ function mediaFileMatchesAccept(file, accept = DEFAULT_IMAGE_ACCEPT) {
     .toLowerCase();
   const inferredTypes = inferredMimeTypes(extension);
 
-  return acceptTokens(Array.isArray(accept) ? accept.join(",") : accept).some(
+  return acceptTokens(accept).some(
     (token) => {
       if (token.startsWith(".")) return extension === token;
       if (token.endsWith("/*")) {

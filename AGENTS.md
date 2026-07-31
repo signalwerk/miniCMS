@@ -83,8 +83,9 @@ browser-adapter deployment. Local dev/build/start always use the Node adapter.
 Supported widgets include `string`, `text`, `markdown`, `select`, `boolean`,
 `datetime`, `number`, `image`, `reference`, and `uuid`. Select options may be
 scalars or `{label, value}` mappings. Image uploads are immediate. Image
-fields use an HTML-style `accept` string; MIME types, extensions, and wildcards
-are supported and enforced by both adapters. The shared default includes SVG.
+fields use an `accept` array of HTML accept tokens; MIME types, extensions, and
+wildcards are supported and enforced by both adapters. Legacy comma-delimited
+strings normalize to arrays when loaded. The shared default includes SVG.
 Unannotated image values remain path strings; annotated values use
 `{src, regions, points}` with labeled integer coordinates in original-image
 pixels. Always read images through `model/image.js` so both shapes remain compatible. Reference
