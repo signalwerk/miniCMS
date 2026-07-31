@@ -127,33 +127,6 @@
   transform: translateX(14px);
 }
 
-.image-field__preview {
-  @extend %type-consulting;
-  display: flex;
-  height: 112px;
-  flex-direction: column;
-  gap: 7px;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 6px;
-  overflow: hidden;
-  color: #a2a49c;
-  background:
-    linear-gradient(45deg, #f1f1ec 25%, transparent 25%) 0 0 / 12px 12px,
-    linear-gradient(-45deg, #f1f1ec 25%, transparent 25%) 0 0 / 12px 12px,
-    linear-gradient(45deg, transparent 75%, #f1f1ec 75%) 0 0 / 12px 12px,
-    linear-gradient(-45deg, transparent 75%, #f1f1ec 75%) 0 0 / 12px 12px,
-    #f7f7f4;
-  border: 1px solid #dddED8;
-  border-radius: 3px;
-}
-
-.image-field__preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
 .uuid-field {
   position: relative;
 }
@@ -250,30 +223,9 @@
   background: #82973e;
 }
 
-.image-field__preview {
-  color: #777970;
-  background:
-    linear-gradient(45deg, #242521 25%, transparent 25%) 0 0 / 12px 12px,
-    linear-gradient(-45deg, #242521 25%, transparent 25%) 0 0 / 12px 12px,
-    linear-gradient(45deg, transparent 75%, #242521 75%) 0 0 / 12px 12px,
-    linear-gradient(-45deg, transparent 75%, #242521 75%) 0 0 / 12px 12px,
-    #1b1c19;
-  border-color: #3a3c36;
-}
-
-.image-field__actions,
 .reference-field__actions {
   display: flex;
   gap: 6px;
-}
-
-.image-field__path {
-  @extend %type-consulting;
-  display: block;
-  margin-top: 6px;
-  overflow-wrap: anywhere;
-  color: #777970;
-  user-select: text;
 }
 
 .reference-field {

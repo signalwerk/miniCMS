@@ -120,6 +120,28 @@ collections:
 The consuming project’s `cms.config.yml` can combine tree and table
 collections, media uploads, and UUID-backed collection references.
 
+Image fields keep their compact path-string value until a region or point is
+added. Annotated values expand without losing backwards compatibility:
+
+```yaml
+file:
+  src: /media/example.jpg
+  regions:
+    - label: Portrait
+      x: 120
+      y: 80
+      width: 640
+      height: 480
+  points:
+    - label: Focus
+      x: 410
+      y: 265
+```
+
+Annotation coordinates are integer pixels in the original image. The editor
+supports multiple labeled regions with eight resize handles and multiple
+labeled points; both can be moved with a pointer or keyboard.
+
 The top-bar Settings overlay provides a guided editor for project defaults,
 collections, content types, fields, dropdown options, content areas, table
 columns, hierarchy, references, and inspector layout. Common settings are

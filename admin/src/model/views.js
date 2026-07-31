@@ -1,8 +1,12 @@
 import { typeField, typeFields } from "./editor.js";
+import { imageSource } from "./image.js";
 
 function displayValue(value, field) {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (field.display === "image" || field.widget === "image") {
+    return imageSource(value) || "—";
+  }
   if (field.display === "date" || field.widget === "datetime") {
     const date = new Date(value);
     if (!Number.isNaN(date.getTime())) {

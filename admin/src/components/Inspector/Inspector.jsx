@@ -18,6 +18,7 @@ import {
   getNode,
   iconFor
 } from "../../model/editor.js";
+import { imageSource } from "../../model/image.js";
 import {
   displayValue,
   groupsForPanel,
@@ -32,8 +33,8 @@ function ReadOnlyDetailField({ field, value, action }) {
   const content =
     field.display === "code" ? (
       <code>{formatted}</code>
-    ) : field.display === "image" && value ? (
-      <img className="detail-value__image" src={value} alt="" />
+    ) : field.display === "image" && imageSource(value) ? (
+      <img className="detail-value__image" src={imageSource(value)} alt="" />
     ) : field.display === "badge" ? (
       <span className="detail-value__badge">{formatted}</span>
     ) : (

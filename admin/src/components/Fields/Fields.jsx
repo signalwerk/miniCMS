@@ -4,85 +4,18 @@ import {
   CircleAlert,
   Image,
   Search,
-  Upload,
   X
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import "./Fields.scss";
 import { api } from "../../api.js";
 import {
   cx,
   defaultFieldValue
 } from "../../model/editor.js";
+import { imageSource } from "../../model/image.js";
 import { EmptyState, Spinner } from "../Common/Common.jsx";
-
-function ImageUploadField({ id, field, value, onChange }) {
-  const inputRef = useRef(null);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState("");
-
-  async function upload(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    setError("");
-    try {
-      const result = await api.uploadMedia(file);
-      onChange(result.path);
-    } catch (uploadError) {
-      setError(uploadError.message);
-    } finally {
-      setUploading(false);
-      event.target.value = "";
-    }
-  }
-
-  return (
-    <div className="image-field">
-      <div className="image-field__preview">
-        {value ? (
-          <img src={value} alt="" />
-        ) : (
-          <>
-            <Image size={20} />
-            <span>No image uploaded</span>
-          </>
-        )}
-      </div>
-      <div className="image-field__actions">
-        <button
-          type="button"
-          className="button button--secondary"
-          disabled={uploading}
-          onClick={() => inputRef.current?.click()}
-        >
-          {uploading ? <Spinner small /> : <Upload size={14} />}
-          {value ? "Replace image" : "Upload image"}
-        </button>
-        {value && field.required === false && (
-          <button
-            type="button"
-            className="button button--secondary"
-            disabled={uploading}
-            onClick={() => onChange("")}
-          >
-            Clear
-          </button>
-        )}
-      </div>
-      {value && <code className="image-field__path">{value}</code>}
-      <input
-        ref={inputRef}
-        id={id}
-        className="visually-hidden"
-        type="file"
-        accept={field.accept || "image/jpeg,image/png,image/gif,image/webp,image/avif"}
-        onChange={upload}
-      />
-      {error && <small className="field-error">{error}</small>}
-    </div>
-  );
-}
+import { AnnotatedImageField } from "./AnnotatedImageField.jsx";
 
 function referenceItemValue(item, name, collection) {
   if (!name || name === "id" || name === "$id") return item.id;
@@ -97,7 +30,7 @@ function referenceItemValue(item, name, collection) {
 }
 
 function ReferenceCard({ item, view, collection, compact = false }) {
-  const image = referenceItemValue(item, view.image, collection);
+  const image = imageSource(referenceItemValue(item, view.image, collection));
   const title =
     referenceItemValue(item, view.title || "title", collection) ||
     item.title ||
@@ -389,7 +322,7 @@ function Field({
     );
   } else if (field.widget === "image") {
     control = (
-      <ImageUploadField
+      <AnnotatedImageField
         id={id}
         field={field}
         value={resolvedValue}

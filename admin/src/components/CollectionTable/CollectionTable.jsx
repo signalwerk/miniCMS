@@ -10,6 +10,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import "./CollectionTable.scss";
 import { cx, typeField, typeFields } from "../../model/editor.js";
+import { imageSource } from "../../model/image.js";
 import {
   SYSTEM_FIELD_DEFINITIONS,
   displayValue
@@ -69,6 +70,7 @@ function TableCell({
   const editable =
     column.mode === "edit" &&
     !column.field.startsWith("$") &&
+    field.widget !== "image" &&
     field.readonly !== true;
   const [draftValue, setDraftValue] = useState(value ?? "");
 
@@ -159,8 +161,9 @@ function TableCell({
       />
     );
   } else if (field.display === "image") {
-    content = value ? (
-      <img className="table-cell__image" src={value} alt="" />
+    const source = imageSource(value);
+    content = source ? (
+      <img className="table-cell__image" src={source} alt="" />
     ) : (
       <span className="table-cell__image-placeholder">
         <Image size={16} />
