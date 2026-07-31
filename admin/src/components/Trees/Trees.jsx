@@ -79,6 +79,7 @@ function DragPreview({ drag }) {
 
 function CollectionTreeRow({
   item,
+  type,
   depth,
   childrenCount,
   isExpanded,
@@ -88,6 +89,7 @@ function CollectionTreeRow({
   onSelect,
   onToggle
 }) {
+  const Icon = iconFor(type?.icon, FileText);
   const {
     attributes,
     isDragging,
@@ -99,8 +101,8 @@ function CollectionTreeRow({
       kind: "collection",
       item,
       label: item.title,
-      icon: "file-text",
-      nodeKind: "document"
+      icon: type?.icon,
+      nodeKind: type?.kind || "document"
     },
     disabled: !dragEnabled
   });
@@ -143,8 +145,10 @@ function CollectionTreeRow({
           (isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
       </span>
       <span className="tree-row__type-icon">
-        <FileText size={15} strokeWidth={1.7} />
-        {item.hidden && <HiddenBadge label="Page hidden" />}
+        <Icon size={15} strokeWidth={1.7} />
+        {item.hidden && (
+          <HiddenBadge label={`${type?.label || "Item"} hidden`} />
+        )}
       </span>
       <span className="tree-row__label">{item.title}</span>
     </button>
@@ -154,6 +158,7 @@ function CollectionTreeRow({
 function CollectionTree({
   items,
   collection,
+  nodeTypes = {},
   selectedIds,
   selectionAnchor,
   onSelectionChange,
@@ -289,6 +294,7 @@ function CollectionTree({
           />
           <CollectionTreeRow
             item={item}
+            type={nodeTypes[item.type] ?? nodeTypes[collection.node_type]}
             depth={depth}
             childrenCount={children.length}
             isExpanded={isExpanded}

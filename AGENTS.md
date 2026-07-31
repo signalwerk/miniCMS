@@ -148,6 +148,8 @@ grip, and delete action visible while collapsed.
 - Inspector panel and field-group headings do not show field-count badges.
 - Content-tree rows use their configured icon as the type indicator; do not
   add a redundant type-name suffix on the right side.
+- Collection-tree rows resolve their configured icon from each record’s own
+  type, including heterogeneous collections; DnD previews use the same icon.
 - Every visible breadcrumb level is keyboard-focusable and clickable. The
   collection level clears record selection; document/content levels select the
   matching tree node and reduce multi-selection to that node.

@@ -1781,6 +1781,7 @@ export default function App() {
               <CollectionTree
                 items={treeItems}
                 collection={collection}
+                nodeTypes={nodeTypes}
                 selectedIds={selectedRecordIds}
                 selectionAnchor={recordSelectionAnchor}
                 onSelectionChange={changeCollectionSelection}
