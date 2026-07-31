@@ -1458,7 +1458,6 @@ function InspectorFieldsEditor({ references = [], fields, onChange }) {
       >
         {(_, index, { dragHandleProps }) => {
           const configured = normalizeFieldReference(references[index]);
-          const system = configured.field?.startsWith("$");
           const dragLabel =
             configured.label ||
             options.find(([key]) => key === configured.field)?.[1] ||
@@ -1480,6 +1479,7 @@ function InspectorFieldsEditor({ references = [], fields, onChange }) {
                   onChange={(value) => updateReference(index, (nextReference) => {
                     nextReference.field = value;
                     if (value.startsWith("$")) nextReference.mode = "read";
+                    else delete nextReference.mode;
                   })}
                 >
                   <optgroup label="Content fields">
@@ -1503,62 +1503,6 @@ function InspectorFieldsEditor({ references = [], fields, onChange }) {
                 />
               </FormField>
             </div>
-            <AdvancedSection
-              title="Field presentation"
-            >
-              <div className="configuration-entry-card__grid">
-                <FormField label="Mode">
-                  <SelectInput
-                    value={system ? "read" : configured.mode || ""}
-                    disabled={system}
-                    onChange={(value) => updateReference(index, (nextReference) => {
-                      setOptional(nextReference, "mode", value);
-                    })}
-                  >
-                    <option value="">Automatic</option>
-                    <option value="edit">Editable</option>
-                    <option value="read">Read only</option>
-                  </SelectInput>
-                </FormField>
-                <FormField label="Display">
-                  <SelectInput
-                    value={configured.display || ""}
-                    onChange={(value) => updateReference(index, (nextReference) => {
-                      setOptional(nextReference, "display", value);
-                    })}
-                  >
-                    {FIELD_DISPLAY_OPTIONS.map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </SelectInput>
-                </FormField>
-                <FormField label="Appearance">
-                  <SelectInput
-                    value={configured.appearance || ""}
-                    onChange={(value) => updateReference(index, (nextReference) => {
-                      setOptional(nextReference, "appearance", value);
-                    })}
-                  >
-                    {FIELD_APPEARANCE_OPTIONS.map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </SelectInput>
-                </FormField>
-                <FormField label="Alignment">
-                  <SelectInput
-                    value={configured.align || ""}
-                    onChange={(value) => updateReference(index, (nextReference) => {
-                      setOptional(nextReference, "align", value);
-                    })}
-                  >
-                    <option value="">Automatic</option>
-                    <option value="left">Left</option>
-                    <option value="center">Center</option>
-                    <option value="right">Right</option>
-                  </SelectInput>
-                </FormField>
-              </div>
-            </AdvancedSection>
           </article>
           );
         }}

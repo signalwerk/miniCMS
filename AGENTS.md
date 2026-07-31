@@ -95,6 +95,9 @@ Collection list layout belongs under `collections.<name>.views.list`.
 Table columns may define read/edit mode, display, appearance, alignment,
 sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 `$storage_path`, `$created_at`, and `$updated_at`.
+Settings keeps Inspector field assignment to field, custom label, and order;
+mode/display/appearance/alignment controls belong to table columns. Runtime
+config parsing retains legacy detail-reference presentation compatibility.
 
 ## UI conventions
 
