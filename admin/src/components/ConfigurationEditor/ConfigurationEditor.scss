@@ -370,10 +370,14 @@
 
 .configuration-drop-target {
   position: absolute;
-  top: -6px;
+  top: -10px;
   right: 4px;
   left: 4px;
   height: 12px;
+}
+
+.configuration-drop-anchor--after .configuration-drop-target {
+  top: -1px;
 }
 
 .configuration-drop-target span {
@@ -968,6 +972,18 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
+  gap: 8px;
+}
+
+.configuration-dnd-item > .configuration-entry-card,
+.configuration-dnd-item > .configuration-layout-panel {
+  margin-bottom: 0;
+}
+
+.configuration-option-list .configuration-option-row,
+.configuration-group-list .configuration-layout-group,
+.configuration-inspector-field-list .configuration-field-reference {
+  margin-top: 0;
 }
 
 .configuration-option-row {

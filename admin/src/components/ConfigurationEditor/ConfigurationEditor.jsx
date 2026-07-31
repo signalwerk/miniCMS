@@ -535,7 +535,8 @@ function ConfigurationDropLine({
   id,
   insertionIndex,
   enabled,
-  visible
+  visible,
+  placement = "before"
 }) {
   const { isOver, setNodeRef } = useDroppable({
     id,
@@ -546,6 +547,7 @@ function ConfigurationDropLine({
     <div
       className={cx(
         "configuration-drop-anchor",
+        placement === "after" && "configuration-drop-anchor--after",
         visible && "is-visible",
         enabled && isOver && "is-over"
       )}
@@ -628,6 +630,7 @@ function ConfigurationDndItem({
           insertionIndex={afterIndex}
           enabled={afterEnabled}
           visible={afterEnabled}
+          placement="after"
         />
       )}
     </div>

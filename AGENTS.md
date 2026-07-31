@@ -112,8 +112,9 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
   do not reintroduce plain icon-name selects or a second option list.
 - Reorderable Settings lists use `@dnd-kit/core` through their visible grip
   handles. Match tree DnD behavior: keep and fade the source, use the shared
-  pointer-offset overlay, and render zero-height absolute insertion lines.
-  Keep the adjacent move buttons as a keyboard-accessible alternative.
+  pointer-offset overlay, and render zero-height absolute insertion lines
+  centered in the list-owned gap between items. Keep the adjacent move buttons
+  as a keyboard-accessible alternative.
 - Retain proper modal confirmation for destructive/discard flows.
 
 ## API and testing
