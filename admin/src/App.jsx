@@ -538,6 +538,14 @@ export default function App() {
     setSelectedId(activeId);
   }
 
+  function selectBreadcrumbNode(id) {
+    changeContentSelection({
+      selectedIds: new Set([id]),
+      anchorId: id,
+      activeId: id
+    });
+  }
+
   function clearContentSelection() {
     if (!selectedContentIds.size && !selectedId) return;
     setActiveTreeSelection("content");
@@ -1840,7 +1848,14 @@ export default function App() {
           <section className="center-pane">
             <div className="pane-heading">
               <div className="breadcrumbs" ref={breadcrumbRef}>
-                <span>{collection?.label}</span>
+                <button
+                  type="button"
+                  className="breadcrumb-link"
+                  title={collection?.label}
+                  onClick={clearCollectionSelection}
+                >
+                  {collection?.label}
+                </button>
                 {selectedNodePath.length ? (
                   selectedNodePath.map((node, index) => {
                     const label =
@@ -1850,12 +1865,19 @@ export default function App() {
                     const isCurrent = index === selectedNodePath.length - 1;
                     return (
                       <span className="breadcrumb-segment" key={node.id}>
-                        <ChevronRight size={13} />
-                        {isCurrent ? (
-                          <strong title={label}>{label}</strong>
-                        ) : (
-                          <span title={label}>{label}</span>
-                        )}
+                        <ChevronRight size={13} aria-hidden="true" />
+                        <button
+                          type="button"
+                          className={cx(
+                            "breadcrumb-link",
+                            isCurrent && "is-current"
+                          )}
+                          title={label}
+                          aria-current={isCurrent ? "page" : undefined}
+                          onClick={() => selectBreadcrumbNode(node.id)}
+                        >
+                          {label}
+                        </button>
                       </span>
                     );
                   })

@@ -127,6 +127,9 @@ grip, and delete action visible while collapsed.
 - Multiple tree selections show only their selection count in the inspector.
 - Content-tree rows use their configured icon as the type indicator; do not
   add a redundant type-name suffix on the right side.
+- Every visible breadcrumb level is keyboard-focusable and clickable. The
+  collection level clears record selection; document/content levels select the
+  matching tree node and reduce multi-selection to that node.
 - Tree action bars and operations must respect multi-selection.
 - Hidden tree rows keep their muted treatment when selected and show a small
   crossed badge on the type icon. Do not add a trailing visibility icon or an
