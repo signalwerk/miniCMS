@@ -56,7 +56,8 @@ function listen(app, port) {
 async function runTests() {
   const testFiles = [
     path.join(packageRoot, "admin", "server", "api.test.mjs"),
-    path.join(packageRoot, "admin", "shared", "slug.test.mjs")
+    path.join(packageRoot, "admin", "shared", "slug.test.mjs"),
+    path.join(packageRoot, "admin", "src", "model", "views.test.mjs")
   ];
   const child = spawn(process.execPath, ["--test", ...testFiles], {
     cwd: packageRoot,

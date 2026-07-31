@@ -62,6 +62,8 @@ configure `value`, `image`, `title`, and `description`.
 
 Detail layout belongs under
 `node_types.<type>.views.detail.panels.<panel>.groups.<group>.fields`.
+Panel and group order is their mapping order in YAML; do not add or interpret
+numeric `position` keys.
 Collection list layout belongs under `collections.<name>.views.list`.
 Table columns may define read/edit mode, display, appearance, alignment,
 sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,

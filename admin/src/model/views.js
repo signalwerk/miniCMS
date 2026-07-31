@@ -74,11 +74,10 @@ function detailField(type, reference) {
 function panelsFor(type, includeInfo = false) {
   const configuredPanels = type?.views?.detail?.panels ?? {};
   let panels = Object.entries(configuredPanels)
-    .filter(([name]) => name !== "info")
-    .map(([name, panel], index) => ({
+    .filter(([name]) => includeInfo || name !== "info")
+    .map(([name, panel]) => ({
       name,
       label: panel.label || name,
-      position: panel.position ?? index,
       groups: panel.groups ?? {}
     }));
   if (!panels.length) {
@@ -86,23 +85,14 @@ function panelsFor(type, includeInfo = false) {
       {
         name: "inspector",
         label: "Inspector",
-        position: 0,
         groups: {}
       }
     ];
   }
-  if (includeInfo) {
-    const configuredInfo = configuredPanels.info ?? {};
-    panels.push({
-      name: "info",
-      label: configuredInfo.label || "Info",
-      position: configuredInfo.position ?? 1000,
-      groups: configuredInfo.groups ?? {}
-    });
+  if (includeInfo && !panels.some((panel) => panel.name === "info")) {
+    panels.push({ name: "info", label: "Info", groups: {} });
   }
-  return panels.sort(
-    (a, b) => a.position - b.position || a.label.localeCompare(b.label)
-  );
+  return panels;
 }
 
 function groupsForPanel(type, panelName, includeInfo = false) {
@@ -110,25 +100,22 @@ function groupsForPanel(type, panelName, includeInfo = false) {
   const activePanel = panels.find((panel) => panel.name === panelName) || panels[0];
   const definitions = activePanel.groups;
   let groups = Object.entries(definitions)
-    .map(([name, definition], index) => ({
+    .map(([name, definition]) => ({
       name,
       label: definition.label || name,
       icon: definition.icon,
       description: definition.description,
-      position: definition.position ?? index,
       fields: (definition.fields ?? [])
         .map((reference) => detailField(type, reference))
         .filter(Boolean)
     }))
-    .filter((group) => group.fields.length)
-    .sort((a, b) => a.position - b.position || a.label.localeCompare(b.label));
+    .filter((group) => group.fields.length);
 
   if (!groups.length && activePanel.name === panels[0].name) {
     groups = [
       {
         name: "properties",
         label: "Properties",
-        position: 0,
         fields: typeFields(type).map((field) => ({
           mode: "edit",
           ...field
@@ -150,7 +137,6 @@ function groupsForPanel(type, panelName, includeInfo = false) {
         label: "Stored file",
         icon: "file-text",
         description: "Repository-relative collection record location.",
-        position: 1000,
         fields: missingSystemFields.map((name) => detailField(type, name))
       });
     }
