@@ -18,6 +18,7 @@ Add the local package and command aliases:
 ```json
 {
   "private": true,
+  "workspaces": ["miniCMS"],
   "scripts": {
     "dev": "minicms dev",
     "build": "minicms build",
@@ -25,7 +26,7 @@ Add the local package and command aliases:
     "test": "minicms test"
   },
   "dependencies": {
-    "@signalwerk/minicms": "file:./miniCMS"
+    "@signalwerk/minicms": "*"
   }
 }
 ```

@@ -17,9 +17,9 @@ Preserve useful guidance and remove stale information.
 - Consumer repositories own `cms.config.yml` and `content/`; miniCMS must not
   contain project-specific models or records.
 
-The package is normally consumed from a Git submodule through
-`"@signalwerk/minicms": "file:./miniCMS"`. Keep this zero-build integration
-working.
+The package is normally consumed as an npm workspace from a Git submodule.
+The consumer declares `"workspaces": ["miniCMS"]` and depends on
+`"@signalwerk/minicms": "*"`. Keep this one-install integration working.
 
 ## Commands
 
