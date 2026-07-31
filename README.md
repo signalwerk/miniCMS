@@ -3,8 +3,7 @@
 A reusable, configuration-driven content editor with a React/Vite interface
 and interchangeable persistence adapters. It can use its Express API for local
 files or edit a GitHub repository directly from a static deployment. Its field
-definitions are Decap-inspired; its document/content trees and inspector are
-NEOS-inspired.
+schema is intentionally custom, with a tree-and-inspector editing workspace.
 
 miniCMS deliberately owns no project content. A consuming repository supplies
 `cms.config.yml` and `content/`.

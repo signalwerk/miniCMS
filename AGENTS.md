@@ -58,7 +58,7 @@ browser-adapter deployment. Local dev/build/start always use the Node adapter.
 - Root config contains keyed `node_types` and `collections` mappings.
 - Root `backend` selects `node` or `github`. GitHub requires `repo`,
   `base_url`, and `branch`; Settings exposes all common and advanced options.
-- Fields resemble Decap CMS but are intentionally custom.
+- Fields use a compact, intentionally custom declarative schema.
 - Records contain `id`, `type`, `order`, `properties`, and typed `slots`.
 - Collection folders and media folders must remain inside consumer `content/`.
 - YAML uses `js-yaml`’s JSON schema so dates remain strings.
