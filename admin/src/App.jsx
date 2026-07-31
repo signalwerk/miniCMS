@@ -673,7 +673,7 @@ export default function App() {
     );
     properties.title = title;
     if ("slug" in properties && !properties.slug) {
-      properties.slug = activeCollection === "pages" ? `/${id}` : id;
+      properties.slug = id;
     }
     const parentField = collection.hierarchy?.parent_field;
     if (parentField) properties[parentField] = choice.parent ?? null;

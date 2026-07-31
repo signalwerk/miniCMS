@@ -75,6 +75,8 @@ browser-adapter deployment. Local dev/build/start always use the Node adapter.
 - UUID fields regenerate across duplicated subtrees.
 - Slug templates support field tokens plus date/time tokens and use
   collision-safe filename suffixes.
+- A content field named `slug` stores a path segment; new records default it to
+  the slash-free record ID. Full public paths are a renderer concern.
 
 Supported widgets include `string`, `text`, `markdown`, `select`, `boolean`,
 `datetime`, `number`, `image`, `reference`, and `uuid`. Select options may be
