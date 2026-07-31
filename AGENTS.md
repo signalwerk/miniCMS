@@ -125,6 +125,7 @@ grip, and delete action visible while collapsed.
 - Use shared in-app modals, dismissible with Escape; never browser prompts.
 - No record is selected implicitly after collection load or refresh.
 - Multiple tree selections show only their selection count in the inspector.
+- Inspector panel and field-group headings do not show field-count badges.
 - Content-tree rows use their configured icon as the type indicator; do not
   add a redundant type-name suffix on the right side.
 - Every visible breadcrumb level is keyboard-focusable and clickable. The

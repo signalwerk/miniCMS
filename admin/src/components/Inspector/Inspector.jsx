@@ -77,7 +77,6 @@ function InspectorGroup({ group, children }) {
           <strong>{group.label}</strong>
           {group.description && <small>{group.description}</small>}
         </span>
-        <span className="inspector-group__count">{group.fields?.length ?? 1}</span>
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
       {open && <div className="inspector-group__content">{children}</div>}
@@ -114,10 +113,6 @@ function Inspector({
   const currentPanel =
     panels.find((panel) => panel.name === activePanel) || panels[0];
   const groups = groupsForPanel(type, currentPanel.name, isDocument);
-  const fieldCount = groups.reduce(
-    (total, group) => total + group.fields.length,
-    0
-  );
   const currentItem = items.find((item) => item.id === record.id);
   return (
     <div className="inspector">
@@ -163,7 +158,6 @@ function Inspector({
 
       <div className="inspector__section-label">
         <span>{currentPanel.label}</span>
-        <span>{fieldCount}</span>
       </div>
 
       <div className="inspector__fields">
