@@ -13,6 +13,10 @@ Preserve useful guidance and remove stale information.
 - `admin/src/components/<Feature>/`: cohesive feature components with a
   colocated `<Feature>.scss`. Keep related small components together instead
   of creating a folder for every button or row.
+- `components/ConfigurationEditor/`: handcrafted, human-first Settings
+  overlay. Its guided forms are the primary experience; advanced controls and
+  complete YAML are progressively disclosed. Do not reintroduce a
+  meta-configuration that describes this editor.
 - `admin/src/styles.scss` contains only global foundations;
   `styles/_typography.scss` owns the shared Sass typography placeholders.
 - `admin/server/`: Express 5 API for config, complete YAML records, and media.
@@ -48,6 +52,8 @@ In a consumer, the normal commands are `minicms dev|build|start|test`.
 - Records contain `id`, `type`, `order`, `properties`, and typed `slots`.
 - Collection folders and media folders must remain inside consumer `content/`.
 - YAML uses `js-yaml`’s JSON schema so dates remain strings.
+- Saving Settings normalizes YAML formatting and does not preserve source
+  comments; keep important project knowledge in `AGENTS.md`, not YAML comments.
 - Writes atomically replace complete records; do not add partial field writes.
 - Deletion must not orphan hierarchy children.
 - UUID fields regenerate across duplicated subtrees.
@@ -91,12 +97,16 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 - Hierarchy is edited by drag-and-drop, not by an inspector parent selector.
 - Workspace split sizes persist in local storage and remain keyboard operable.
 - The active collection is stored as `#<collection-name>`.
+- Settings is a full-screen overlay organized around project, collection, and
+  content-type tasks. Common changes must be additive and understandable
+  without knowing the YAML structure. Keep expert controls collapsed by
+  default and retain proper modal confirmation for destructive/discard flows.
 
 ## API and testing
 
-The API provides read-only config, collection lists, record CRUD/rename, and
-media upload under `/api`. Production serves the built editor from this
-package, never from the consumer’s `admin/` directory.
+The API provides validated atomic config read/write, collection lists, record
+CRUD/rename, and media upload under `/api`. Production serves the built editor
+from this package, never from the consumer’s `admin/` directory.
 
 Add integration coverage in `admin/server/api.test.mjs` for API changes and
 unit coverage beside shared helpers. Run both `npm test` and `npm run build`

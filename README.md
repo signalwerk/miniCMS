@@ -120,9 +120,17 @@ collections:
 The consuming project’s `cms.config.yml` can combine tree and table
 collections, media uploads, and UUID-backed collection references.
 
+The top-bar Settings overlay provides a guided editor for project defaults,
+collections, content types, fields, dropdown options, content areas, table
+columns, hierarchy, references, and inspector layout. Common settings are
+shown first; technical controls and the complete YAML editor are collapsed
+under advanced or expert sections. Saving validates the complete model before
+atomically replacing `cms.config.yml`.
+
 ## API
 
 - `GET /api/config`
+- `PUT /api/config`
 - `GET /api/collections`
 - `GET /api/collections/:collection`
 - `GET /api/collections/:collection/:id`
@@ -132,5 +140,6 @@ collections, media uploads, and UUID-backed collection references.
 - `DELETE /api/collections/:collection/:id`
 - `POST /api/media?filename=<name>`
 
-Records are replaced atomically as complete YAML documents. The API validates
-configured fields, node types, slots, hierarchy relationships, and safe paths.
+Configuration and records are replaced atomically as complete YAML documents.
+The API validates configured fields, node types, slots, hierarchy
+relationships, and safe paths.

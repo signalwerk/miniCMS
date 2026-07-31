@@ -113,6 +113,56 @@ test("serves configuration and collection summaries", async () => {
   });
 });
 
+test("validates and atomically saves the guided configuration", async () => {
+  await withServer(async (baseUrl, rootDir) => {
+    const config = await fetch(`${baseUrl}/api/config`).then((response) =>
+      response.json()
+    );
+    config.site.name = "Edited project";
+    config.node_types.page.fields.layout = {
+      label: "Page layout",
+      widget: "select",
+      required: false,
+      options: [
+        { label: "Default", value: "default" },
+        { label: "Wide", value: "wide" }
+      ]
+    };
+
+    const saved = await fetch(`${baseUrl}/api/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(config)
+    });
+    assert.equal(saved.status, 200);
+    assert.equal((await saved.json()).config.site.name, "Edited project");
+
+    const source = await fs.readFile(
+      path.join(rootDir, "cms.config.yml"),
+      "utf8"
+    );
+    assert.match(source, /name: Edited project/);
+    assert.match(source, /label: Page layout/);
+    assert.match(source, /value: wide/);
+
+    const invalid = structuredClone(config);
+    invalid.node_types.page.fields.layout.widget = "object";
+    const rejected = await fetch(`${baseUrl}/api/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(invalid)
+    });
+    assert.equal(rejected.status, 400);
+    assert.match((await rejected.json()).message, /unsupported widget "object"/);
+
+    const current = await fetch(`${baseUrl}/api/config`).then((response) =>
+      response.json()
+    );
+    assert.equal(current.site.name, "Edited project");
+    assert.equal(current.node_types.page.fields.layout.widget, "select");
+  });
+});
+
 test("rejects unknown detail field references in configuration", async () => {
   await withServer(async (baseUrl, rootDir) => {
     const configPath = path.join(rootDir, "cms.config.yml");

@@ -68,6 +68,11 @@
   content: "";
 }
 
+.collection-nav__settings {
+  margin-left: auto;
+  border-left: 1px solid #30312c;
+}
+
 .topbar__actions {
   display: flex;
   gap: 11px;

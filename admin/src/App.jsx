@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Settings2,
   Trash2,
   X
 } from "lucide-react";
@@ -67,6 +68,7 @@ import {
 } from "./model/editor.js";
 import { panelsFor } from "./model/views.js";
 import { CollectionTable } from "./components/CollectionTable/CollectionTable.jsx";
+import ConfigurationEditor from "./components/ConfigurationEditor/ConfigurationEditor.jsx";
 import {
   BrandMark,
   EmptyState,
@@ -104,6 +106,7 @@ export default function App() {
   const [clipboardBusy, setClipboardBusy] = useState(false);
   const [activeTreeSelection, setActiveTreeSelection] = useState("collection");
   const [confirmation, setConfirmation] = useState(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [layoutPreferences, setLayoutPreferences] = useState(
     readLayoutPreferences
   );
@@ -544,6 +547,21 @@ export default function App() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function saveConfiguration(nextConfig) {
+    const result = await api.saveConfig(nextConfig);
+    setConfig(result.config);
+    const nextCollection =
+      result.config.collections?.[activeCollection]
+        ? activeCollection
+        : Object.keys(result.config.collections ?? {})[0];
+    if (nextCollection) {
+      replaceCollectionHash(nextCollection);
+      await loadCollection(nextCollection);
+    }
+    showToast("CMS settings saved");
+    return result.config;
   }
 
   async function editTableField(item, column, value) {
@@ -1492,6 +1510,16 @@ export default function App() {
               </button>
             );
           })}
+          <button
+            type="button"
+            className="collection-nav__settings"
+            onClick={() =>
+              runAfterDiscardCheck(() => setSettingsOpen(true))
+            }
+          >
+            <Settings2 size={15} strokeWidth={1.8} />
+            Settings
+          </button>
         </nav>
 
         <div className="topbar__actions">
@@ -1906,6 +1934,14 @@ export default function App() {
         <ConfirmationDialog
           {...confirmation}
           onCancel={() => setConfirmation(null)}
+        />
+      )}
+
+      {settingsOpen && (
+        <ConfigurationEditor
+          config={config}
+          onClose={() => setSettingsOpen(false)}
+          onSave={saveConfiguration}
         />
       )}
 
