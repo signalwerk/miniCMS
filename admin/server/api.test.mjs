@@ -19,6 +19,7 @@ node_types:
     fields:
       uuid: { widget: uuid }
       title: { widget: string }
+      image: { widget: image, accept: "image/png,image/svg+xml" }
     views:
       detail:
         panels:
@@ -219,6 +220,37 @@ test("uploads media with safe collision-resistant filenames", async () => {
       "utf8"
     );
     assert.equal(stored, "fake-png");
+  });
+});
+
+test("uploads SVG only when the image field configuration accepts it", async () => {
+  await withServer(async (baseUrl, rootDir) => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1" />';
+    const accepted = await fetch(
+      `${baseUrl}/api/media?filename=${encodeURIComponent("Diagram.svg")}`,
+      {
+        method: "POST",
+        headers: { "content-type": "image/svg+xml" },
+        body: svg
+      }
+    );
+    assert.equal(accepted.status, 201);
+    assert.equal((await accepted.json()).path, "/media/diagram.svg");
+    assert.equal(
+      await fs.readFile(path.join(rootDir, "content", "media", "diagram.svg"), "utf8"),
+      svg
+    );
+
+    const rejected = await fetch(
+      `${baseUrl}/api/media?filename=${encodeURIComponent("Photo.jpg")}`,
+      {
+        method: "POST",
+        headers: { "content-type": "image/jpeg" },
+        body: "fake-jpeg"
+      }
+    );
+    assert.equal(rejected.status, 400);
+    assert.match((await rejected.json()).message, /configured accepted file type/);
   });
 });
 

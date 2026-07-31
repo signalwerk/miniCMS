@@ -47,6 +47,7 @@ import {
   cx,
   iconFor
 } from "../../model/editor.js";
+import { DEFAULT_IMAGE_ACCEPT } from "../../../shared/media.js";
 import { ConfirmationDialog } from "../Dialogs/Dialogs.jsx";
 import { Spinner } from "../Common/Common.jsx";
 import "./ConfigurationEditor.scss";
@@ -1236,7 +1237,7 @@ function FieldEditor({
           >
             <TextInput
               value={field.accept}
-              placeholder="image/jpeg,image/png,image/webp"
+              placeholder={DEFAULT_IMAGE_ACCEPT}
               onChange={(value) => onChange((nextField) => {
                 setOptional(nextField, "accept", value);
               })}

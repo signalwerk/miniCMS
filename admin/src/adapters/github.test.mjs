@@ -24,7 +24,8 @@ function fixtureConfig() {
       page: {
         label: "Page",
         fields: {
-          title: { widget: "string" }
+          title: { widget: "string" },
+          image: { widget: "image", accept: "image/png,image/svg+xml" }
         }
       }
     },
@@ -211,6 +212,27 @@ test("uploads binary media through a blob and commit", async () => {
   assert.equal(trees[0][0].path, "content/media/hero-image.png");
   assert.equal(trees[0][0].sha, "uploaded-blob");
   assert.ok(calls.some((call) => call.path.endsWith("/git/blobs")));
+});
+
+test("uses configured image types for GitHub media uploads", async () => {
+  const { adapter, trees } = makeGitHubFixture();
+  await adapter.config();
+  const svg = {
+    name: "Diagram.svg",
+    size: 6,
+    type: "image/svg+xml",
+    async arrayBuffer() {
+      return new TextEncoder().encode("<svg/>").buffer;
+    }
+  };
+
+  assert.equal((await adapter.uploadMedia(svg)).path, "/media/diagram.svg");
+  assert.equal(trees[0][0].path, "content/media/diagram.svg");
+
+  await assert.rejects(
+    () => adapter.uploadMedia({ ...svg, name: "Photo.jpg", type: "image/jpeg" }),
+    /configured accepted file type/
+  );
 });
 
 test("parses the auth worker postMessage protocol", () => {

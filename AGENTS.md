@@ -23,7 +23,8 @@ Preserve useful guidance and remove stale information.
   `styles/_typography.scss` owns the shared Sass typography placeholders.
 - `admin/server/`: Express 5 API for config, complete YAML records, and media.
 - `admin/shared/content.js`: browser/Node-compatible YAML, validation, safe
-  repository paths, and record summaries. `slug.js` owns filename templates.
+  repository paths, and record summaries. `media.js` owns upload accept-list
+  parsing and matching; `slug.js` owns filename templates.
 - `admin/vite.config.js`: editor development/build configuration.
 - `bin/minicms.mjs`: package CLI. It resolves consumer config/content from the
   current directory or `--project-root`; `build --static` writes a Pages-ready
@@ -81,10 +82,12 @@ browser-adapter deployment. Local dev/build/start always use the Node adapter.
 
 Supported widgets include `string`, `text`, `markdown`, `select`, `boolean`,
 `datetime`, `number`, `image`, `reference`, and `uuid`. Select options may be
-scalars or `{label, value}` mappings. Image uploads are immediate. Unannotated
-image values remain path strings; annotated values use `{src, regions, points}`
-with labeled integer coordinates in original-image pixels. Always read images
-through `model/image.js` so both shapes remain compatible. Reference
+scalars or `{label, value}` mappings. Image uploads are immediate. Image
+fields use an HTML-style `accept` string; MIME types, extensions, and wildcards
+are supported and enforced by both adapters. The shared default includes SVG.
+Unannotated image values remain path strings; annotated values use
+`{src, regions, points}` with labeled integer coordinates in original-image
+pixels. Always read images through `model/image.js` so both shapes remain compatible. Reference
 presentation belongs to the target collection’s `views.reference` and may
 configure `value`, `image`, `title`, and `description`.
 

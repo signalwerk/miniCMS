@@ -189,6 +189,16 @@ opens these controls in a dedicated modal and supports multiple labeled
 regions with eight resize handles plus multiple labeled points; both can be
 moved with a pointer or keyboard.
 
+Image fields may configure an HTML-style `accept` list. MIME types, filename
+extensions, and wildcards are supported; both persistence adapters enforce the
+configured types in addition to the browser picker. SVG is part of the default:
+
+```yaml
+file:
+  widget: image
+  accept: image/jpeg,image/png,image/webp,image/svg+xml
+```
+
 The top-bar Settings overlay provides a guided editor for project defaults,
 collections, content types, fields, dropdown options, content areas, table
 columns, hierarchy, references, and inspector layout. Common settings are

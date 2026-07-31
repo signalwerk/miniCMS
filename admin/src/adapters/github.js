@@ -9,17 +9,13 @@ import {
   validateConfig,
   validateRecord
 } from "../../shared/content.js";
+import {
+  configuredImageAccept,
+  mediaFileMatchesAccept
+} from "../../shared/media.js";
 import { sanitizeFilenameStem } from "../../shared/slug.js";
 import { createGitHubAuth } from "./github-auth.js";
 
-const IMAGE_EXTENSIONS = new Set([
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".gif",
-  ".webp",
-  ".avif"
-]);
 const API_VERSION = "2026-03-10";
 
 function encodePath(value) {
@@ -560,13 +556,15 @@ function createGitHubAdapter({
 
   async function uploadMedia(file) {
     await ensureAuthenticated();
+    const config = await ensureConfig();
     const extension = file.name
       .slice(file.name.lastIndexOf("."))
       .toLowerCase();
-    if (!IMAGE_EXTENSIONS.has(extension)) {
+    const acceptedTypes = configuredImageAccept(config);
+    if (!mediaFileMatchesAccept(file, acceptedTypes)) {
       throw contentError(
         400,
-        "Images must use jpg, jpeg, png, gif, webp, or avif."
+        `The image must match a configured accepted file type (${acceptedTypes.join(", ")}).`
       );
     }
     if (!file.size) throw contentError(400, "The uploaded image is empty.");
@@ -574,7 +572,6 @@ function createGitHubAdapter({
       throw contentError(413, "Images must be smaller than 20 MB.");
     }
 
-    const config = await ensureConfig();
     const mediaFolder = normalizeRepositoryPath(
       config.site?.media_folder || "content/media",
       "media folder"
@@ -584,7 +581,7 @@ function createGitHubAdapter({
       entries.map((entry) => entry.name.toLowerCase())
     );
     const base = sanitizeFilenameStem(
-      file.name.slice(0, -extension.length),
+      extension ? file.name.slice(0, -extension.length) : file.name,
       "image"
     );
     let filename = `${base}${extension}`;

@@ -73,6 +73,7 @@ async function runTests() {
   const testFiles = [
     path.join(packageRoot, "admin", "server", "api.test.mjs"),
     path.join(packageRoot, "admin", "shared", "content.test.mjs"),
+    path.join(packageRoot, "admin", "shared", "media.test.mjs"),
     path.join(packageRoot, "admin", "shared", "slug.test.mjs"),
     path.join(packageRoot, "admin", "src", "adapters", "github.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "image.test.mjs"),

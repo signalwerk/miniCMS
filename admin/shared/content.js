@@ -1,4 +1,5 @@
 import yaml from "js-yaml";
+import { validateMediaAccept } from "./media.js";
 
 const YAML_OPTIONS = {
   schema: yaml.JSON_SCHEMA
@@ -245,6 +246,15 @@ function validateConfig(config, status = 500) {
       if (field.widget === "select" && !Array.isArray(field.options)) {
         fail(
           `Select field "${typeName}.${fieldName}" must define an options array.`
+        );
+      }
+      if (
+        field.widget === "image" &&
+        field.accept !== undefined &&
+        !validateMediaAccept(field.accept)
+      ) {
+        fail(
+          `Image field "${typeName}.${fieldName}" must define accepted file types as a comma-separated list of MIME types or extensions.`
         );
       }
     }

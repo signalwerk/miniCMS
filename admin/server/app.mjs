@@ -4,6 +4,10 @@ import { promises as fs } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { sanitizeFilenameStem } from "../shared/slug.js";
 import {
+  configuredImageAccept,
+  mediaFileMatchesAccept
+} from "../shared/media.js";
+import {
   assertSafeName as assertSharedSafeName,
   dumpYaml,
   hierarchyValue,
@@ -168,14 +172,7 @@ export function createApp({
   app.post(
     "/api/media",
     express.raw({
-      type: [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-        "image/avif",
-        "application/octet-stream"
-      ],
+      type: "*/*",
       limit: "20mb"
     }),
     async (request, response, next) => {
@@ -183,18 +180,17 @@ export function createApp({
         const config = await getConfig();
         const originalName = String(request.query.filename || "");
         const extension = path.extname(originalName).toLowerCase();
-        const allowedExtensions = new Set([
-          ".jpg",
-          ".jpeg",
-          ".png",
-          ".gif",
-          ".webp",
-          ".avif"
-        ]);
-        if (!allowedExtensions.has(extension)) {
+        const acceptedTypes = configuredImageAccept(config);
+        if (!mediaFileMatchesAccept(
+          {
+            filename: originalName,
+            mimeType: request.headers["content-type"]
+          },
+          acceptedTypes
+        )) {
           throw httpError(
             400,
-            "Images must use jpg, jpeg, png, gif, webp, or avif."
+            `The image must match a configured accepted file type (${acceptedTypes.join(", ")}).`
           );
         }
         if (!Buffer.isBuffer(request.body) || !request.body.length) {
