@@ -1644,7 +1644,6 @@ export default function App() {
               {documentHasHidden && (
                 <button
                   type="button"
-                  className={cx(record?.properties?.hidden && "is-active")}
                   title={
                     record?.properties?.hidden
                       ? "Show page"
@@ -1762,7 +1761,6 @@ export default function App() {
               {selectedNodeHasHidden && (
                 <button
                   type="button"
-                  className={cx(selectedNode?.properties?.hidden && "is-active")}
                   title={selectedNode?.properties?.hidden ? "Show content" : "Hide content"}
                   disabled={!selectedNode}
                   onClick={toggleSelectedVisibility}

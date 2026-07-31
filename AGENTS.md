@@ -128,6 +128,9 @@ grip, and delete action visible while collapsed.
 - Content-tree rows use their configured icon as the type indicator; do not
   add a redundant type-name suffix on the right side.
 - Tree action bars and operations must respect multi-selection.
+- Hidden tree rows keep their muted treatment when selected and show a small
+  crossed badge on the type icon. Do not add a trailing visibility icon or an
+  accent/active state to the toolbar visibility action.
 - Both tree add actions use the searchable insertion overlay.
 - Both trees use `@dnd-kit/core`, identical inside-drop behavior, absolute
   no-layout-shift indicators, and a pointer-offset drag overlay.

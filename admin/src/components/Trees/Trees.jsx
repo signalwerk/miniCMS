@@ -1,9 +1,9 @@
 import {
   ChevronDown,
   ChevronRight,
-  EyeOff,
   FileText,
-  Layers3
+  Layers3,
+  X
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import "./Trees.scss";
@@ -29,6 +29,14 @@ import {
   nextTreeSelection
 } from "../../model/editor.js";
 import { EmptyState } from "../Common/Common.jsx";
+
+function HiddenBadge({ label = "Hidden" }) {
+  return (
+    <span className="tree-row__hidden-badge" role="img" aria-label={label}>
+      <X size={9} strokeWidth={2.4} aria-hidden="true" />
+    </span>
+  );
+}
 
 function TreeDropLine({ id, data, enabled, visible, depth }) {
   const { isOver, setNodeRef } = useDroppable({
@@ -134,11 +142,11 @@ function CollectionTreeRow({
         {childrenCount &&
           (isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
       </span>
-      <FileText size={15} strokeWidth={1.7} />
+      <span className="tree-row__type-icon">
+        <FileText size={15} strokeWidth={1.7} />
+        {item.hidden && <HiddenBadge label="Page hidden" />}
+      </span>
       <span className="tree-row__label">{item.title}</span>
-      {item.hidden && (
-        <EyeOff className="tree-row__visibility" size={13} aria-label="Page hidden" />
-      )}
     </button>
   );
 }
@@ -417,11 +425,9 @@ function ContentNodeRow({
       </span>
       <span className={cx("node-icon", `node-icon--${type.kind || "content"}`)}>
         <Icon size={14} strokeWidth={1.8} />
+        {node.properties?.hidden && <HiddenBadge />}
       </span>
       <span className="tree-row__label">{label}</span>
-      {node.properties?.hidden && (
-        <EyeOff className="tree-row__visibility" size={13} aria-label="Hidden" />
-      )}
     </button>
   );
 }

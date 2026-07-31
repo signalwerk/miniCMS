@@ -124,11 +124,6 @@
   background: #30312c;
 }
 
-.document-toolbar > button.is-active {
-  color: #20221b;
-  background: var(--lime);
-}
-
 .document-toolbar > button.danger:hover:not(:disabled) {
   color: #ffaaa4;
   background: #412b29;
@@ -339,22 +334,47 @@
   opacity: 0.8;
 }
 
-.tree-row--hidden:not(.tree-row--selected) {
+.tree-row--hidden,
+.tree-row--hidden:hover,
+.tree-row--selected.tree-row--hidden,
+.tree-row--selected.tree-row--hidden:hover {
   color: #777a72;
 }
 
-.tree-row--hidden:not(.tree-row--selected) > svg:not(.tree-row__visibility) {
-  opacity: 0.55;
+.tree-row--hidden .tree-row__toggle,
+.tree-row--hidden .tree-row__label,
+.tree-row--hidden .tree-row__type-icon > svg,
+.tree-row--hidden .node-icon > svg {
+  opacity: 0.48;
 }
 
-.tree-row__visibility {
-  flex: 0 0 auto;
-  margin-left: auto;
-  color: #777a72;
+.tree-row__type-icon {
+  position: relative;
+  display: inline-flex;
+  width: 17px;
+  height: 20px;
+  flex: 0 0 17px;
+  align-items: center;
+  justify-content: center;
 }
 
-.tree-row--selected .tree-row__visibility {
-  color: #c6ccb5;
+.tree-row__hidden-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -2px;
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+  align-items: center;
+  justify-content: center;
+  color: #f6e8e4;
+  background: #a84f37;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #1f201d;
+}
+
+.tree-row__hidden-badge > svg {
+  opacity: 1;
 }
 
 .tree-row__toggle {
@@ -383,6 +403,7 @@
 }
 
 .node-icon {
+  position: relative;
   display: inline-flex;
   width: 23px;
   height: 23px;
@@ -407,6 +428,17 @@
 .tree-row--selected .node-icon {
   color: #20221b;
   background: var(--lime);
+}
+
+.tree-row--hidden .node-icon,
+.tree-row--selected.tree-row--hidden .node-icon {
+  color: #777a72;
+  background: #292a26;
+}
+
+.node-icon .tree-row__hidden-badge {
+  right: -4px;
+  bottom: -4px;
 }
 
 .slot-label {
