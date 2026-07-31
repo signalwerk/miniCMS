@@ -16,6 +16,7 @@ import {
 import { imageSource } from "../../model/image.js";
 import { EmptyState, Spinner } from "../Common/Common.jsx";
 import { AnnotatedImageField } from "./AnnotatedImageField.jsx";
+import { FileUploadField } from "./FileUploadField.jsx";
 
 function referenceItemValue(item, name, collection) {
   if (!name || name === "id" || name === "$id") return item.id;
@@ -327,6 +328,15 @@ function Field({
   } else if (field.widget === "image") {
     control = (
       <AnnotatedImageField
+        id={id}
+        field={field}
+        value={resolvedValue}
+        onChange={onChange}
+      />
+    );
+  } else if (field.widget === "file") {
+    control = (
+      <FileUploadField
         id={id}
         field={field}
         value={resolvedValue}

@@ -10,9 +10,10 @@ import {
   validateRecord
 } from "../../shared/content.js";
 import {
-  configuredImageAccept,
+  configuredMediaAccept,
   mediaAcceptErrorMessage,
-  mediaFileMatchesAccept
+  mediaFileMatchesAccept,
+  recordMediaStoragePaths
 } from "../../shared/media.js";
 import { sanitizeFilenameStem } from "../../shared/slug.js";
 import { createGitHubAuth } from "./github-auth.js";
@@ -517,7 +518,7 @@ function createGitHubAdapter({
 
   async function remove(collectionName, id) {
     await ensureAuthenticated();
-    const { collection } = await collectionConfiguration(collectionName);
+    const { config, collection } = await collectionConfiguration(collectionName);
     const path = recordPath(collection, id);
     const record = await readRecord(collection, id);
     const deletingHierarchyId = hierarchyValue(
@@ -537,8 +538,26 @@ function createGitHubAdapter({
         `Record "${id}" still has child records. Move or delete them first.`
       );
     }
+    const mediaPaths = collection.delete_files_with_record
+      ? recordMediaStoragePaths(record, config)
+      : [];
+    const existingMediaPaths = [];
+    for (const mediaPath of mediaPaths) {
+      try {
+        await readRepositoryFile(mediaPath);
+        existingMediaPaths.push(mediaPath);
+      } catch (error) {
+        if (error.status !== 404) throw error;
+      }
+    }
     await commitChanges(
-      [{ path, delete: true }],
+      [
+        { path, delete: true },
+        ...existingMediaPaths.map((mediaPath) => ({
+          path: mediaPath,
+          delete: true
+        }))
+      ],
       `Delete ${collection.label_singular || collection.name} ${id}`
     );
     recordCache.delete(path);
@@ -561,16 +580,16 @@ function createGitHubAdapter({
     const extension = file.name
       .slice(file.name.lastIndexOf("."))
       .toLowerCase();
-    const acceptedTypes = configuredImageAccept(config);
+    const acceptedTypes = configuredMediaAccept(config);
     if (!mediaFileMatchesAccept(file, acceptedTypes)) {
       throw contentError(
         400,
         mediaAcceptErrorMessage(file, acceptedTypes)
       );
     }
-    if (!file.size) throw contentError(400, "The uploaded image is empty.");
+    if (!file.size) throw contentError(400, "The uploaded file is empty.");
     if (file.size > 20 * 1024 * 1024) {
-      throw contentError(413, "Images must be smaller than 20 MB.");
+      throw contentError(413, "Uploads must be smaller than 20 MB.");
     }
 
     const mediaFolder = normalizeRepositoryPath(

@@ -27,6 +27,7 @@ import {
   slugTemplateFieldNames,
   uniqueFilenameStem
 } from "../shared/slug.js";
+import { recordMediaStoragePaths } from "../shared/media.js";
 import {
   DEFAULT_LAYOUT_PREFERENCES,
   LAYOUT_STORAGE_KEY,
@@ -1207,12 +1208,32 @@ export default function App() {
     const count = selectedItems.length;
     const singular = collection?.label_singular?.toLowerCase() || "record";
     const plural = collection?.label?.toLowerCase() || "records";
+    const deletedFilePaths = collection?.delete_files_with_record
+      ? [
+          ...new Set(
+            selectedItems.flatMap((item) =>
+              recordMediaStoragePaths(item, config)
+            )
+          )
+        ]
+      : [];
+    const deletedFilenames = deletedFilePaths.map(
+      (filePath) => filePath.split("/").pop() || filePath
+    );
+    const recordWarning =
+      count === 1
+        ? `This permanently removes “${selectedItems[0].title}” and its YAML file.`
+        : `This permanently removes the ${count} selected records and their YAML files.`;
+    const fileWarning = deletedFilenames.length
+      ? deletedFilenames.length === 1
+        ? ` The uploaded file “${deletedFilenames[0]}” will also be permanently deleted.`
+        : ` ${deletedFilenames.length} uploaded files will also be permanently deleted: ${deletedFilenames
+            .map((filename) => `“${filename}”`)
+            .join(", ")}.`
+      : "";
     setConfirmation({
       title: `Delete ${count} ${count === 1 ? singular : plural}?`,
-      description:
-        count === 1
-          ? `This permanently removes “${selectedItems[0].title}” and its YAML file.`
-          : `This permanently removes the ${count} selected records and their YAML files.`,
+      description: `${recordWarning}${fileWarning}`,
       confirmLabel: count === 1 ? `Delete ${singular}` : `Delete ${count} records`,
       danger: true,
       onConfirm: () => deleteRecords(new Set(recordIds))

@@ -41,6 +41,7 @@ const FIELD_WIDGETS = new Set([
   "boolean",
   "datetime",
   "number",
+  "file",
   "image",
   "reference",
   "uuid"
@@ -249,15 +250,19 @@ function validateConfig(config, status = 500) {
         );
       }
       if (
-        field.widget === "image" &&
+        ["image", "file"].includes(field.widget) &&
         field.accept !== undefined &&
         !validateMediaAccept(field.accept)
       ) {
+        const fieldType = field.widget === "image" ? "Image" : "File";
         fail(
-          `Image field "${typeName}.${fieldName}" must define accepted file types as an array of MIME types or extensions.`
+          `${fieldType} field "${typeName}.${fieldName}" must define accepted file types as an array of MIME types or extensions.`
         );
       }
-      if (field.widget === "image" && typeof field.accept === "string") {
+      if (
+        ["image", "file"].includes(field.widget) &&
+        typeof field.accept === "string"
+      ) {
         field.accept = acceptTokens(field.accept);
       }
     }
@@ -318,6 +323,14 @@ function validateConfig(config, status = 500) {
     ) {
       fail(
         `Collection "${collectionName}" must define slug as a non-empty template string.`
+      );
+    }
+    if (
+      collection.delete_files_with_record !== undefined &&
+      typeof collection.delete_files_with_record !== "boolean"
+    ) {
+      fail(
+        `Collection "${collectionName}" delete_files_with_record must be a boolean.`
       );
     }
     if (typeof collection.folder !== "string" || !collection.folder) {

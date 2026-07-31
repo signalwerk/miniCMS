@@ -83,11 +83,12 @@ Express API or shared modules used by the running API process.
   the slash-free record ID. Full public paths are a renderer concern.
 
 Supported widgets include `string`, `text`, `markdown`, `select`, `boolean`,
-`datetime`, `number`, `image`, `reference`, and `uuid`. Select options may be
-scalars or `{label, value}` mappings. Image uploads are immediate. Image
-fields use an `accept` array of HTML accept tokens; MIME types, extensions, and
-wildcards are supported and enforced by both adapters. Legacy comma-delimited
-strings normalize to arrays when loaded. The shared default includes SVG.
+`datetime`, `number`, `file`, `image`, `reference`, and `uuid`. Select options
+may be scalars or `{label, value}` mappings. Uploads are immediate. File and
+image fields use an `accept` array of HTML accept tokens; MIME types,
+extensions, and wildcards including `*/*` are supported and enforced by both
+adapters. Legacy comma-delimited strings normalize to arrays when loaded. The
+shared image default includes SVG; the file default accepts all types.
 Rejected media errors include the normalized MIME type received from the
 browser or request header; use the shared media error formatter.
 Unannotated image values remain path strings; annotated values use
@@ -102,6 +103,11 @@ Detail layout belongs under
 `node_types.<type>.views.detail.panels.<panel>.groups.<group>.fields`.
 Panel and group order is their mapping order in YAML; do not add or interpret
 numeric `position` keys.
+Collections may set `delete_files_with_record: true`. Deletion then discovers
+only `file`/`image` field values, maps them into the configured media folder,
+and deletes them with the YAML record. Node uses rollback-safe filesystem
+renames; GitHub uses one tree commit. Deletion confirmation must name the
+affected uploaded files.
 Collection list layout belongs under `collections.<name>.views.list`.
 Table columns may define read/edit mode, display, appearance, alignment,
 sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,

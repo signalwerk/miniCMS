@@ -36,7 +36,8 @@ function fixtureConfig() {
         folder: "content/pages",
         extension: "yml",
         node_type: "page",
-        allowed_types: ["page"]
+        allowed_types: ["page"],
+        delete_files_with_record: true
       }
     }
   };
@@ -65,7 +66,7 @@ function makeGitHubFixture() {
     id: "home",
     type: "page",
     order: 0,
-    properties: { title: "Home" },
+    properties: { title: "Home", image: "/media/hero.png" },
     slots: {}
   };
   const calls = [];
@@ -102,6 +103,12 @@ function makeGitHubFixture() {
       url.pathname.endsWith("/contents/content/pages/home.yml")
     ) {
       return json(repositoryFile("content/pages/home.yml", dumpYaml(record), "home-sha"));
+    }
+    if (
+      method === "GET" &&
+      url.pathname.endsWith("/contents/content/media/hero.png")
+    ) {
+      return json(repositoryFile("content/media/hero.png", "image", "hero-sha"));
     }
     if (method === "GET" && url.pathname.endsWith("/contents/content/media")) {
       return json([]);
@@ -192,6 +199,22 @@ test("writes YAML through one atomic Git commit transaction", async () => {
         call.path.endsWith("/git/refs/heads/main") &&
         call.headers.authorization === "Bearer github-token"
     )
+  );
+});
+
+test("deletes a record and its configured upload in one Git commit", async () => {
+  const { adapter, trees } = makeGitHubFixture();
+  await adapter.config();
+
+  await adapter.remove("pages", "home");
+
+  assert.equal(trees.length, 1);
+  assert.deepEqual(
+    trees[0].map(({ path, sha }) => ({ path, sha })),
+    [
+      { path: "content/pages/home.yml", sha: null },
+      { path: "content/media/hero.png", sha: null }
+    ]
   );
 });
 

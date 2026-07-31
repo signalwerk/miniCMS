@@ -6,6 +6,7 @@ const DEFAULT_IMAGE_ACCEPT = Object.freeze([
   "image/avif",
   "image/svg+xml"
 ]);
+const DEFAULT_FILE_ACCEPT = Object.freeze(["*/*"]);
 
 const MIME_EXTENSIONS = new Map([
   ["image/jpeg", new Set([".jpg", ".jpeg"])],
@@ -43,6 +44,7 @@ function validateMediaAccept(value) {
   }
   return rawTokens.every((rawToken) => {
     const token = rawToken.trim();
+    if (token === "*/*") return true;
     if (/^\.[a-z0-9][a-z0-9._+-]*$/i.test(token)) return true;
     return /^[a-z0-9][a-z0-9!#$&^_.+-]*\/(?:\*|[a-z0-9][a-z0-9!#$&^_.+-]*)$/i.test(
       token
@@ -50,20 +52,27 @@ function validateMediaAccept(value) {
   });
 }
 
-function configuredImageAccept(config) {
+function configuredMediaAccept(config) {
   const configured = [];
-  let hasImageField = false;
+  let hasUploadField = false;
   for (const type of Object.values(config?.node_types ?? {})) {
     for (const field of Object.values(type?.fields ?? {})) {
-      if (field?.widget !== "image") continue;
-      hasImageField = true;
-      configured.push(...acceptTokens(field.accept));
+      if (!["image", "file"].includes(field?.widget)) continue;
+      hasUploadField = true;
+      configured.push(
+        ...acceptTokens(
+          field.accept ??
+            (field.widget === "file" ? DEFAULT_FILE_ACCEPT : DEFAULT_IMAGE_ACCEPT)
+        )
+      );
     }
   }
-  return hasImageField
+  return hasUploadField
     ? [...new Set(configured)]
     : acceptTokens(DEFAULT_IMAGE_ACCEPT);
 }
+
+const configuredImageAccept = configuredMediaAccept;
 
 function filenameExtension(filename) {
   const basename = String(filename || "").split(/[\\/]/).pop() || "";
@@ -90,7 +99,7 @@ function mediaAcceptErrorMessage(file, accept = DEFAULT_IMAGE_ACCEPT) {
   const acceptedTypes = acceptTokens(accept);
   const mimeType = mediaFileMimeType(file) || "unknown";
   return [
-    `The image must match a configured accepted file type (${acceptedTypes.join(", ")}).`,
+    `The upload must match a configured accepted file type (${acceptedTypes.join(", ")}).`,
     `Received MIME type: ${mimeType}.`
   ].join(" ");
 }
@@ -102,6 +111,7 @@ function mediaFileMatchesAccept(file, accept = DEFAULT_IMAGE_ACCEPT) {
 
   return acceptTokens(accept).some(
     (token) => {
+      if (token === "*/*") return true;
       if (token.startsWith(".")) return extension === token;
       if (token.endsWith("/*")) {
         const prefix = token.slice(0, -1);
@@ -119,12 +129,82 @@ function mediaFileMatchesAccept(file, accept = DEFAULT_IMAGE_ACCEPT) {
   );
 }
 
+function mediaValueSource(value) {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object" && typeof value.src === "string") {
+    return value.src.trim();
+  }
+  return "";
+}
+
+function recordMediaSources(record, config) {
+  const sources = new Set();
+  const visit = (node) => {
+    const fields = config?.node_types?.[node?.type]?.fields ?? {};
+    for (const [fieldName, field] of Object.entries(fields)) {
+      if (!["image", "file"].includes(field?.widget)) continue;
+      const source = mediaValueSource(node?.properties?.[fieldName]);
+      if (source) sources.add(source);
+    }
+    for (const children of Object.values(node?.slots ?? {})) {
+      if (Array.isArray(children)) children.forEach(visit);
+    }
+  };
+  if (record && typeof record === "object") visit(record);
+  return [...sources];
+}
+
+function mediaStoragePath(source, config) {
+  const value = mediaValueSource(source);
+  if (!value) return null;
+  const mediaFolder = String(
+    config?.site?.media_folder || "content/media"
+  ).replace(/^\/+|\/+$/g, "");
+  const publicFolder = String(
+    config?.site?.public_folder || "/media"
+  ).replace(/\/+$/, "");
+  let relativePath = "";
+  if (value.startsWith(`${publicFolder}/`)) {
+    relativePath = value.slice(publicFolder.length + 1);
+  } else if (value.startsWith(`${mediaFolder}/`)) {
+    relativePath = value.slice(mediaFolder.length + 1);
+  } else {
+    return null;
+  }
+  relativePath = relativePath.split(/[?#]/, 1)[0];
+  const segments = relativePath.split("/");
+  if (
+    !relativePath ||
+    relativePath.includes("\\") ||
+    segments.some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    return null;
+  }
+  return `${mediaFolder}/${segments.join("/")}`;
+}
+
+function recordMediaStoragePaths(record, config) {
+  return [
+    ...new Set(
+      recordMediaSources(record, config)
+        .map((source) => mediaStoragePath(source, config))
+        .filter(Boolean)
+    )
+  ];
+}
+
 export {
+  DEFAULT_FILE_ACCEPT,
   DEFAULT_IMAGE_ACCEPT,
   acceptTokens,
   configuredImageAccept,
+  configuredMediaAccept,
   mediaAcceptErrorMessage,
   mediaFileMatchesAccept,
   mediaFileMimeType,
+  mediaStoragePath,
+  mediaValueSource,
+  recordMediaSources,
+  recordMediaStoragePaths,
   validateMediaAccept
 };

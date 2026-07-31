@@ -1,0 +1,78 @@
+@use "../../styles/typography" as *;
+
+.file-upload-field {
+  display: grid;
+  gap: 7px;
+}
+
+.file-upload-field__file,
+.file-upload-field__empty {
+  display: flex;
+  min-width: 0;
+  min-height: 54px;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 10px;
+  color: #bfc1b8;
+  background: #20211e;
+  border: 1px solid #383a34;
+  border-radius: 3px;
+}
+
+.file-upload-field__file:hover {
+  color: #e7e8e1;
+  background: #252622;
+  border-color: #4a4c44;
+}
+
+.file-upload-field__file:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 1px;
+}
+
+.file-upload-field__file > svg,
+.file-upload-field__empty > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #999c91;
+}
+
+.file-upload-field__file > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.file-upload-field__file strong {
+  @extend %type-normal-bold;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-upload-field__file code,
+.file-upload-field__empty {
+  @extend %type-consulting;
+}
+
+.file-upload-field__file code {
+  overflow: hidden;
+  color: #777a71;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-upload-field__empty {
+  align-items: center;
+  color: #777a71;
+  border-style: dashed;
+}
+
+.file-upload-field__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.file-upload-field__actions .button {
+  min-height: 29px;
+}

@@ -48,6 +48,7 @@ import {
   iconFor
 } from "../../model/editor.js";
 import {
+  DEFAULT_FILE_ACCEPT,
   DEFAULT_IMAGE_ACCEPT,
   acceptTokens,
   validateMediaAccept
@@ -64,6 +65,7 @@ const WIDGET_OPTIONS = [
   ["boolean", "On / off"],
   ["datetime", "Date"],
   ["number", "Number"],
+  ["file", "File upload"],
   ["image", "Image upload"],
   ["reference", "Collection reference"],
   ["uuid", "Generated UUID"]
@@ -1199,6 +1201,9 @@ function FieldEditor({
                 delete nextField.collection;
                 delete nextField.value_field;
               }
+              if (!["image", "file"].includes(value)) {
+                delete nextField.accept;
+              }
             })}
           >
             {WIDGET_OPTIONS.map(([value, label]) => (
@@ -1293,7 +1298,7 @@ function FieldEditor({
         ) : widget !== "uuid" ? (
           <FormField
             label={
-              widget === "image"
+              ["image", "file"].includes(widget)
                 ? "Default media path"
                 : widget === "reference"
                   ? "Default reference value"
@@ -1305,8 +1310,10 @@ function FieldEditor({
               type={widget === "number" ? "number" : "text"}
               value={field.default}
               placeholder={
-                widget === "image"
-                  ? "/media/example.jpg"
+                ["image", "file"].includes(widget)
+                  ? widget === "image"
+                    ? "/media/example.jpg"
+                    : "/media/example.pdf"
                   : widget === "reference"
                     ? "Stored reference value"
                     : undefined
@@ -1319,9 +1326,12 @@ function FieldEditor({
             />
           </FormField>
         ) : null}
-        {widget === "image" && (
+        {["image", "file"].includes(widget) && (
           <AcceptedFileTypesEditor
-            value={field.accept || DEFAULT_IMAGE_ACCEPT}
+            value={
+              field.accept ||
+              (widget === "file" ? DEFAULT_FILE_ACCEPT : DEFAULT_IMAGE_ACCEPT)
+            }
             onChange={(accept) => onChange((nextField) => {
               nextField.accept = accept;
             })}
@@ -2427,6 +2437,19 @@ function CollectionEditor({
               placeholder="{{title}}-{{year}}-{{month}}"
             />
           </FormField>
+        </div>
+        <div className="configuration-inline-setting">
+          <span>
+            <strong>Delete uploaded files with record</strong>
+          </span>
+          <Switch
+            checked={collection.delete_files_with_record === true}
+            label="Delete uploaded files with record"
+            onChange={(checked) => updateCollection((nextCollection) => {
+              if (checked) nextCollection.delete_files_with_record = true;
+              else delete nextCollection.delete_files_with_record;
+            })}
+          />
         </div>
       </section>
 

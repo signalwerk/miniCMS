@@ -206,6 +206,29 @@ file:
     - image/svg+xml
 ```
 
+Generic uploads use the `file` widget and the same configurable array. `*/*`
+accepts every file type:
+
+```yaml
+download:
+  widget: file
+  accept:
+    - "*/*"
+```
+
+A collection can own those uploaded files. When enabled, record deletion names
+the affected files in its confirmation and removes upload values from `file`
+and `image` fields together with the YAML record:
+
+```yaml
+collections:
+  downloads:
+    delete_files_with_record: true
+```
+
+Only paths inside the configured `site.media_folder` are eligible for this
+cleanup. GitHub applies the record and upload deletions in one commit.
+
 The top-bar Settings overlay provides a guided editor for project defaults,
 collections, content types, fields, dropdown options, content areas, table
 columns, hierarchy, references, and inspector layout. Common settings are

@@ -257,6 +257,42 @@ test("uploads SVG only when the image field configuration accepts it", async () 
   });
 });
 
+test("uploads generic files when a file field accepts all MIME types", async () => {
+  await withServer(async (baseUrl, rootDir) => {
+    const config = await fetch(`${baseUrl}/api/config`).then((response) =>
+      response.json()
+    );
+    config.node_types.page.fields.download = {
+      widget: "file",
+      accept: ["*/*"]
+    };
+    const savedConfig = await fetch(`${baseUrl}/api/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(config)
+    });
+    assert.equal(savedConfig.status, 200);
+
+    const uploaded = await fetch(
+      `${baseUrl}/api/media?filename=${encodeURIComponent("Research notes.pdf")}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/pdf" },
+        body: "fake-pdf"
+      }
+    );
+    assert.equal(uploaded.status, 201);
+    assert.equal((await uploaded.json()).path, "/media/research-notes.pdf");
+    assert.equal(
+      await fs.readFile(
+        path.join(rootDir, "content", "media", "research-notes.pdf"),
+        "utf8"
+      ),
+      "fake-pdf"
+    );
+  });
+});
+
 test("persists a complete record as YAML and reads it back", async () => {
   await withServer(async (baseUrl, rootDir) => {
     const record = {
@@ -363,8 +399,24 @@ test("rejects child types that are not allowed by a slot", async () => {
   });
 });
 
-test("deletes leaf records but refuses to orphan child records", async () => {
-  await withServer(async (baseUrl) => {
+test("deletes leaf records and their configured uploads but refuses to orphan children", async () => {
+  await withServer(async (baseUrl, rootDir) => {
+    const config = await fetch(`${baseUrl}/api/config`).then((response) =>
+      response.json()
+    );
+    config.collections.pages.delete_files_with_record = true;
+    const savedConfig = await fetch(`${baseUrl}/api/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(config)
+    });
+    assert.equal(savedConfig.status, 200);
+    await fs.mkdir(path.join(rootDir, "content", "media"), { recursive: true });
+    await fs.writeFile(
+      path.join(rootDir, "content", "media", "child.png"),
+      "child-image",
+      "utf8"
+    );
     const child = {
       id: "child-page",
       type: "page",
@@ -373,6 +425,7 @@ test("deletes leaf records but refuses to orphan child records", async () => {
         uuid: "49c0c569-a0e1-4c4c-85c6-14b659aebd2d",
         parent_uuid: "84a3ef27-cdce-477b-863f-c1f418037685",
         title: "Child page",
+        image: "/media/child.png",
         hidden: true
       },
       slots: { content: [] }
@@ -398,5 +451,9 @@ test("deletes leaf records but refuses to orphan child records", async () => {
 
     const missing = await fetch(`${baseUrl}/api/collections/pages/child-page`);
     assert.equal(missing.status, 404);
+    await assert.rejects(
+      fs.access(path.join(rootDir, "content", "media", "child.png")),
+      { code: "ENOENT" }
+    );
   });
 });

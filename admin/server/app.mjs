@@ -4,9 +4,10 @@ import { promises as fs } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { sanitizeFilenameStem } from "../shared/slug.js";
 import {
-  configuredImageAccept,
+  configuredMediaAccept,
   mediaAcceptErrorMessage,
-  mediaFileMatchesAccept
+  mediaFileMatchesAccept,
+  recordMediaStoragePaths
 } from "../shared/media.js";
 import {
   assertSafeName as assertSharedSafeName,
@@ -49,6 +50,28 @@ async function writeYamlAtomic(filePath, value) {
   const output = dumpYaml(value);
   await fs.writeFile(temporaryFile, output, "utf8");
   await fs.rename(temporaryFile, filePath);
+}
+
+async function removeFilesAtomically(filePaths) {
+  const moved = [];
+  try {
+    for (const [index, filePath] of filePaths.entries()) {
+      const temporaryPath = path.join(
+        path.dirname(filePath),
+        `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${index}.delete`
+      );
+      await fs.rename(filePath, temporaryPath);
+      moved.push({ filePath, temporaryPath });
+    }
+  } catch (error) {
+    for (const { filePath, temporaryPath } of moved.reverse()) {
+      await fs.rename(temporaryPath, filePath).catch(() => {});
+    }
+    throw error;
+  }
+  await Promise.all(
+    moved.map(({ temporaryPath }) => fs.unlink(temporaryPath).catch(() => {}))
+  );
 }
 
 function summarize(record, stat, collection) {
@@ -181,7 +204,7 @@ export function createApp({
         const config = await getConfig();
         const originalName = String(request.query.filename || "");
         const extension = path.extname(originalName).toLowerCase();
-        const acceptedTypes = configuredImageAccept(config);
+        const acceptedTypes = configuredMediaAccept(config);
         const uploadedFile = {
           filename: originalName,
           mimeType: request.headers["content-type"]
@@ -193,7 +216,7 @@ export function createApp({
           );
         }
         if (!Buffer.isBuffer(request.body) || !request.body.length) {
-          throw httpError(400, "The uploaded image is empty.");
+          throw httpError(400, "The uploaded file is empty.");
         }
 
         const mediaFolder = path.resolve(
@@ -267,7 +290,8 @@ export function createApp({
                 hierarchy,
                 views,
                 slug,
-                identifier_field
+                identifier_field,
+                delete_files_with_record
               }
             ]) => [
               name,
@@ -279,7 +303,8 @@ export function createApp({
                 hierarchy,
                 views,
                 slug,
-                identifier_field
+                identifier_field,
+                delete_files_with_record
               }
             ]
           )
@@ -318,7 +343,9 @@ export function createApp({
     "/api/collections/:collectionName/:recordId",
     async (request, response, next) => {
       try {
-        const { collection, folder } = await getCollection(request.params.collectionName);
+        const { collection, folder } = await getCollection(
+          request.params.collectionName
+        );
         const filePath = recordPath(folder, collection, request.params.recordId);
         response.json(await readYaml(filePath));
       } catch (error) {
@@ -435,7 +462,9 @@ export function createApp({
     "/api/collections/:collectionName/:recordId",
     async (request, response, next) => {
       try {
-        const { collection, folder } = await getCollection(request.params.collectionName);
+        const { config, collection, folder } = await getCollection(
+          request.params.collectionName
+        );
         const filePath = recordPath(folder, collection, request.params.recordId);
         try {
           await fs.access(filePath);
@@ -475,7 +504,29 @@ export function createApp({
           }
         }
 
-        await fs.unlink(filePath);
+        const mediaFolder = path.resolve(
+          rootDir,
+          config.site?.media_folder || "content/media"
+        );
+        const mediaPaths = collection.delete_files_with_record
+          ? recordMediaStoragePaths(deletingRecord, config).map((storagePath) =>
+              path.resolve(rootDir, storagePath)
+            )
+          : [];
+        const existingMediaPaths = [];
+        for (const mediaPath of mediaPaths) {
+          if (mediaPath === mediaFolder || !isInside(mediaFolder, mediaPath)) {
+            throw httpError(500, "A referenced upload resolved outside the media folder.");
+          }
+          try {
+            const stat = await fs.stat(mediaPath);
+            if (stat.isFile()) existingMediaPaths.push(mediaPath);
+          } catch (error) {
+            if (error.code !== "ENOENT") throw error;
+          }
+        }
+
+        await removeFilesAtomically([filePath, ...existingMediaPaths]);
         response.status(204).end();
       } catch (error) {
         next(error);
