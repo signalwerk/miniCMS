@@ -98,6 +98,9 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 Settings keeps Inspector field assignment to field, custom label, and order;
 mode/display/appearance/alignment controls belong to table columns. Runtime
 config parsing retains legacy detail-reference presentation compatibility.
+Inspector Panel rows in Settings are collapsed by default and expand as
+independent accessible disclosures; keep their identity, group count, DnD
+grip, and delete action visible while collapsed.
 
 ## UI conventions
 

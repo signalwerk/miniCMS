@@ -1514,6 +1514,160 @@ function InspectorFieldsEditor({ references = [], fields, onChange }) {
   );
 }
 
+function InspectorPanelEditor({
+  panelKey,
+  panel,
+  panelCount,
+  fields,
+  updateType,
+  onAdd,
+  dragHandleProps
+}) {
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
+  const groupCount = Object.keys(panel.groups ?? {}).length;
+  const panelLabel = panel.label || labelFromKey(panelKey);
+
+  return (
+    <article className={cx("configuration-layout-panel", open && "is-open")}>
+      <div className="configuration-entry-card__top">
+        <button
+          type="button"
+          className="configuration-entry-card__toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          aria-label={`${panelLabel}, ${groupCount} ${groupCount === 1 ? "group" : "groups"}`}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span className="configuration-entry-card__identity">
+            <Layers3 size={15} aria-hidden="true" />
+            <span>
+              <strong>{panelLabel}</strong>
+              <code>{panelKey}</code>
+            </span>
+          </span>
+          <span className="configuration-entry-card__badges" aria-hidden="true">
+            <i>{groupCount} {groupCount === 1 ? "group" : "groups"}</i>
+          </span>
+          <ChevronDown size={15} aria-hidden="true" />
+        </button>
+        <EntryActions
+          count={panelCount}
+          dragHandleProps={dragHandleProps}
+          dragLabel={panelLabel}
+          onDelete={() => updateType((nextType) => {
+            delete nextType.views.detail.panels[panelKey];
+          })}
+        />
+      </div>
+      {open && (
+        <div id={bodyId} className="configuration-entry-card__body">
+          <FormField label="Panel label">
+            <TextInput
+              value={panel.label}
+              onChange={(value) => updateType((nextType) => {
+                nextType.views.detail.panels[panelKey].label = value;
+              })}
+            />
+          </FormField>
+          <div className="configuration-subheading">
+            <div>
+              <strong>Groups</strong>
+            </div>
+            <button
+              type="button"
+              className="configuration-small-button"
+              onClick={() => onAdd({ kind: "group", panelKey })}
+            >
+              <Plus size={13} /> Add group
+            </button>
+          </div>
+          <ConfigurationDndList
+            className="configuration-group-list"
+            ariaLabel={`${panelLabel} groups`}
+            items={Object.entries(panel.groups ?? {}).map(([groupKey, group]) => ({
+              id: groupKey,
+              label: group.label || labelFromKey(groupKey)
+            }))}
+            onReorder={(sourceIndex, destinationIndex) => updateType((nextType) => {
+              const groupKey = Object.keys(panel.groups ?? {})[sourceIndex];
+              const groups = nextType.views.detail.panels[panelKey].groups;
+              nextType.views.detail.panels[panelKey].groups =
+                moveMappingEntryTo(groups, groupKey, destinationIndex);
+            })}
+          >
+            {(groupItem, _groupIndex, { dragHandleProps: groupDragHandleProps }) => {
+              const groupKey = groupItem.id;
+              const group = panel.groups[groupKey];
+              return (
+                <div className="configuration-layout-group">
+                  <div className="configuration-layout-group__top">
+                    <span>
+                      <strong>{group.label || labelFromKey(groupKey)}</strong>
+                      <code>{groupKey}</code>
+                    </span>
+                    <EntryActions
+                      count={groupCount}
+                      dragHandleProps={groupDragHandleProps}
+                      dragLabel={group.label || labelFromKey(groupKey)}
+                      onDelete={() => updateType((nextType) => {
+                        delete nextType.views.detail.panels[panelKey].groups[groupKey];
+                      })}
+                    />
+                  </div>
+                  <div className="configuration-entry-card__grid">
+                    <FormField label="Group label">
+                      <TextInput
+                        value={group.label}
+                        onChange={(value) => updateType((nextType) => {
+                          nextType.views.detail.panels[panelKey].groups[groupKey].label = value;
+                        })}
+                      />
+                    </FormField>
+                    <FormField label="Icon" optional>
+                      <IconSelect
+                        value={group.icon}
+                        includeDefault
+                        defaultIcon={Settings2}
+                        onChange={(value) => updateType((nextType) => {
+                          setOptional(
+                            nextType.views.detail.panels[panelKey].groups[groupKey],
+                            "icon",
+                            value
+                          );
+                        })}
+                      />
+                    </FormField>
+                  </div>
+                  <FormField label="Description" optional>
+                    <TextInput
+                      value={group.description}
+                      onChange={(value) => updateType((nextType) => {
+                        setOptional(
+                          nextType.views.detail.panels[panelKey].groups[groupKey],
+                          "description",
+                          value
+                        );
+                      })}
+                    />
+                  </FormField>
+                  <InspectorFieldsEditor
+                    fields={fields}
+                    references={group.fields ?? []}
+                    onChange={(value) => updateType((nextType) => {
+                      nextType.views.detail.panels[panelKey].groups[groupKey].fields = value;
+                    })}
+                  />
+                </div>
+              );
+            }}
+          </ConfigurationDndList>
+        </div>
+      )}
+    </article>
+  );
+}
+
 function InspectorLayoutEditor({
   type,
   updateType,
@@ -1556,129 +1710,17 @@ function InspectorLayoutEditor({
           );
         })}
       >
-        {(panelItem, _panelIndex, { dragHandleProps }) => {
-          const panelKey = panelItem.id;
-          const panel = panels[panelKey];
-          return (
-        <article className="configuration-layout-panel">
-          <div className="configuration-entry-card__top">
-            <span className="configuration-entry-card__identity">
-              <Layers3 size={15} />
-              <span>
-                <strong>{panel.label || labelFromKey(panelKey)}</strong>
-                <code>{panelKey}</code>
-              </span>
-            </span>
-            <EntryActions
-              count={Object.keys(panels).length}
-              dragHandleProps={dragHandleProps}
-              dragLabel={panel.label || labelFromKey(panelKey)}
-              onDelete={() => updateType((nextType) => {
-                delete nextType.views.detail.panels[panelKey];
-              })}
-            />
-          </div>
-          <FormField label="Panel label">
-            <TextInput
-              value={panel.label}
-              onChange={(value) => updateType((nextType) => {
-                nextType.views.detail.panels[panelKey].label = value;
-              })}
-            />
-          </FormField>
-          <div className="configuration-subheading">
-            <div>
-              <strong>Groups</strong>
-            </div>
-            <button
-              type="button"
-              className="configuration-small-button"
-              onClick={() => onAdd({ kind: "group", panelKey })}
-            >
-              <Plus size={13} /> Add group
-            </button>
-          </div>
-          <ConfigurationDndList
-            className="configuration-group-list"
-            ariaLabel={`${panel.label || labelFromKey(panelKey)} groups`}
-            items={Object.entries(panel.groups ?? {}).map(([groupKey, group]) => ({
-              id: groupKey,
-              label: group.label || labelFromKey(groupKey)
-            }))}
-            onReorder={(sourceIndex, destinationIndex) => updateType((nextType) => {
-              const groupKey = Object.keys(panel.groups ?? {})[sourceIndex];
-              const groups =
-                nextType.views.detail.panels[panelKey].groups;
-              nextType.views.detail.panels[panelKey].groups =
-                moveMappingEntryTo(groups, groupKey, destinationIndex);
-            })}
-          >
-            {(groupItem, _groupIndex, { dragHandleProps: groupDragHandleProps }) => {
-              const groupKey = groupItem.id;
-              const group = panel.groups[groupKey];
-              return (
-            <div className="configuration-layout-group">
-              <div className="configuration-layout-group__top">
-                <span><strong>{group.label || labelFromKey(groupKey)}</strong><code>{groupKey}</code></span>
-                <EntryActions
-                  count={Object.keys(panel.groups ?? {}).length}
-                  dragHandleProps={groupDragHandleProps}
-                  dragLabel={group.label || labelFromKey(groupKey)}
-                  onDelete={() => updateType((nextType) => {
-                    delete nextType.views.detail.panels[panelKey].groups[groupKey];
-                  })}
-                />
-              </div>
-              <div className="configuration-entry-card__grid">
-                <FormField label="Group label">
-                  <TextInput
-                    value={group.label}
-                    onChange={(value) => updateType((nextType) => {
-                      nextType.views.detail.panels[panelKey].groups[groupKey].label = value;
-                    })}
-                  />
-                </FormField>
-                <FormField label="Icon" optional>
-                  <IconSelect
-                    value={group.icon}
-                    includeDefault
-                    defaultIcon={Settings2}
-                    onChange={(value) => updateType((nextType) => {
-                      setOptional(
-                        nextType.views.detail.panels[panelKey].groups[groupKey],
-                        "icon",
-                        value
-                      );
-                    })}
-                  />
-                </FormField>
-              </div>
-              <FormField label="Description" optional>
-                <TextInput
-                  value={group.description}
-                  onChange={(value) => updateType((nextType) => {
-                    setOptional(
-                      nextType.views.detail.panels[panelKey].groups[groupKey],
-                      "description",
-                      value
-                    );
-                  })}
-                />
-              </FormField>
-              <InspectorFieldsEditor
-                fields={fields}
-                references={group.fields ?? []}
-                onChange={(value) => updateType((nextType) => {
-                  nextType.views.detail.panels[panelKey].groups[groupKey].fields = value;
-                })}
-              />
-            </div>
-              );
-            }}
-          </ConfigurationDndList>
-        </article>
-          );
-        }}
+        {(panelItem, _panelIndex, { dragHandleProps }) => (
+          <InspectorPanelEditor
+            panelKey={panelItem.id}
+            panel={panels[panelItem.id]}
+            panelCount={Object.keys(panels).length}
+            fields={fields}
+            updateType={updateType}
+            onAdd={onAdd}
+            dragHandleProps={dragHandleProps}
+          />
+        )}
       </ConfigurationDndList>
       {!Object.keys(panels).length && (
         <p className="configuration-muted">No inspector panels configured.</p>

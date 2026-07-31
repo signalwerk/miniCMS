@@ -751,6 +751,9 @@
 .configuration-entry-card--field.is-open
   .configuration-entry-card__toggle
   > svg,
+.configuration-layout-panel.is-open
+  .configuration-entry-card__toggle
+  > svg,
 .configuration-table-column.is-open
   .configuration-table-column__toggle
   > svg {
@@ -1066,7 +1069,14 @@
 }
 
 .configuration-layout-panel {
+  padding: 10px 12px;
   background: #242521;
+}
+
+.configuration-layout-panel > .configuration-entry-card__top {
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 .configuration-layout-group {
