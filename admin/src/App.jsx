@@ -479,7 +479,12 @@ export default function App() {
       description:
         "The current record has changes that have not been saved. This action cannot be undone.",
       confirmLabel: "Discard changes",
+      secondaryLabel: "Save changes",
       danger: true,
+      onSecondary: async () => {
+        await saveRecord({ throwOnError: true });
+        await action();
+      },
       onConfirm: async () => {
         setDirty(false);
         await action();
@@ -569,8 +574,15 @@ export default function App() {
     );
   }
 
-  async function saveRecord() {
-    if (!record || saving) return;
+  async function saveRecord({ throwOnError = false } = {}) {
+    if (!record || saving) {
+      if (throwOnError) {
+        throw new Error(
+          !record ? "There is no record to save." : "A save is already in progress."
+        );
+      }
+      return false;
+    }
     setSaving(true);
     setError("");
     try {
@@ -580,8 +592,11 @@ export default function App() {
       );
       setDirty(false);
       showToast(`${record.properties?.title || record.id} saved`);
+      return true;
     } catch (saveError) {
       setError(saveError.message);
+      if (throwOnError) throw saveError;
+      return false;
     } finally {
       setSaving(false);
     }

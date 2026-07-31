@@ -325,12 +325,15 @@ function ConfirmationDialog({
   title,
   description,
   confirmLabel,
+  secondaryLabel,
   danger = false,
   onCancel,
+  onSecondary,
   onConfirm
 }) {
-  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
+  const busy = Boolean(busyAction);
 
   useEffect(() => {
     function handleEscape(event) {
@@ -342,17 +345,21 @@ function ConfirmationDialog({
     return () => document.removeEventListener("keydown", handleEscape);
   }, [busy, onCancel]);
 
-  async function submit(event) {
-    event.preventDefault();
-    setBusy(true);
+  async function runAction(action, name) {
+    setBusyAction(name);
     setError("");
     try {
-      await onConfirm();
+      await action();
       onCancel();
     } catch (confirmError) {
       setError(confirmError.message);
-      setBusy(false);
+      setBusyAction("");
     }
+  }
+
+  function submit(event) {
+    event.preventDefault();
+    runAction(onConfirm, "confirm");
   }
 
   return (
@@ -406,6 +413,21 @@ function ConfirmationDialog({
           >
             Cancel
           </button>
+          {onSecondary && secondaryLabel && (
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={() => runAction(onSecondary, "secondary")}
+              disabled={busy}
+            >
+              {busyAction === "secondary" ? (
+                <Spinner small />
+              ) : (
+                <Check size={15} />
+              )}
+              {secondaryLabel}
+            </button>
+          )}
           <button
             type="submit"
             className={cx(
@@ -414,7 +436,13 @@ function ConfirmationDialog({
             )}
             disabled={busy}
           >
-            {busy ? <Spinner small /> : danger ? <Trash2 size={15} /> : <Check size={15} />}
+            {busyAction === "confirm" ? (
+              <Spinner small />
+            ) : danger ? (
+              <Trash2 size={15} />
+            ) : (
+              <Check size={15} />
+            )}
             {confirmLabel}
           </button>
         </div>

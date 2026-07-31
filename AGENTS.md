@@ -133,6 +133,8 @@ grip, and delete action visible while collapsed.
   defaults.
 - Read-only metadata renders as plain selectable text, not disabled inputs.
 - Use shared in-app modals, dismissible with Escape; never browser prompts.
+- Unsaved-change confirmation offers Cancel, Save, and Discard. Save persists
+  the current record and then continues the action that opened the dialog.
 - No record is selected implicitly after collection load or refresh.
 - Multiple tree selections show only their selection count in the inspector.
 - Inspector panel and field-group headings do not show field-count badges.
