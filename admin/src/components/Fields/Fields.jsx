@@ -157,7 +157,7 @@ function ReferenceField({ field, value, onChange, collections }) {
           <Search size={14} />
           {value ? "Change image" : "Choose image"}
         </button>
-        {value && field.required === false && (
+        {value && (
           <button
             type="button"
             className="button button--secondary"

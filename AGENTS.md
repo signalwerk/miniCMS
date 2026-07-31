@@ -138,6 +138,9 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
   in a dedicated modal. Regions use the standard eight resize handles plus
   move; both annotation kinds support pointer and keyboard adjustment. Persist
   source-space pixels, never preview percentages or viewport coordinates.
+- Selected image references and direct image uploads can always be cleared,
+  including fields marked required, so editors can explicitly reset a value
+  before choosing its replacement.
 - Reorderable Settings lists use `@dnd-kit/core` through their visible grip
   handles. Match tree DnD behavior: keep and fade the source, use the shared
   pointer-offset overlay, and render zero-height absolute insertion lines

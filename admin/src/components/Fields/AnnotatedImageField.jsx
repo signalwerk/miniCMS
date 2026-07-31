@@ -670,7 +670,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
             {annotationCount > 0 && <span>{annotationCount}</span>}
           </button>
         )}
-        {image.src && field.required === false && (
+        {image.src && (
           <button
             type="button"
             className="button button--secondary"
