@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { sanitizeFilenameStem } from "../shared/slug.js";
 import {
   configuredImageAccept,
+  mediaAcceptErrorMessage,
   mediaFileMatchesAccept
 } from "../shared/media.js";
 import {
@@ -181,16 +182,14 @@ export function createApp({
         const originalName = String(request.query.filename || "");
         const extension = path.extname(originalName).toLowerCase();
         const acceptedTypes = configuredImageAccept(config);
-        if (!mediaFileMatchesAccept(
-          {
-            filename: originalName,
-            mimeType: request.headers["content-type"]
-          },
-          acceptedTypes
-        )) {
+        const uploadedFile = {
+          filename: originalName,
+          mimeType: request.headers["content-type"]
+        };
+        if (!mediaFileMatchesAccept(uploadedFile, acceptedTypes)) {
           throw httpError(
             400,
-            `The image must match a configured accepted file type (${acceptedTypes.join(", ")}).`
+            mediaAcceptErrorMessage(uploadedFile, acceptedTypes)
           );
         }
         if (!Buffer.isBuffer(request.body) || !request.body.length) {

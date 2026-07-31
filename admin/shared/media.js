@@ -79,12 +79,25 @@ function inferredMimeTypes(extension) {
   return types;
 }
 
-function mediaFileMatchesAccept(file, accept = DEFAULT_IMAGE_ACCEPT) {
-  const extension = filenameExtension(file?.name ?? file?.filename);
-  const mimeType = String(file?.type ?? file?.mimeType ?? "")
+function mediaFileMimeType(file) {
+  return String(file?.type ?? file?.mimeType ?? "")
     .split(";", 1)[0]
     .trim()
     .toLowerCase();
+}
+
+function mediaAcceptErrorMessage(file, accept = DEFAULT_IMAGE_ACCEPT) {
+  const acceptedTypes = acceptTokens(accept);
+  const mimeType = mediaFileMimeType(file) || "unknown";
+  return [
+    `The image must match a configured accepted file type (${acceptedTypes.join(", ")}).`,
+    `Received MIME type: ${mimeType}.`
+  ].join(" ");
+}
+
+function mediaFileMatchesAccept(file, accept = DEFAULT_IMAGE_ACCEPT) {
+  const extension = filenameExtension(file?.name ?? file?.filename);
+  const mimeType = mediaFileMimeType(file);
   const inferredTypes = inferredMimeTypes(extension);
 
   return acceptTokens(accept).some(
@@ -110,6 +123,8 @@ export {
   DEFAULT_IMAGE_ACCEPT,
   acceptTokens,
   configuredImageAccept,
+  mediaAcceptErrorMessage,
   mediaFileMatchesAccept,
+  mediaFileMimeType,
   validateMediaAccept
 };

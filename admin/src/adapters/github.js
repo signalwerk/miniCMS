@@ -11,6 +11,7 @@ import {
 } from "../../shared/content.js";
 import {
   configuredImageAccept,
+  mediaAcceptErrorMessage,
   mediaFileMatchesAccept
 } from "../../shared/media.js";
 import { sanitizeFilenameStem } from "../../shared/slug.js";
@@ -564,7 +565,7 @@ function createGitHubAdapter({
     if (!mediaFileMatchesAccept(file, acceptedTypes)) {
       throw contentError(
         400,
-        `The image must match a configured accepted file type (${acceptedTypes.join(", ")}).`
+        mediaAcceptErrorMessage(file, acceptedTypes)
       );
     }
     if (!file.size) throw contentError(400, "The uploaded image is empty.");

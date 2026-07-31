@@ -17,6 +17,7 @@ import {
 import {
   DEFAULT_IMAGE_ACCEPT,
   acceptTokens,
+  mediaAcceptErrorMessage,
   mediaFileMatchesAccept
 } from "../../../shared/media.js";
 import { cx } from "../../model/editor.js";
@@ -198,7 +199,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
     if (!file) return;
     const acceptedTypes = acceptTokens(field.accept);
     if (!mediaFileMatchesAccept(file, acceptedTypes)) {
-      setError(`Choose a file matching ${acceptedTypes.join(", ")}.`);
+      setError(mediaAcceptErrorMessage(file, acceptedTypes));
       event.target.value = "";
       return;
     }

@@ -231,7 +231,7 @@ test("uses configured image types for GitHub media uploads", async () => {
 
   await assert.rejects(
     () => adapter.uploadMedia({ ...svg, name: "Photo.jpg", type: "image/jpeg" }),
-    /configured accepted file type/
+    /configured accepted file type.*Received MIME type: image\/jpeg\./
   );
 });
 

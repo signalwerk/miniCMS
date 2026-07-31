@@ -86,6 +86,8 @@ scalars or `{label, value}` mappings. Image uploads are immediate. Image
 fields use an `accept` array of HTML accept tokens; MIME types, extensions, and
 wildcards are supported and enforced by both adapters. Legacy comma-delimited
 strings normalize to arrays when loaded. The shared default includes SVG.
+Rejected media errors include the normalized MIME type received from the
+browser or request header; use the shared media error formatter.
 Unannotated image values remain path strings; annotated values use
 `{src, regions, points}` with labeled integer coordinates in original-image
 pixels. Always read images through `model/image.js` so both shapes remain compatible. Reference

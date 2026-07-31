@@ -250,7 +250,10 @@ test("uploads SVG only when the image field configuration accepts it", async () 
       }
     );
     assert.equal(rejected.status, 400);
-    assert.match((await rejected.json()).message, /configured accepted file type/);
+    assert.match(
+      (await rejected.json()).message,
+      /configured accepted file type.*Received MIME type: image\/jpeg\./
+    );
   });
 });
 
