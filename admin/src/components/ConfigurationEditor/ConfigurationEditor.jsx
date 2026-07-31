@@ -825,7 +825,8 @@ function AddEntryDialog({
   );
 }
 
-function SiteEditor({ site, update }) {
+function SiteEditor({ site, backend = {}, update }) {
+  const backendName = backend.name || "node";
   return (
     <div className="configuration-editor-pane">
       <SectionHeading
@@ -850,7 +851,88 @@ function SiteEditor({ site, update }) {
             placeholder="en"
           />
         </FormField>
+        <FormField label="Storage adapter">
+          <SelectInput
+            value={backendName}
+            onChange={(value) => update((next) => {
+              if (value === "github") {
+                next.backend = {
+                  name: "github",
+                  repo: backend.repo || "",
+                  branch: backend.branch || "main",
+                  base_url: backend.base_url || ""
+                };
+              } else {
+                next.backend = {
+                  name: "node",
+                  ...(backend.api_url ? { api_url: backend.api_url } : {})
+                };
+              }
+            })}
+          >
+            <option value="node">Node server</option>
+            <option value="github">GitHub repository</option>
+          </SelectInput>
+        </FormField>
       </section>
+      {backendName === "github" && (
+        <>
+          <section className="configuration-card configuration-card--form">
+            <FormField label="GitHub repository">
+              <TextInput
+                value={backend.repo}
+                placeholder="owner/repository"
+                onChange={(value) => update((next) => {
+                  next.backend.repo = value;
+                })}
+              />
+            </FormField>
+            <FormField label="Branch">
+              <TextInput
+                value={backend.branch}
+                placeholder="main"
+                onChange={(value) => update((next) => {
+                  next.backend.branch = value;
+                })}
+              />
+            </FormField>
+            <FormField label="Authentication URL">
+              <TextInput
+                value={backend.base_url}
+                placeholder="https://auth.example.com"
+                onChange={(value) => update((next) => {
+                  next.backend.base_url = value;
+                })}
+              />
+            </FormField>
+          </section>
+          <AdvancedSection title="GitHub API">
+            <FormField label="GitHub API URL">
+              <TextInput
+                value={backend.api_root}
+                placeholder="https://api.github.com"
+                onChange={(value) => update((next) => {
+                  setOptional(next.backend, "api_root", value);
+                })}
+              />
+            </FormField>
+          </AdvancedSection>
+        </>
+      )}
+      {backendName === "node" && (
+        <AdvancedSection title="Node adapter">
+          <FormField label="API URL">
+            <TextInput
+              value={backend.api_url}
+              placeholder="Same origin"
+              onChange={(value) => update((next) => {
+                next.backend ??= { name: "node" };
+                setOptional(next.backend, "api_url", value);
+              })}
+            />
+          </FormField>
+        </AdvancedSection>
+      )}
       <AdvancedSection
         title="Media paths"
       >
@@ -3107,7 +3189,11 @@ export default function ConfigurationEditor({
 
         <main className="configuration-overlay__content">
           {selection.section === "site" && (
-            <SiteEditor site={draft.site ?? {}} update={update} />
+            <SiteEditor
+              site={draft.site ?? {}}
+              backend={draft.backend ?? {}}
+              update={update}
+            />
           )}
           {selectedCollection && (
             <CollectionEditor

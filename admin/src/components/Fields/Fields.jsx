@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import "./Fields.scss";
-import { api } from "../../api.js";
+import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import {
   cx,
   defaultFieldValue
@@ -30,7 +30,10 @@ function referenceItemValue(item, name, collection) {
 }
 
 function ReferenceCard({ item, view, collection, compact = false }) {
-  const image = imageSource(referenceItemValue(item, view.image, collection));
+  const adapter = useAdapter();
+  const image = adapter.resolveMediaUrl(
+    imageSource(referenceItemValue(item, view.image, collection))
+  );
   const title =
     referenceItemValue(item, view.title || "title", collection) ||
     item.title ||
@@ -59,6 +62,7 @@ function ReferenceCard({ item, view, collection, compact = false }) {
 }
 
 function ReferenceField({ field, value, onChange, collections }) {
+  const api = useAdapter();
   const targetCollection = collections.find(
     (collection) => collection.name === field.collection
   );

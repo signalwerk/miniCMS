@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api } from "../../api.js";
+import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import {
   compactImageValue,
   normalizeImageValue
@@ -104,6 +104,7 @@ function arrowDelta(event) {
 }
 
 function AnnotatedImageField({ id, field, value, onChange }) {
+  const api = useAdapter();
   const inputRef = useRef(null);
   const canvasRef = useRef(null);
   const closeButtonRef = useRef(null);
@@ -410,7 +411,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
       onPointerCancel={endPointer}
     >
       <img
-        src={image.src}
+        src={api.resolveMediaUrl(image.src)}
         alt=""
         draggable={false}
         onLoad={(event) => {
@@ -619,7 +620,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
           >
             <img
               className="image-field__preview"
-              src={image.src}
+              src={api.resolveMediaUrl(image.src)}
               alt=""
               onLoad={(event) => {
                 setError("");

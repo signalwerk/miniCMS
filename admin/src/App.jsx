@@ -8,6 +8,8 @@ import {
   Eye,
   EyeOff,
   Files,
+  Github,
+  HardDrive,
   Layers3,
   Menu,
   MoreHorizontal,
@@ -20,7 +22,6 @@ import {
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "./api.js";
 import {
   renderSlugTemplate,
   slugTemplateFieldNames,
@@ -68,6 +69,7 @@ import {
 } from "./model/editor.js";
 import { panelsFor } from "./model/views.js";
 import { CollectionTable } from "./components/CollectionTable/CollectionTable.jsx";
+import { useAdapterContext } from "./adapters/AdapterContext.jsx";
 import ConfigurationEditor from "./components/ConfigurationEditor/ConfigurationEditor.jsx";
 import {
   BrandMark,
@@ -83,6 +85,12 @@ import { CollectionTree, ContentTree } from "./components/Trees/Trees.jsx";
 import "./App.scss";
 
 export default function App() {
+  const {
+    adapter: api,
+    session: adapterSession,
+    login: loginAdapter,
+    logout: logoutAdapter
+  } = useAdapterContext();
   const [config, setConfig] = useState(null);
   const [activeCollection, setActiveCollection] = useState("");
   const [items, setItems] = useState([]);
@@ -107,6 +115,7 @@ export default function App() {
   const [activeTreeSelection, setActiveTreeSelection] = useState("collection");
   const [confirmation, setConfirmation] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [authenticating, setAuthenticating] = useState(false);
   const [layoutPreferences, setLayoutPreferences] = useState(
     readLayoutPreferences
   );
@@ -203,6 +212,26 @@ export default function App() {
     window.setTimeout(() => setToast(""), 2400);
   }, []);
 
+  async function toggleAdapterSession() {
+    if (api.name !== "github" || authenticating) return;
+    if (adapterSession.authenticated) {
+      logoutAdapter();
+      showToast("Signed out from GitHub");
+      return;
+    }
+    setAuthenticating(true);
+    setError("");
+    try {
+      const nextSession = await loginAdapter();
+      showToast(`Signed in as ${nextSession.login || "GitHub"}`);
+      if (activeCollection) await loadCollection(activeCollection);
+    } catch (loginError) {
+      setError(loginError.message);
+    } finally {
+      setAuthenticating(false);
+    }
+  }
+
   const loadRecord = useCallback(async (collectionName, id) => {
     setLoading(true);
     setError("");
@@ -232,7 +261,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [api]);
 
   const loadCollection = useCallback(
     async (collectionName, preferredId = null) => {
@@ -278,7 +307,7 @@ export default function App() {
         setLoading(false);
       }
     },
-    [loadRecord]
+    [api, loadRecord]
   );
 
   useEffect(() => {
@@ -308,7 +337,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [loadCollection]);
+  }, [api, loadCollection]);
 
   useEffect(() => {
     if (!breadcrumbRef.current) return;
@@ -1536,8 +1565,39 @@ export default function App() {
             {saving ? <Spinner small /> : dirty ? <Save size={15} /> : <Check size={15} />}
             {saving ? "Saving" : "Save"}
           </button>
-          <button type="button" className="avatar" title="Workspace account">
-            BR
+          <button
+            type="button"
+            className={cx(
+              "adapter-account",
+              adapterSession.authenticated && "is-authenticated"
+            )}
+            title={
+              api.name === "github"
+                ? adapterSession.authenticated
+                  ? `Sign out ${adapterSession.login || "GitHub"}`
+                  : "Sign in with GitHub"
+                : "Local Node server"
+            }
+            aria-label={
+              api.name === "github"
+                ? adapterSession.authenticated
+                  ? `Sign out ${adapterSession.login || "GitHub"}`
+                  : "Sign in with GitHub"
+                : "Local Node server"
+            }
+            disabled={api.name !== "github" || authenticating}
+            onClick={toggleAdapterSession}
+          >
+            {authenticating ? (
+              <Spinner small />
+            ) : adapterSession.avatarUrl ? (
+              <img src={adapterSession.avatarUrl} alt="" />
+            ) : api.name === "github" ? (
+              <Github size={16} />
+            ) : (
+              <HardDrive size={15} />
+            )}
+            <span>{adapterSession.label}</span>
           </button>
         </div>
       </header>

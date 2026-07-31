@@ -9,7 +9,13 @@ const adminPort = Number(process.env.ADMIN_PORT || 5173);
 
 export default defineConfig({
   root: adminRoot,
+  base: "./",
   plugins: [react()],
+  define: {
+    __MINICMS_ADAPTER_OVERRIDE__: JSON.stringify(
+      process.env.MINICMS_ADAPTER_OVERRIDE || ""
+    )
+  },
   server: {
     host: "127.0.0.1",
     port: adminPort,

@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
+import {
+  access,
+  copyFile,
+  cp,
+  mkdir,
+  readFile,
+  writeFile
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, createServer } from "vite";
@@ -26,7 +33,16 @@ function readOption(name) {
   return value;
 }
 
+function readFlag(name) {
+  const optionIndex = args.indexOf(name);
+  if (optionIndex < 0) return false;
+  args.splice(optionIndex, 1);
+  return true;
+}
+
 const explicitProjectRoot = readOption("--project-root");
+const outputDirectoryOption = readOption("--out-dir");
+const staticBuild = readFlag("--static");
 const projectRoot = path.resolve(
   explicitProjectRoot ||
     process.env.MINICMS_PROJECT_ROOT ||
@@ -56,7 +72,9 @@ function listen(app, port) {
 async function runTests() {
   const testFiles = [
     path.join(packageRoot, "admin", "server", "api.test.mjs"),
+    path.join(packageRoot, "admin", "shared", "content.test.mjs"),
     path.join(packageRoot, "admin", "shared", "slug.test.mjs"),
+    path.join(packageRoot, "admin", "src", "adapters", "github.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "image.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "views.test.mjs")
   ];
@@ -68,11 +86,92 @@ async function runTests() {
   process.exitCode = exitCode ?? 1;
 }
 
+async function runBuild() {
+  if (!staticBuild) {
+    await build({
+      configFile: viteConfig,
+      define: {
+        __MINICMS_ADAPTER_OVERRIDE__: JSON.stringify("node")
+      }
+    });
+    return;
+  }
+
+  await assertProject();
+  const adminOutput = path.resolve(
+    projectRoot,
+    outputDirectoryOption || "dist/admin"
+  );
+  const relativeOutput = path.relative(projectRoot, adminOutput);
+  if (
+    !relativeOutput ||
+    relativeOutput.startsWith("..") ||
+    path.isAbsolute(relativeOutput)
+  ) {
+    throw new Error("The static output directory must be inside the project.");
+  }
+  const pagesOutput = path.dirname(adminOutput);
+  await build({
+    configFile: viteConfig,
+    base: "./",
+    define: {
+      __MINICMS_ADAPTER_OVERRIDE__: JSON.stringify("")
+    },
+    build: {
+      outDir: adminOutput,
+      emptyOutDir: true
+    }
+  });
+  await copyFile(
+    path.join(projectRoot, "cms.config.yml"),
+    path.join(adminOutput, "cms.config.yml")
+  );
+  await mkdir(pagesOutput, { recursive: true });
+  await writeFile(path.join(pagesOutput, ".nojekyll"), "", "utf8");
+  await writeFile(
+    path.join(pagesOutput, "index.html"),
+    `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="refresh" content="0; url=./admin/" />
+    <title>miniCMS</title>
+  </head>
+  <body><a href="./admin/">Open miniCMS</a></body>
+</html>
+`,
+    "utf8"
+  );
+  try {
+    await access(path.join(projectRoot, "content", "media"));
+    await cp(
+      path.join(projectRoot, "content", "media"),
+      path.join(pagesOutput, "media"),
+      { recursive: true, force: true }
+    );
+  } catch {
+    // Media is optional.
+  }
+
+  const configSource = await readFile(
+    path.join(projectRoot, "cms.config.yml"),
+    "utf8"
+  );
+  if (!/^\s*backend\s*:/m.test(configSource)) {
+    console.warn(
+      "Static build has no backend configuration; it will use the Node adapter."
+    );
+  }
+}
+
 async function runDev() {
   await assertProject();
   const apiServer = await listen(createApp({ rootDir: projectRoot }), apiPort);
   const vite = await createServer({
     configFile: viteConfig,
+    define: {
+      __MINICMS_ADAPTER_OVERRIDE__: JSON.stringify("node")
+    },
     server: {
       host,
       port: adminPort,
@@ -130,7 +229,7 @@ async function main() {
       await runDev();
       break;
     case "build":
-      await build({ configFile: viteConfig });
+      await runBuild();
       break;
     case "start":
       await runProduction();
@@ -143,7 +242,7 @@ async function main() {
 
 Usage:
   minicms dev [--project-root <path>]
-  minicms build
+  minicms build [--static] [--project-root <path>] [--out-dir <path>]
   minicms start [--project-root <path>]
   minicms test
 

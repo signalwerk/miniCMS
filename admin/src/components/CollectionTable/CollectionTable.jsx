@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import "./CollectionTable.scss";
+import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import { cx, typeField, typeFields } from "../../model/editor.js";
 import { imageSource } from "../../model/image.js";
 import {
@@ -64,6 +65,7 @@ function TableCell({
   editing,
   onEdit
 }) {
+  const adapter = useAdapter();
   const field = configuredTableField(item, column, nodeTypes);
   const value = getTableValue(item, column.field, collection);
   const formatted = displayValue(value, field);
@@ -161,7 +163,7 @@ function TableCell({
       />
     );
   } else if (field.display === "image") {
-    const source = imageSource(value);
+    const source = adapter.resolveMediaUrl(imageSource(value));
     content = source ? (
       <img className="table-cell__image" src={source} alt="" />
     ) : (

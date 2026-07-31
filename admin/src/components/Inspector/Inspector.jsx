@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import "./Inspector.scss";
+import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import {
   cx,
   findLocation,
@@ -28,12 +29,14 @@ import { EmptyState } from "../Common/Common.jsx";
 import { Field } from "../Fields/Fields.jsx";
 
 function ReadOnlyDetailField({ field, value, action }) {
+  const adapter = useAdapter();
   const formatted = displayValue(value, field);
+  const image = adapter.resolveMediaUrl(imageSource(value));
   const content =
     field.display === "code" ? (
       <code>{formatted}</code>
-    ) : field.display === "image" && imageSource(value) ? (
-      <img className="detail-value__image" src={imageSource(value)} alt="" />
+    ) : field.display === "image" && image ? (
+      <img className="detail-value__image" src={image} alt="" />
     ) : field.display === "badge" ? (
       <span className="detail-value__badge">{formatted}</span>
     ) : (

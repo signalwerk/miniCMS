@@ -1,8 +1,10 @@
 # miniCMS
 
 A reusable, configuration-driven content editor with a React/Vite interface
-and an Express API for complete YAML records. Its field definitions are
-Decap-inspired; its document/content trees and inspector are NEOS-inspired.
+and interchangeable persistence adapters. It can use its Express API for local
+files or edit a GitHub repository directly from a static deployment. Its field
+definitions are Decap-inspired; its document/content trees and inspector are
+NEOS-inspired.
 
 miniCMS deliberately owns no project content. A consuming repository supplies
 `cms.config.yml` and `content/`.
@@ -22,6 +24,7 @@ Add the local package and command aliases:
   "scripts": {
     "dev": "minicms dev",
     "build": "minicms build",
+    "build:pages": "minicms build --static --out-dir dist/admin",
     "start": "minicms start",
     "test": "minicms test"
   },
@@ -54,6 +57,8 @@ npm install
 ```sh
 minicms dev       # API :8787 and editor :5173
 minicms build     # build the editor into miniCMS/admin/dist
+minicms build --static --out-dir dist/admin
+                  # static adapter build with config bootstrap
 minicms start     # serve API and built editor on :8787
 minicms test      # API integration and slug tests
 ```
@@ -75,6 +80,44 @@ package.json
 Collections point to folders inside `content/`. Each YAML record is read and
 saved as a complete object with `id`, `type`, `order`, `properties`, and typed
 `slots`.
+
+## Storage adapters
+
+The browser consumes one storage interface for configuration, collection
+lists, records, renames, deletion, media uploads, authentication, and media URL
+resolution. Configure the deployed adapter at the root of `cms.config.yml`:
+
+```yaml
+backend:
+  name: github
+  repo: owner/repository
+  base_url: https://auth.example.com
+  branch: main
+```
+
+`name: node` uses the same-origin `/api` routes and may optionally define
+`api_url`. `name: github` uses the GitHub REST API and the popup protocol at
+`<base_url>/auth`; the optional advanced `api_root` defaults to
+`https://api.github.com`. Project configuration remains at `cms.config.yml`.
+
+`minicms dev`, the normal `minicms build`, and `minicms start` deliberately use
+the Node adapter even when the deployed backend is GitHub. Static builds use
+the configured adapter and copy `cms.config.yml` beside the built admin as
+bootstrap data:
+
+```sh
+minicms build --static --project-root . --out-dir dist/admin
+```
+
+The static build also writes a root redirect, `.nojekyll`, and a media snapshot
+to the parent output folder. Serve that folder at a Pages site and open
+`/admin/`.
+
+The GitHub adapter reads public repository data without a login. Writes open
+the configured OAuth popup and keep its returned token in session storage.
+Record updates, configuration writes, renames, deletions, and binary uploads
+use GitHub tree/commit/ref operations so each editor operation advances the
+configured branch atomically.
 
 ## Configuration
 
@@ -157,7 +200,7 @@ available for keyboard operation. Icon settings use a keyboard-accessible
 picker that previews every option from the shared icon registry. Saving
 validates the complete model before atomically replacing `cms.config.yml`.
 
-## API
+## Node API
 
 - `GET /api/config`
 - `PUT /api/config`

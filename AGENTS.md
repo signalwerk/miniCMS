@@ -7,9 +7,11 @@ Preserve useful guidance and remove stale information.
 
 ## Architecture
 
-- `admin/src/`: React 19 editor. `App.jsx` is the state/persistence
-  orchestrator, `model/` contains shared content/layout/view helpers, and
-  `api.js` is the HTTP client.
+- `admin/src/`: React 19 editor. `App.jsx` is the state/UI orchestrator and
+  `model/` contains shared content/layout/view helpers.
+- `admin/src/adapters/`: browser persistence boundary. `node.js` consumes the
+  Express routes; `github.js` reads and atomically commits repository files;
+  `AdapterContext.jsx` is the only UI access path to an adapter.
 - `admin/src/components/<Feature>/`: cohesive feature components with a
   colocated `<Feature>.scss`. Keep related small components together instead
   of creating a folder for every button or row.
@@ -20,10 +22,12 @@ Preserve useful guidance and remove stale information.
 - `admin/src/styles.scss` contains only global foundations;
   `styles/_typography.scss` owns the shared Sass typography placeholders.
 - `admin/server/`: Express 5 API for config, complete YAML records, and media.
-- `admin/shared/slug.js`: browser/Node-compatible filename-template helpers.
+- `admin/shared/content.js`: browser/Node-compatible YAML, validation, safe
+  repository paths, and record summaries. `slug.js` owns filename templates.
 - `admin/vite.config.js`: editor development/build configuration.
 - `bin/minicms.mjs`: package CLI. It resolves consumer config/content from the
-  current directory or `--project-root`, while editor assets remain here.
+  current directory or `--project-root`; `build --static` writes a Pages-ready
+  output with bootstrap config and media outside the package.
 - Consumer repositories own `cms.config.yml` and `content/`; miniCMS must not
   contain project-specific models or records.
 
@@ -43,11 +47,15 @@ node bin/minicms.mjs dev --project-root /path/to/content-project
 ```
 
 In a consumer, the normal commands are `minicms dev|build|start|test`.
+`minicms build --static --out-dir dist/admin` creates the configured
+browser-adapter deployment. Local dev/build/start always use the Node adapter.
 `PORT`, `ADMIN_PORT`, and `HOST` are supported.
 
 ## Model and persistence
 
 - Root config contains keyed `node_types` and `collections` mappings.
+- Root `backend` selects `node` or `github`. GitHub requires `repo`,
+  `base_url`, and `branch`; Settings exposes all common and advanced options.
 - Fields resemble Decap CMS but are intentionally custom.
 - Records contain `id`, `type`, `order`, `properties`, and typed `slots`.
 - Collection folders and media folders must remain inside consumer `content/`.
@@ -55,6 +63,14 @@ In a consumer, the normal commands are `minicms dev|build|start|test`.
 - Saving Settings normalizes YAML formatting and does not preserve source
   comments; keep important project knowledge in `AGENTS.md`, not YAML comments.
 - Writes atomically replace complete records; do not add partial field writes.
+- GitHub writes use one Git tree/commit/ref transaction per editor operation;
+  preserve non-force branch conflict detection and never expose tokens in
+  config, URLs, logs, or persistent local storage.
+- The static bootstrap's GitHub repository and auth settings are the trust
+  boundary; live repository config cannot redirect an already deployed editor
+  to another backend.
+- GitHub supplies the latest path commit for `$updated_at`, but not file birth
+  time; existing GitHub records expose `$created_at` as empty after reload.
 - Deletion must not orphan hierarchy children.
 - UUID fields regenerate across duplicated subtrees.
 - Slug templates support field tokens plus date/time tokens and use
@@ -127,13 +143,16 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
   as a keyboard-accessible alternative.
 - Retain proper modal confirmation for destructive/discard flows.
 
-## API and testing
+## Adapters, API, and testing
 
-The API provides validated atomic config read/write, collection lists, record
-CRUD/rename, and media upload under `/api`. Production serves the built editor
-from this package, never from the consumer’s `admin/` directory.
+Every adapter implements config read/write, collection list, record
+read/create/save/rename/delete, media upload, media URL resolution, and session
+methods. UI code must use `AdapterContext`, never call `/api` or GitHub
+directly. The Node API remains under `/api`; production serves its built editor
+from this package. Static builds bootstrap from their copied `cms.config.yml`
+and then load live repository data through the configured adapter.
 
 Add integration coverage in `admin/server/api.test.mjs` for API changes and
-unit coverage beside shared helpers. Run both `npm test` and `npm run build`
-after meaningful changes. Never commit `node_modules/`, `admin/dist/`, logs,
-or environment files.
+unit/mock coverage beside adapters and shared helpers. Run `npm test`,
+`npm run build`, and a representative static build after adapter changes.
+Never commit `node_modules/`, `admin/dist/`, logs, or environment files.
