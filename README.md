@@ -116,8 +116,8 @@ collections:
           - { field: title, label: Title, width: minmax(14rem, 1fr) }
 ```
 
-See the Beowolf project’s `cms.config.yml` for a complete tree, table,
-media-library, upload, and reference example.
+The consuming project’s `cms.config.yml` can combine tree and table
+collections, media uploads, and UUID-backed collection references.
 
 ## API
 

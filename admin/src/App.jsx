@@ -114,7 +114,7 @@ const TREE_AUTO_SCROLL = {
   acceleration: 4,
   threshold: { x: 0.05, y: 0.05 }
 };
-const LAYOUT_STORAGE_KEY = "beowolf-content-studio:layout:v1";
+const LAYOUT_STORAGE_KEY = "minicms:layout:v1";
 const RESIZE_HANDLE_SIZE = 6;
 const MIN_TREE_WIDTH = 240;
 const MAX_TREE_WIDTH = 520;
@@ -2693,7 +2693,7 @@ function CollectionTable({
   );
 }
 
-function Preview({ record, selectedId, nodeTypes }) {
+function Preview({ record, selectedId, nodeTypes, siteName = "miniCMS" }) {
   const selected = getNode(record, selectedId);
   const type = selected ? nodeTypes[selected.type] : null;
   const title = record?.properties?.title || "Untitled";
@@ -2722,7 +2722,7 @@ function Preview({ record, selectedId, nodeTypes }) {
         <div className="preview__paper">
           <div className="preview__paper-nav">
             <BrandMark />
-            <span>BEOWOLF</span>
+            <span>{siteName}</span>
             <i />
             <i />
             <i />
@@ -2747,7 +2747,7 @@ function Preview({ record, selectedId, nodeTypes }) {
             </div>
           </div>
           <div className="preview__paper-footer">
-            <span>BEOWOLF RESEARCH</span>
+            <span>{siteName}</span>
             <span>Content preview reserved</span>
           </div>
         </div>
@@ -4661,7 +4661,7 @@ export default function App() {
       <div className="boot-screen">
         <BrandMark />
         <Spinner />
-        <span>Opening content studio</span>
+        <span>Opening miniCMS</span>
       </div>
     );
   }
@@ -4993,7 +4993,12 @@ export default function App() {
               </div>
             </div>
             {record ? (
-              <Preview record={record} selectedId={selectedId} nodeTypes={nodeTypes} />
+              <Preview
+                record={record}
+                selectedId={selectedId}
+                nodeTypes={nodeTypes}
+                siteName={config.site?.name}
+              />
             ) : (
               <EmptyState title={`No ${collection?.label_singular?.toLowerCase()} selected`} />
             )}
