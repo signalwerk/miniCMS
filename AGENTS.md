@@ -113,6 +113,9 @@ grip, and delete action visible while collapsed.
 
 - Keep the editor compact and dark across trees, tables, previews, inspectors,
   and overlays.
+- GitHub-backed deployments render only the centered authentication gate until
+  a session exists; do not mount or reveal the editor workspace before login.
+  The local Node adapter remains immediately authenticated.
 - Typography has exactly three size tokens and three Sass style primitives;
   reuse the `%type-*` placeholders from `styles/_typography.scss`.
 - Import each feature stylesheet from its component entry file. Keep selectors

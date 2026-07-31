@@ -112,11 +112,12 @@ The static build also writes a root redirect, `.nojekyll`, and a media snapshot
 to the parent output folder. Serve that folder at a Pages site and open
 `/admin/`.
 
-The GitHub adapter reads public repository data without a login. Writes open
-the configured OAuth popup and keep its returned token in session storage.
-Record updates, configuration writes, renames, deletions, and binary uploads
-use GitHub tree/commit/ref operations so each editor operation advances the
-configured branch atomically.
+The static GitHub editor shows only a centered sign-in action until the OAuth
+session exists; the editor workspace is not mounted or displayed beforehand.
+The returned token stays in session storage. Repository reads, record updates,
+configuration writes, renames, deletions, and binary uploads then use GitHub
+tree/commit/ref operations so each editor operation advances the configured
+branch atomically. The local Node adapter remains available without login.
 
 ## Configuration
 

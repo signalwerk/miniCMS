@@ -4,6 +4,7 @@ import "./styles.scss";
 import App from "./App.jsx";
 import { AdapterProvider } from "./adapters/AdapterContext.jsx";
 import { createAdapter } from "./adapters/index.js";
+import { AuthenticationGate } from "./components/AuthenticationGate/AuthenticationGate.jsx";
 
 const root = createRoot(document.getElementById("root"));
 
@@ -13,7 +14,9 @@ async function boot() {
     root.render(
       <StrictMode>
         <AdapterProvider adapter={adapter}>
-          <App />
+          <AuthenticationGate>
+            <App />
+          </AuthenticationGate>
         </AdapterProvider>
       </StrictMode>
     );
