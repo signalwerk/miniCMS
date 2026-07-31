@@ -4,9 +4,11 @@ import {
   Maximize2,
   Plus,
   Trash2,
-  Upload
+  Upload,
+  X
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../../api.js";
 import {
   compactImageValue,
@@ -104,11 +106,15 @@ function arrowDelta(event) {
 function AnnotatedImageField({ id, field, value, onChange }) {
   const inputRef = useRef(null);
   const canvasRef = useRef(null);
+  const closeButtonRef = useRef(null);
+  const dialogRef = useRef(null);
+  const editorTriggerRef = useRef(null);
   const interactionRef = useRef(null);
   const [image, setImage] = useState(() => normalizeImageValue(value));
   const imageRef = useRef(image);
   const [imageSize, setImageSize] = useState(null);
   const [selection, setSelection] = useState(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const serializedValue = JSON.stringify(value ?? "");
@@ -124,6 +130,39 @@ function AnnotatedImageField({ id, field, value, onChange }) {
     setSelection(null);
     interactionRef.current = null;
   }, [image.src]);
+
+  useEffect(() => {
+    if (!editorOpen) return undefined;
+    closeButtonRef.current?.focus();
+    function handleEscape(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setEditorOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        dialogRef.current?.querySelectorAll(
+          "button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex='-1'])"
+        ) ?? []
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      editorTriggerRef.current?.focus();
+    };
+  }, [editorOpen]);
 
   function commit(change) {
     const current = imageRef.current;
@@ -259,10 +298,11 @@ function AnnotatedImageField({ id, field, value, onChange }) {
     interactionRef.current = {
       ...interaction,
       pointerId: event.pointerId,
-      start
+      start,
+      captureTarget: event.currentTarget
     };
     setSelection({ kind: interaction.kind, index: interaction.index });
-    canvasRef.current?.setPointerCapture(event.pointerId);
+    event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function movePointer(event) {
@@ -312,8 +352,8 @@ function AnnotatedImageField({ id, field, value, onChange }) {
     const interaction = interactionRef.current;
     if (!interaction || interaction.pointerId !== event.pointerId) return;
     interactionRef.current = null;
-    if (canvasRef.current?.hasPointerCapture(event.pointerId)) {
-      canvasRef.current.releasePointerCapture(event.pointerId);
+    if (interaction.captureTarget?.hasPointerCapture(event.pointerId)) {
+      interaction.captureTarget.releasePointerCapture(event.pointerId);
     }
   }
 
@@ -361,21 +401,226 @@ function AnnotatedImageField({ id, field, value, onChange }) {
     }));
   }
 
+  const annotationCanvas = (
+    <div
+      ref={canvasRef}
+      className="image-field__canvas"
+      onPointerMove={movePointer}
+      onPointerUp={endPointer}
+      onPointerCancel={endPointer}
+    >
+      <img
+        src={image.src}
+        alt=""
+        draggable={false}
+        onLoad={(event) => {
+          setError("");
+          setImageSize({
+            width: event.currentTarget.naturalWidth,
+            height: event.currentTarget.naturalHeight
+          });
+        }}
+        onError={() => {
+          setImageSize(null);
+          setError("The image could not be loaded.");
+        }}
+      />
+      {imageSize && image.regions.map((region, index) => {
+        const bounded = boundedRegion(region, imageSize);
+        const selected =
+          selection?.kind === "region" && selection.index === index;
+        return (
+          <div
+            className={cx("image-region", selected && "is-selected")}
+            key={`region-${index}`}
+            style={{
+              "--x": `${(bounded.x / imageSize.width) * 100}%`,
+              "--y": `${(bounded.y / imageSize.height) * 100}%`,
+              "--width": `${(bounded.width / imageSize.width) * 100}%`,
+              "--height": `${(bounded.height / imageSize.height) * 100}%`
+            }}
+          >
+            <button
+              type="button"
+              className="image-region__move"
+              aria-label={`Move ${region.label}`}
+              title={region.label}
+              onFocus={() => setSelection({ kind: "region", index })}
+              onPointerDown={(event) =>
+                beginInteraction(event, {
+                  kind: "region",
+                  index,
+                  original: bounded
+                })
+              }
+              onKeyDown={(event) => moveRegionByKeyboard(event, index)}
+            />
+            <span className="image-region__label">{region.label}</span>
+            {selected && REGION_HANDLES.map(([handle, handleLabel]) => (
+              <button
+                type="button"
+                className={`image-region__handle image-region__handle--${handle}`}
+                aria-label={`Resize ${region.label} from ${handleLabel}`}
+                key={handle}
+                onPointerDown={(event) =>
+                  beginInteraction(event, {
+                    kind: "region",
+                    index,
+                    handle,
+                    original: bounded
+                  })
+                }
+                onKeyDown={(event) =>
+                  resizeRegionByKeyboard(event, index, handle)
+                }
+              />
+            ))}
+          </div>
+        );
+      })}
+      {imageSize && image.points.map((point, index) => {
+        const bounded = boundedPoint(point, imageSize);
+        const selected =
+          selection?.kind === "point" && selection.index === index;
+        return (
+          <button
+            type="button"
+            className={cx("image-point", selected && "is-selected")}
+            key={`point-${index}`}
+            style={{
+              "--x": `${(bounded.x / imageSize.width) * 100}%`,
+              "--y": `${(bounded.y / imageSize.height) * 100}%`
+            }}
+            aria-label={`Move ${point.label}`}
+            title={`${point.label}: ${bounded.x}, ${bounded.y}`}
+            onFocus={() => setSelection({ kind: "point", index })}
+            onPointerDown={(event) =>
+              beginInteraction(event, {
+                kind: "point",
+                index,
+                original: bounded
+              })
+            }
+            onKeyDown={(event) => movePointByKeyboard(event, index)}
+          >
+            <Crosshair size={14} aria-hidden="true" />
+            <span>{index + 1}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const annotationLists = (
+    <div className="image-annotations">
+      {image.regions.length > 0 && (
+        <section>
+          <div className="image-annotations__heading">
+            <Maximize2 size={13} aria-hidden="true" />
+            <strong>Regions</strong>
+            <span>{image.regions.length}</span>
+          </div>
+          {image.regions.map((region, index) => (
+            <div
+              className={cx(
+                "image-annotation-row",
+                selection?.kind === "region" &&
+                  selection.index === index &&
+                  "is-selected"
+              )}
+              key={`region-row-${index}`}
+              onPointerDown={() => setSelection({ kind: "region", index })}
+            >
+              <input
+                value={region.label}
+                aria-label={`Region ${index + 1} label`}
+                onChange={(event) =>
+                  updateRegion(index, (current) => ({
+                    ...current,
+                    label: event.target.value
+                  }))
+                }
+              />
+              <code>
+                {region.x}, {region.y} · {region.width} × {region.height}
+              </code>
+              <button
+                type="button"
+                aria-label={`Delete ${region.label}`}
+                onClick={() => removeAnnotation("region", index)}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+      {image.points.length > 0 && (
+        <section>
+          <div className="image-annotations__heading">
+            <Crosshair size={13} aria-hidden="true" />
+            <strong>Points</strong>
+            <span>{image.points.length}</span>
+          </div>
+          {image.points.map((point, index) => (
+            <div
+              className={cx(
+                "image-annotation-row",
+                selection?.kind === "point" &&
+                  selection.index === index &&
+                  "is-selected"
+              )}
+              key={`point-row-${index}`}
+              onPointerDown={() => setSelection({ kind: "point", index })}
+            >
+              <input
+                value={point.label}
+                aria-label={`Point ${index + 1} label`}
+                onChange={(event) =>
+                  updatePoint(index, (current) => ({
+                    ...current,
+                    label: event.target.value
+                  }))
+                }
+              />
+              <code>{point.x}, {point.y}</code>
+              <button
+                type="button"
+                aria-label={`Delete ${point.label}`}
+                onClick={() => removeAnnotation("point", index)}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
+      {!image.regions.length && !image.points.length && (
+        <div className="image-annotations__empty">
+          <Crosshair size={18} aria-hidden="true" />
+          <span>No regions or points</span>
+        </div>
+      )}
+    </div>
+  );
+
+  const annotationCount = image.regions.length + image.points.length;
+  const dialogTitleId = `${id}-annotation-dialog-title`;
+
   return (
     <div className="image-field">
       <div className="image-field__stage">
         {image.src ? (
-          <div
-            ref={canvasRef}
-            className="image-field__canvas"
-            onPointerMove={movePointer}
-            onPointerUp={endPointer}
-            onPointerCancel={endPointer}
+          <button
+            type="button"
+            className="image-field__preview-button"
+            aria-label="Edit image regions and points"
+            onClick={() => setEditorOpen(true)}
           >
             <img
+              className="image-field__preview"
               src={image.src}
               alt=""
-              draggable={false}
               onLoad={(event) => {
                 setError("");
                 setImageSize({
@@ -388,104 +633,12 @@ function AnnotatedImageField({ id, field, value, onChange }) {
                 setError("The image could not be loaded.");
               }}
             />
-            {imageSize && image.regions.map((region, index) => {
-              const bounded = boundedRegion(region, imageSize);
-              const selected =
-                selection?.kind === "region" && selection.index === index;
-              return (
-                <div
-                  className={cx(
-                    "image-region",
-                    selected && "is-selected"
-                  )}
-                  key={`region-${index}`}
-                  style={{
-                    "--x": `${(bounded.x / imageSize.width) * 100}%`,
-                    "--y": `${(bounded.y / imageSize.height) * 100}%`,
-                    "--width": `${(bounded.width / imageSize.width) * 100}%`,
-                    "--height": `${(bounded.height / imageSize.height) * 100}%`
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="image-region__move"
-                    aria-label={`Move ${region.label}`}
-                    title={region.label}
-                    onFocus={() =>
-                      setSelection({ kind: "region", index })
-                    }
-                    onPointerDown={(event) =>
-                      beginInteraction(event, {
-                        kind: "region",
-                        index,
-                        original: bounded
-                      })
-                    }
-                    onKeyDown={(event) =>
-                      moveRegionByKeyboard(event, index)
-                    }
-                  />
-                  <span className="image-region__label">{region.label}</span>
-                  {selected && REGION_HANDLES.map(([handle, handleLabel]) => (
-                    <button
-                      type="button"
-                      className={`image-region__handle image-region__handle--${handle}`}
-                      aria-label={`Resize ${region.label} from ${handleLabel}`}
-                      key={handle}
-                      onPointerDown={(event) =>
-                        beginInteraction(event, {
-                          kind: "region",
-                          index,
-                          handle,
-                          original: bounded
-                        })
-                      }
-                      onKeyDown={(event) =>
-                        resizeRegionByKeyboard(event, index, handle)
-                      }
-                    />
-                  ))}
-                </div>
-              );
-            })}
-            {imageSize && image.points.map((point, index) => {
-              const bounded = boundedPoint(point, imageSize);
-              const selected =
-                selection?.kind === "point" && selection.index === index;
-              return (
-                <button
-                  type="button"
-                  className={cx(
-                    "image-point",
-                    selected && "is-selected"
-                  )}
-                  key={`point-${index}`}
-                  style={{
-                    "--x": `${(bounded.x / imageSize.width) * 100}%`,
-                    "--y": `${(bounded.y / imageSize.height) * 100}%`
-                  }}
-                  aria-label={`Move ${point.label}`}
-                  title={`${point.label}: ${bounded.x}, ${bounded.y}`}
-                  onFocus={() =>
-                    setSelection({ kind: "point", index })
-                  }
-                  onPointerDown={(event) =>
-                    beginInteraction(event, {
-                      kind: "point",
-                      index,
-                      original: bounded
-                    })
-                  }
-                  onKeyDown={(event) =>
-                    movePointByKeyboard(event, index)
-                  }
-                >
-                  <Crosshair size={14} aria-hidden="true" />
-                  <span>{index + 1}</span>
-                </button>
-              );
-            })}
-          </div>
+            {annotationCount > 0 && (
+              <span className="image-field__annotation-count">
+                {annotationCount}
+              </span>
+            )}
+          </button>
         ) : (
           <div className="image-field__empty">
             <Image size={20} aria-hidden="true" />
@@ -505,24 +658,16 @@ function AnnotatedImageField({ id, field, value, onChange }) {
           {image.src ? "Replace" : "Upload image"}
         </button>
         {image.src && (
-          <>
-            <button
-              type="button"
-              className="button button--secondary"
-              disabled={!imageSize}
-              onClick={addRegion}
-            >
-              <Maximize2 size={14} /> Region
-            </button>
-            <button
-              type="button"
-              className="button button--secondary"
-              disabled={!imageSize}
-              onClick={addPoint}
-            >
-              <Plus size={14} /> Point
-            </button>
-          </>
+          <button
+            ref={editorTriggerRef}
+            type="button"
+            className="button button--secondary image-field__edit"
+            onClick={() => setEditorOpen(true)}
+          >
+            <Maximize2 size={14} />
+            Regions &amp; points
+            {annotationCount > 0 && <span>{annotationCount}</span>}
+          </button>
         )}
         {image.src && field.required === false && (
           <button
@@ -536,97 +681,6 @@ function AnnotatedImageField({ id, field, value, onChange }) {
         )}
       </div>
 
-      {(image.regions.length > 0 || image.points.length > 0) && (
-        <div className="image-annotations">
-          {image.regions.length > 0 && (
-            <section>
-              <div className="image-annotations__heading">
-                <Maximize2 size={13} aria-hidden="true" />
-                <strong>Regions</strong>
-                <span>{image.regions.length}</span>
-              </div>
-              {image.regions.map((region, index) => (
-                <div
-                  className={cx(
-                    "image-annotation-row",
-                    selection?.kind === "region" &&
-                      selection.index === index &&
-                      "is-selected"
-                  )}
-                  key={`region-row-${index}`}
-                  onPointerDown={() =>
-                    setSelection({ kind: "region", index })
-                  }
-                >
-                  <input
-                    value={region.label}
-                    aria-label={`Region ${index + 1} label`}
-                    onChange={(event) =>
-                      updateRegion(index, (current) => ({
-                        ...current,
-                        label: event.target.value
-                      }))
-                    }
-                  />
-                  <code>
-                    {region.x}, {region.y} · {region.width} × {region.height}
-                  </code>
-                  <button
-                    type="button"
-                    aria-label={`Delete ${region.label}`}
-                    onClick={() => removeAnnotation("region", index)}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              ))}
-            </section>
-          )}
-          {image.points.length > 0 && (
-            <section>
-              <div className="image-annotations__heading">
-                <Crosshair size={13} aria-hidden="true" />
-                <strong>Points</strong>
-                <span>{image.points.length}</span>
-              </div>
-              {image.points.map((point, index) => (
-                <div
-                  className={cx(
-                    "image-annotation-row",
-                    selection?.kind === "point" &&
-                      selection.index === index &&
-                      "is-selected"
-                  )}
-                  key={`point-row-${index}`}
-                  onPointerDown={() =>
-                    setSelection({ kind: "point", index })
-                  }
-                >
-                  <input
-                    value={point.label}
-                    aria-label={`Point ${index + 1} label`}
-                    onChange={(event) =>
-                      updatePoint(index, (current) => ({
-                        ...current,
-                        label: event.target.value
-                      }))
-                    }
-                  />
-                  <code>{point.x}, {point.y}</code>
-                  <button
-                    type="button"
-                    aria-label={`Delete ${point.label}`}
-                    onClick={() => removeAnnotation("point", index)}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              ))}
-            </section>
-          )}
-        </div>
-      )}
-
       {image.src && <code className="image-field__path">{image.src}</code>}
       <input
         ref={inputRef}
@@ -637,6 +691,83 @@ function AnnotatedImageField({ id, field, value, onChange }) {
         onChange={upload}
       />
       {error && <small className="field-error">{error}</small>}
+
+      {editorOpen && createPortal(
+        <div
+          className="dialog-backdrop image-editor-backdrop"
+          role="presentation"
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) setEditorOpen(false);
+          }}
+        >
+          <div
+            ref={dialogRef}
+            className="dialog image-editor-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={dialogTitleId}
+          >
+            <div className="dialog__top">
+              <span className="dialog__icon">
+                <Maximize2 size={18} aria-hidden="true" />
+              </span>
+              <div>
+                <h2 id={dialogTitleId}>Regions &amp; points</h2>
+                <p>{imageSize ? `${imageSize.width} × ${imageSize.height} px` : image.src}</p>
+              </div>
+              <button
+                ref={closeButtonRef}
+                type="button"
+                aria-label="Close image annotations"
+                onClick={() => setEditorOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="image-editor-dialog__toolbar">
+              <button
+                type="button"
+                className="button button--secondary"
+                disabled={!imageSize}
+                onClick={addRegion}
+              >
+                <Maximize2 size={14} />
+                Add region
+              </button>
+              <button
+                type="button"
+                className="button button--secondary"
+                disabled={!imageSize}
+                onClick={addPoint}
+              >
+                <Plus size={14} />
+                Add point
+              </button>
+            </div>
+
+            <div className="image-editor-dialog__body">
+              <div className="image-editor-dialog__stage">
+                {annotationCanvas}
+              </div>
+              <aside className="image-editor-dialog__annotations">
+                {annotationLists}
+              </aside>
+            </div>
+
+            <div className="dialog__footer">
+              <button
+                type="button"
+                className="button"
+                onClick={() => setEditorOpen(false)}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

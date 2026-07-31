@@ -139,8 +139,9 @@ file:
 ```
 
 Annotation coordinates are integer pixels in the original image. The editor
-supports multiple labeled regions with eight resize handles and multiple
-labeled points; both can be moved with a pointer or keyboard.
+opens these controls in a dedicated modal and supports multiple labeled
+regions with eight resize handles plus multiple labeled points; both can be
+moved with a pointer or keyboard.
 
 The top-bar Settings overlay provides a guided editor for project defaults,
 collections, content types, fields, dropdown options, content areas, table

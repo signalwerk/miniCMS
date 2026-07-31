@@ -114,10 +114,10 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 - Icon settings use the accessible preview picker backed by `ICON_NAMES` and
   `iconFor` in `model/editor.js`. Add supported icons to that shared registry;
   do not reintroduce plain icon-name selects or a second option list.
-- Image fields support multiple labeled regions and points. Regions use the
-  standard eight resize handles plus move; both annotation kinds support
-  pointer and keyboard adjustment. Persist source-space pixels, never preview
-  percentages or viewport coordinates.
+- Image fields keep a compact inspector preview and open region/point editing
+  in a dedicated modal. Regions use the standard eight resize handles plus
+  move; both annotation kinds support pointer and keyboard adjustment. Persist
+  source-space pixels, never preview percentages or viewport coordinates.
 - Reorderable Settings lists use `@dnd-kit/core` through their visible grip
   handles. Match tree DnD behavior: keep and fade the source, use the shared
   pointer-offset overlay, and render zero-height absolute insertion lines
