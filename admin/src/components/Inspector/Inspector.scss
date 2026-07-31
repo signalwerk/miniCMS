@@ -498,6 +498,30 @@
   color: #777970;
 }
 
+.detail-value--center {
+  text-align: center;
+}
+
+.detail-value--center .detail-value__content {
+  justify-content: center;
+}
+
+.detail-value--right {
+  text-align: right;
+}
+
+.detail-value--right .detail-value__content {
+  justify-content: flex-end;
+}
+
+.detail-value__image {
+  display: block;
+  width: min(100%, 240px);
+  max-height: 160px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
 .detail-value__action {
   display: inline-flex;
   width: 24px;

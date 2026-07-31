@@ -84,22 +84,31 @@ function ImageUploadField({ id, field, value, onChange }) {
   );
 }
 
-function referenceItemValue(item, name) {
+function referenceItemValue(item, name, collection) {
   if (!name || name === "id" || name === "$id") return item.id;
+  const extension = String(collection?.extension || "yml").replace(/^\./, "");
+  if (name === "$filename") return `${item.id}.${extension}`;
+  if (name === "$storage_path") {
+    return `${String(collection?.folder || "").replace(/\/$/, "")}/${item.id}.${extension}`;
+  }
+  if (name === "$created_at") return item.created_at;
+  if (name === "$updated_at") return item.updated_at;
   return item.properties?.[name] ?? item[name] ?? "";
 }
 
-function ReferenceCard({ item, view, compact = false }) {
-  const image = referenceItemValue(item, view.image);
+function ReferenceCard({ item, view, collection, compact = false }) {
+  const image = referenceItemValue(item, view.image, collection);
   const title =
-    referenceItemValue(item, view.title || "title") || item.title || item.id;
+    referenceItemValue(item, view.title || "title", collection) ||
+    item.title ||
+    item.id;
   const descriptions = (Array.isArray(view.description)
     ? view.description
     : view.description
       ? [view.description]
       : []
   )
-    .map((name) => referenceItemValue(item, name))
+    .map((name) => referenceItemValue(item, name, collection))
     .filter(Boolean);
   return (
     <span className={cx("reference-card", compact && "reference-card--compact")}>
@@ -128,7 +137,7 @@ function ReferenceField({ field, value, onChange, collections }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const selected = items.find(
-    (item) => referenceItemValue(item, valueField) === value
+    (item) => referenceItemValue(item, valueField, targetCollection) === value
   );
 
   useEffect(() => {
@@ -188,7 +197,12 @@ function ReferenceField({ field, value, onChange, collections }) {
   return (
     <div className="reference-field">
       {selected ? (
-        <ReferenceCard item={selected} view={referenceView} compact />
+        <ReferenceCard
+          item={selected}
+          view={referenceView}
+          collection={targetCollection}
+          compact
+        />
       ) : value ? (
         <div className="reference-field__missing">
           <CircleAlert size={15} />
@@ -262,16 +276,24 @@ function ReferenceField({ field, value, onChange, collections }) {
                     type="button"
                     key={item.id}
                     className={cx(
-                      referenceItemValue(item, valueField) === value &&
+                      referenceItemValue(item, valueField, targetCollection) ===
+                        value &&
                         "is-selected"
                     )}
                     onClick={() => {
-                      onChange(referenceItemValue(item, valueField));
+                      onChange(
+                        referenceItemValue(item, valueField, targetCollection)
+                      );
                       setOpen(false);
                     }}
                   >
-                    <ReferenceCard item={item} view={referenceView} />
-                    {referenceItemValue(item, valueField) === value && (
+                    <ReferenceCard
+                      item={item}
+                      view={referenceView}
+                      collection={targetCollection}
+                    />
+                    {referenceItemValue(item, valueField, targetCollection) ===
+                      value && (
                       <Check size={15} />
                     )}
                   </button>

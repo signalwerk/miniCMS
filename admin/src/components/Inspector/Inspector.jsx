@@ -32,6 +32,8 @@ function ReadOnlyDetailField({ field, value, action }) {
   const content =
     field.display === "code" ? (
       <code>{formatted}</code>
+    ) : field.display === "image" && value ? (
+      <img className="detail-value__image" src={value} alt="" />
     ) : field.display === "badge" ? (
       <span className="detail-value__badge">{formatted}</span>
     ) : (
@@ -41,7 +43,8 @@ function ReadOnlyDetailField({ field, value, action }) {
     <div
       className={cx(
         "detail-value",
-        field.appearance && `detail-value--${field.appearance}`
+        field.appearance && `detail-value--${field.appearance}`,
+        field.align && `detail-value--${field.align}`
       )}
     >
       <span className="detail-value__label">{field.label || field.name}</span>

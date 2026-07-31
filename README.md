@@ -123,8 +123,9 @@ collections, media uploads, and UUID-backed collection references.
 The top-bar Settings overlay provides a guided editor for project defaults,
 collections, content types, fields, dropdown options, content areas, table
 columns, hierarchy, references, and inspector layout. Common settings are
-shown first; technical controls and the complete YAML editor are collapsed
-under advanced or expert sections. Saving validates the complete model before
+shown first, while technical behavior is available in collapsed advanced
+sections. Every supported option has a form control; Settings never exposes
+raw configuration source. Saving validates the complete model before
 atomically replacing `cms.config.yml`.
 
 ## API

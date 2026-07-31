@@ -1,7 +1,6 @@
 import {
   ArrowDown,
   ArrowUp,
-  Braces,
   Check,
   ChevronDown,
   CircleAlert,
@@ -20,7 +19,6 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import yaml from "js-yaml";
 import { useEffect, useMemo, useState } from "react";
 import { cx } from "../../model/editor.js";
 import { ConfirmationDialog } from "../Dialogs/Dialogs.jsx";
@@ -55,13 +53,32 @@ const ICON_OPTIONS = [
   "settings"
 ];
 
-const DUMP_OPTIONS = {
-  noRefs: true,
-  lineWidth: 100,
-  sortKeys: false,
-  quotingType: '"',
-  forceQuotes: false
-};
+const SYSTEM_FIELD_OPTIONS = [
+  ["$id", "Record ID"],
+  ["$filename", "File name"],
+  ["$storage_path", "Storage path"],
+  ["$created_at", "Created"],
+  ["$updated_at", "Updated"]
+];
+
+const FIELD_DISPLAY_OPTIONS = [
+  ["", "Automatic"],
+  ["text", "Text"],
+  ["date", "Date"],
+  ["datetime", "Date and time"],
+  ["toggle", "Toggle"],
+  ["select", "Dropdown label"],
+  ["badge", "Badge"],
+  ["code", "Code"],
+  ["image", "Image"]
+];
+
+const FIELD_APPEARANCE_OPTIONS = [
+  ["", "Default"],
+  ["title", "Title"],
+  ["muted", "Muted"],
+  ["monospace", "Monospaced"]
+];
 
 function slugifyKey(value, fallback = "item") {
   const key = String(value || "")
@@ -441,14 +458,30 @@ function SelectOptionsEditor({ options = [], onChange }) {
               ))
             }
           />
-          <button
-            type="button"
-            className="configuration-icon-button danger"
-            title="Remove option"
-            onClick={() => onChange(normalized.filter((_, itemIndex) => itemIndex !== index))}
-          >
-            <Trash2 size={13} />
-          </button>
+          <EntryActions
+            index={index}
+            count={normalized.length}
+            onMove={(direction) => {
+              const nextOptions = [...normalized];
+              const [moving] = nextOptions.splice(index, 1);
+              nextOptions.splice(index + direction, 0, moving);
+              onChange(nextOptions);
+            }}
+            onDuplicate={() => {
+              const nextOptions = [...normalized];
+              nextOptions.splice(index + 1, 0, {
+                label: `${option.label} copy`,
+                value: uniqueKey(
+                  Object.fromEntries(normalized.map((item) => [item.value, true])),
+                  `${option.value}_copy`
+                )
+              });
+              onChange(nextOptions);
+            }}
+            onDelete={() =>
+              onChange(normalized.filter((_, itemIndex) => itemIndex !== index))
+            }
+          />
         </div>
       ))}
       {!normalized.length && (
@@ -464,12 +497,17 @@ function FieldEditor({
   index,
   count,
   collections,
+  nodeTypes,
   onChange,
   onMove,
   onDuplicate,
   onDelete
 }) {
   const widget = field.widget || "string";
+  const targetCollection = collections[field.collection];
+  const targetFields = Object.entries(
+    nodeTypes[targetCollection?.node_type]?.fields ?? {}
+  ).map(([key, targetField]) => [key, targetField.label || key]);
   return (
     <article className="configuration-entry-card">
       <div className="configuration-entry-card__top">
@@ -553,6 +591,7 @@ function FieldEditor({
               value={field.collection}
               onChange={(value) => onChange((nextField) => {
                 nextField.collection = value;
+                delete nextField.value_field;
               })}
             >
               <option value="">Choose a collection…</option>
@@ -603,11 +642,27 @@ function FieldEditor({
               })}
             </SelectInput>
           </FormField>
-        ) : !["uuid", "image", "reference"].includes(widget) ? (
-          <FormField label="Default value" optional>
+        ) : widget !== "uuid" ? (
+          <FormField
+            label={
+              widget === "image"
+                ? "Default media path"
+                : widget === "reference"
+                  ? "Default reference value"
+                  : "Default value"
+            }
+            optional
+          >
             <TextInput
               type={widget === "number" ? "number" : "text"}
               value={field.default}
+              placeholder={
+                widget === "image"
+                  ? "/media/example.jpg"
+                  : widget === "reference"
+                    ? "Stored reference value"
+                    : undefined
+              }
               onChange={(value) => onChange((nextField) => {
                 const nextValue =
                   widget === "number" && value !== "" ? Number(value) : value;
@@ -637,12 +692,20 @@ function FieldEditor({
             hint="Leave empty to use the collection’s reference view value."
             optional
           >
-            <TextInput
+            <SelectInput
               value={field.value_field}
               onChange={(value) => onChange((nextField) => {
                 setOptional(nextField, "value_field", value);
               })}
-            />
+            >
+              <option value="">Use the collection default</option>
+              {targetFields.map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+              {SYSTEM_FIELD_OPTIONS.map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </SelectInput>
           </FormField>
         )}
         {widget !== "uuid" && (
@@ -751,6 +814,189 @@ function SlotEditor({
         </FormField>
       </div>
     </article>
+  );
+}
+
+function normalizeFieldReference(reference) {
+  return typeof reference === "string"
+    ? { field: reference }
+    : { ...(reference ?? {}) };
+}
+
+function compactFieldReference(reference) {
+  const configured = normalizeFieldReference(reference);
+  const hasOverrides = Object.entries(configured).some(
+    ([key, value]) =>
+      key !== "field" &&
+      value !== "" &&
+      value !== undefined &&
+      value !== null
+  );
+  return hasOverrides ? configured : configured.field;
+}
+
+function InspectorFieldsEditor({ references = [], fields, onChange }) {
+  const options = [...fields, ...SYSTEM_FIELD_OPTIONS];
+  const usedFields = new Set(references.map((reference) =>
+    normalizeFieldReference(reference).field
+  ));
+  const availableOptions = options.filter(([key]) => !usedFields.has(key));
+  const [newField, setNewField] = useState("");
+  const resolvedNewField = availableOptions.some(([key]) => key === newField)
+    ? newField
+    : availableOptions[0]?.[0] ?? "";
+
+  function updateReference(index, change) {
+    const nextReferences = [...references];
+    const nextReference = normalizeFieldReference(nextReferences[index]);
+    change(nextReference);
+    nextReferences[index] = compactFieldReference(nextReference);
+    onChange(nextReferences);
+  }
+
+  return (
+    <div className="configuration-inspector-fields">
+      <div className="configuration-subheading">
+        <div>
+          <strong>Fields</strong>
+          <small>Ordered values shown in this inspector group.</small>
+        </div>
+        <span className="configuration-add-field">
+          <SelectInput
+            value={resolvedNewField}
+            aria-label="Field to add"
+            disabled={!availableOptions.length}
+            onChange={setNewField}
+          >
+            {availableOptions.map(([key, label]) => (
+              <option key={key} value={key}>{label}</option>
+            ))}
+          </SelectInput>
+          <button
+            type="button"
+            className="configuration-small-button"
+            disabled={!resolvedNewField}
+            onClick={() => {
+              onChange([...references, resolvedNewField]);
+              setNewField("");
+            }}
+          >
+            <Plus size={13} /> Add field
+          </button>
+        </span>
+      </div>
+      {references.map((reference, index) => {
+        const configured = normalizeFieldReference(reference);
+        const system = configured.field?.startsWith("$");
+        return (
+          <article className="configuration-field-reference" key={index}>
+            <EntryActions
+              index={index}
+              count={references.length}
+              onMove={(direction) => {
+                const nextReferences = [...references];
+                const [moving] = nextReferences.splice(index, 1);
+                nextReferences.splice(index + direction, 0, moving);
+                onChange(nextReferences);
+              }}
+              onDelete={() =>
+                onChange(references.filter((_, itemIndex) => itemIndex !== index))
+              }
+            />
+            <div className="configuration-entry-card__grid">
+              <FormField label="Field">
+                <SelectInput
+                  value={configured.field}
+                  onChange={(value) => updateReference(index, (nextReference) => {
+                    nextReference.field = value;
+                    if (value.startsWith("$")) nextReference.mode = "read";
+                  })}
+                >
+                  <optgroup label="Content fields">
+                    {fields.map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="System information">
+                    {SYSTEM_FIELD_OPTIONS.map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </optgroup>
+                </SelectInput>
+              </FormField>
+              <FormField label="Custom label" optional>
+                <TextInput
+                  value={configured.label}
+                  onChange={(value) => updateReference(index, (nextReference) => {
+                    setOptional(nextReference, "label", value);
+                  })}
+                />
+              </FormField>
+            </div>
+            <AdvancedSection
+              title="Field presentation"
+              description="Override how this value behaves inside this group."
+            >
+              <div className="configuration-entry-card__grid">
+                <FormField label="Mode">
+                  <SelectInput
+                    value={system ? "read" : configured.mode || ""}
+                    disabled={system}
+                    onChange={(value) => updateReference(index, (nextReference) => {
+                      setOptional(nextReference, "mode", value);
+                    })}
+                  >
+                    <option value="">Automatic</option>
+                    <option value="edit">Editable</option>
+                    <option value="read">Read only</option>
+                  </SelectInput>
+                </FormField>
+                <FormField label="Display">
+                  <SelectInput
+                    value={configured.display || ""}
+                    onChange={(value) => updateReference(index, (nextReference) => {
+                      setOptional(nextReference, "display", value);
+                    })}
+                  >
+                    {FIELD_DISPLAY_OPTIONS.map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </SelectInput>
+                </FormField>
+                <FormField label="Appearance">
+                  <SelectInput
+                    value={configured.appearance || ""}
+                    onChange={(value) => updateReference(index, (nextReference) => {
+                      setOptional(nextReference, "appearance", value);
+                    })}
+                  >
+                    {FIELD_APPEARANCE_OPTIONS.map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </SelectInput>
+                </FormField>
+                <FormField label="Alignment">
+                  <SelectInput
+                    value={configured.align || ""}
+                    onChange={(value) => updateReference(index, (nextReference) => {
+                      setOptional(nextReference, "align", value);
+                    })}
+                  >
+                    <option value="">Automatic</option>
+                    <option value="left">Left</option>
+                    <option value="center">Center</option>
+                    <option value="right">Right</option>
+                  </SelectInput>
+                </FormField>
+              </div>
+            </AdvancedSection>
+          </article>
+        );
+      })}
+      {!references.length && (
+        <p className="configuration-muted">No fields assigned yet.</p>
+      )}
+    </div>
   );
 }
 
@@ -882,16 +1128,13 @@ function InspectorLayoutEditor({
                   })}
                 />
               </FormField>
-              <FormField label="Fields">
-                <MultiChoice
-                  options={fields}
-                  value={(group.fields ?? []).filter((field) => typeof field === "string")}
-                  onChange={(value) => updateType((nextType) => {
-                    nextType.views.detail.panels[panelKey].groups[groupKey].fields = value;
-                  })}
-                  emptyLabel="Add fields to this content type first."
-                />
-              </FormField>
+              <InspectorFieldsEditor
+                fields={fields}
+                references={group.fields ?? []}
+                onChange={(value) => updateType((nextType) => {
+                  nextType.views.detail.panels[panelKey].groups[groupKey].fields = value;
+                })}
+              />
             </div>
           ))}
         </article>
@@ -992,6 +1235,7 @@ function TypeEditor({
             index={index}
             count={Object.keys(fields).length}
             collections={collections}
+            nodeTypes={nodeTypes}
             onChange={(change) => updateType((nextType) => {
               change(nextType.fields[fieldKey]);
             })}
@@ -1112,7 +1356,13 @@ function TypeEditor({
 }
 
 function TableColumnsEditor({ collection, type, updateCollection }) {
-  const fields = Object.entries(type?.fields ?? {});
+  const fields = [
+    ...Object.entries(type?.fields ?? {}).map(([key, field]) => [
+      key,
+      field.label || key
+    ]),
+    ...SYSTEM_FIELD_OPTIONS
+  ];
   const columns = collection.views?.list?.columns ?? [];
   return (
     <section className="configuration-card">
@@ -1131,7 +1381,7 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
               ...(nextCollection.views.list.columns ?? []),
               {
                 field: field[0],
-                label: field[1].label || labelFromKey(field[0]),
+                label: field[1],
                 width: "minmax(10rem, 1fr)",
                 mode: "read"
               }
@@ -1145,6 +1395,7 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
         {columns.map((column, index) => {
           const configured =
             typeof column === "string" ? { field: column } : column;
+          const system = configured.field?.startsWith("$");
           return (
             <article className="configuration-table-column" key={index}>
               <EntryActions
@@ -1170,15 +1421,14 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
                     onChange={(value) => updateCollection((nextCollection) => {
                       nextCollection.views.list.columns[index] = {
                         ...configured,
-                        field: value
+                        field: value,
+                        ...(value.startsWith("$") ? { mode: "read" } : {})
                       };
                     })}
                   >
-                    {fields.map(([key, field]) => (
-                      <option key={key} value={key}>{field.label || key}</option>
+                    {fields.map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
                     ))}
-                    <option value="$filename">File name</option>
-                    <option value="$updated_at">Updated</option>
                   </SelectInput>
                 </FormField>
                 <FormField label="Column label">
@@ -1209,7 +1459,8 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
                   </FormField>
                   <FormField label="Mode">
                     <SelectInput
-                      value={configured.mode || "read"}
+                      value={system ? "read" : configured.mode || "read"}
+                      disabled={system}
                       onChange={(value) => updateCollection((nextCollection) => {
                         nextCollection.views.list.columns[index] = {
                           ...configured,
@@ -1231,8 +1482,10 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
                         };
                       })}
                     >
-                      {["text", "date", "datetime", "toggle", "select", "badge", "code", "image"].map(
-                        (value) => <option key={value}>{value}</option>
+                      {FIELD_DISPLAY_OPTIONS.filter(([value]) => value).map(
+                        ([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        )
                       )}
                     </SelectInput>
                   </FormField>
@@ -1262,10 +1515,9 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
                         nextCollection.views.list.columns[index] = nextColumn;
                       })}
                     >
-                      <option value="">Default</option>
-                      <option value="title">Title</option>
-                      <option value="muted">Muted</option>
-                      <option value="monospace">Monospaced</option>
+                      {FIELD_APPEARANCE_OPTIONS.map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
                     </SelectInput>
                   </FormField>
                 </div>
@@ -1307,6 +1559,7 @@ function CollectionEditor({
     key,
     field.label || key
   ]);
+  const viewFields = [...fields, ...SYSTEM_FIELD_OPTIONS];
   const listType = collection.views?.list?.type || "tree";
   const hierarchyEnabled = Boolean(collection.hierarchy?.enabled);
   return (
@@ -1351,7 +1604,12 @@ function CollectionEditor({
             <SelectInput
               value={collection.node_type}
               onChange={(value) => updateCollection((nextCollection) => {
+                const fieldKeys = Object.keys(nodeTypes[value]?.fields ?? {});
+                const identifierField = fieldKeys.includes("title")
+                  ? "title"
+                  : fieldKeys[0];
                 nextCollection.node_type = value;
+                setOptional(nextCollection, "identifier_field", identifierField);
                 nextCollection.allowed_types = [value];
                 nextCollection.views ??= {};
                 nextCollection.views.list ??= { type: "tree" };
@@ -1364,9 +1622,10 @@ function CollectionEditor({
                   delete nextCollection.views.list.columns;
                 }
                 if (nextCollection.hierarchy?.enabled) {
-                  const fieldKeys = Object.keys(nodeTypes[value]?.fields ?? {});
-                  nextCollection.hierarchy.id_field =
-                    fieldKeys.includes("uuid") ? "uuid" : fieldKeys[0] || "";
+                  const idField = fieldKeys.includes("uuid")
+                    ? "uuid"
+                    : fieldKeys[0];
+                  setOptional(nextCollection.hierarchy, "id_field", idField);
                   nextCollection.hierarchy.allowed_child_types = [value];
                 }
               })}
@@ -1400,7 +1659,7 @@ function CollectionEditor({
         <div className="configuration-subheading">
           <div>
             <strong>Storage</strong>
-            <small>Where complete YAML records are saved.</small>
+            <small>Where complete content records are saved.</small>
           </div>
         </div>
         <div className="configuration-entry-card__grid">
@@ -1444,9 +1703,15 @@ function CollectionEditor({
               label="Nested collection items"
               onChange={(checked) => updateCollection((nextCollection) => {
                 if (checked) {
+                  const fieldKeys = Object.keys(
+                    nodeTypes[nextCollection.node_type]?.fields ?? {}
+                  );
+                  const idField = fieldKeys.includes("uuid")
+                    ? "uuid"
+                    : fieldKeys[0];
                   nextCollection.hierarchy = {
                     enabled: true,
-                    id_field: nextCollection.hierarchy?.id_field || "uuid",
+                    ...(idField ? { id_field: idField } : {}),
                     parent_field:
                       nextCollection.hierarchy?.parent_field || "parent_uuid",
                     allowed_child_types:
@@ -1507,11 +1772,12 @@ function CollectionEditor({
           </FormField>
           <FormField label="Title field">
             <SelectInput
-              value={collection.identifier_field || "title"}
+              value={collection.identifier_field || ""}
               onChange={(value) => updateCollection((nextCollection) => {
-                nextCollection.identifier_field = value;
+                setOptional(nextCollection, "identifier_field", value);
               })}
             >
+              <option value="">Use title when available</option>
               {fields.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </SelectInput>
           </FormField>
@@ -1541,11 +1807,12 @@ function CollectionEditor({
           <div className="configuration-entry-card__grid">
             <FormField label="Hierarchy ID field">
               <SelectInput
-                value={collection.hierarchy?.id_field}
+                value={collection.hierarchy?.id_field || ""}
                 onChange={(value) => updateCollection((nextCollection) => {
-                  nextCollection.hierarchy.id_field = value;
+                  setOptional(nextCollection.hierarchy, "id_field", value);
                 })}
               >
+                <option value="">Use record ID</option>
                 {fields.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
               </SelectInput>
             </FormField>
@@ -1561,7 +1828,7 @@ function CollectionEditor({
         )}
         <FormField label="Search fields">
           <MultiChoice
-            options={fields}
+            options={viewFields}
             value={collection.views?.list?.search?.fields ?? []}
             onChange={(value) => updateCollection((nextCollection) => {
               nextCollection.views.list.search ??= {};
@@ -1579,7 +1846,9 @@ function CollectionEditor({
               })}
             >
               <option value="">No default sort</option>
-              {fields.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+              {viewFields.map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
             </SelectInput>
           </FormField>
           <FormField label="Sort direction">
@@ -1612,14 +1881,16 @@ function CollectionEditor({
                 })}
               >
                 <option value="">Not configured</option>
-                {fields.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                {viewFields.map(([key, label]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
               </SelectInput>
             </FormField>
           ))}
         </div>
         <FormField label="Reference description fields" optional>
           <MultiChoice
-            options={fields}
+            options={viewFields}
             value={
               Array.isArray(collection.views?.reference?.description)
                 ? collection.views.reference.description
@@ -1635,77 +1906,6 @@ function CollectionEditor({
           />
         </FormField>
       </AdvancedSection>
-    </div>
-  );
-}
-
-function RawYamlEditor({ config, onApply }) {
-  const [source, setSource] = useState(() =>
-    `${yaml.dump(config, DUMP_OPTIONS).trimEnd()}\n`
-  );
-  const [error, setError] = useState("");
-
-  return (
-    <div className="configuration-editor-pane configuration-editor-pane--yaml">
-      <SectionHeading
-        icon={Braces}
-        title="Expert YAML"
-        description="Direct access for options the guided editor does not expose."
-      />
-      <div className="configuration-expert-warning">
-        <CircleAlert size={15} />
-        <span>
-          Applying YAML replaces the current form draft. The server performs the
-          final validation when you save.
-        </span>
-      </div>
-      <textarea
-        className="configuration-yaml"
-        spellCheck="false"
-        value={source}
-        onChange={(event) => setSource(event.target.value)}
-      />
-      {error && (
-        <p className="configuration-inline-error">
-          <CircleAlert size={14} /> {error}
-        </p>
-      )}
-      <div className="configuration-yaml-actions">
-        <button
-          type="button"
-          className="button button--secondary"
-          onClick={() => {
-            setSource(`${yaml.dump(config, DUMP_OPTIONS).trimEnd()}\n`);
-            setError("");
-          }}
-        >
-          Reset from forms
-        </button>
-        <button
-          type="button"
-          className="button button--primary"
-          onClick={() => {
-            try {
-              const next = yaml.load(source, { schema: yaml.JSON_SCHEMA });
-              if (
-                !next ||
-                typeof next !== "object" ||
-                Array.isArray(next) ||
-                !next.collections ||
-                !next.node_types
-              ) {
-                throw new Error("The YAML must define collections and node_types.");
-              }
-              onApply(next);
-              setError("");
-            } catch (parseError) {
-              setError(parseError.message);
-            }
-          }}
-        >
-          <Check size={14} /> Apply YAML to draft
-        </button>
-      </div>
     </div>
   );
 }
@@ -1794,6 +1994,10 @@ export default function ConfigurationEditor({
     update((next) => {
       if (dialog.kind === "collection") {
         const nodeType = Object.keys(next.node_types)[0] || "";
+        const fieldKeys = Object.keys(next.node_types[nodeType]?.fields ?? {});
+        const identifierField = fieldKeys.includes("title")
+          ? "title"
+          : fieldKeys[0];
         next.collections[key] = {
           label,
           label_singular: label.replace(/s$/i, "") || label,
@@ -1801,7 +2005,7 @@ export default function ConfigurationEditor({
           folder: `content/${key}`,
           extension: "yml",
           slug: "{{title}}-{{year}}-{{month}}",
-          identifier_field: "title",
+          ...(identifierField ? { identifier_field: identifierField } : {}),
           node_type: nodeType,
           allowed_types: nodeType ? [nodeType] : [],
           views: { list: { type: "tree" } }
@@ -1905,7 +2109,7 @@ export default function ConfigurationEditor({
     }
     setConfirmation({
       title: `Delete ${draft.node_types[typeKey].label || typeKey}?`,
-      description: "This removes the type definition. Existing YAML records are not changed.",
+      description: "This removes the type definition. Existing content records are not changed.",
       confirmLabel: "Delete content type",
       danger: true,
       onConfirm: () => {
@@ -1971,6 +2175,12 @@ export default function ConfigurationEditor({
         }
         for (const collection of Object.values(next.collections)) {
           if (collection.node_type !== typeKey) continue;
+          if (collection.identifier_field === fieldKey) {
+            delete collection.identifier_field;
+          }
+          if (collection.hierarchy?.id_field === fieldKey) {
+            delete collection.hierarchy.id_field;
+          }
           const list = collection.views?.list;
           if (list?.columns) {
             list.columns = list.columns.filter((column) =>
@@ -1984,6 +2194,28 @@ export default function ConfigurationEditor({
           for (const name of ["value", "image", "title"]) {
             if (collection.views?.reference?.[name] === fieldKey) {
               delete collection.views.reference[name];
+            }
+          }
+          const descriptions = collection.views?.reference?.description;
+          if (Array.isArray(descriptions)) {
+            collection.views.reference.description = descriptions.filter(
+              (name) => name !== fieldKey
+            );
+            if (!collection.views.reference.description.length) {
+              delete collection.views.reference.description;
+            }
+          } else if (descriptions === fieldKey) {
+            delete collection.views.reference.description;
+          }
+        }
+        for (const candidateType of Object.values(next.node_types)) {
+          for (const candidateField of Object.values(candidateType.fields ?? {})) {
+            if (
+              candidateField.widget === "reference" &&
+              next.collections[candidateField.collection]?.node_type === typeKey &&
+              candidateField.value_field === fieldKey
+            ) {
+              delete candidateField.value_field;
             }
           }
         }
@@ -2007,7 +2239,7 @@ export default function ConfigurationEditor({
           <span><Settings2 size={17} /></span>
           <span>
             <strong>Settings</strong>
-            <small>cms.config.yml</small>
+            <small>Project configuration</small>
           </span>
         </span>
         <span className={cx("save-state", dirty && "save-state--dirty")}>
@@ -2133,21 +2365,6 @@ export default function ConfigurationEditor({
               ))}
             </nav>
           </div>
-          <details className="configuration-navigation__expert">
-            <summary>
-              <SlidersHorizontal size={14} />
-              Expert tools
-              <ChevronDown size={13} />
-            </summary>
-            <button
-              type="button"
-              className={cx(selection.section === "expert" && "is-active")}
-              onClick={() => setSelection({ section: "expert", key: null })}
-            >
-              <Braces size={15} />
-              <span><strong>Expert YAML</strong><small>Full configuration</small></span>
-            </button>
-          </details>
         </aside>
 
         <main className="configuration-overlay__content">
@@ -2184,12 +2401,6 @@ export default function ConfigurationEditor({
                   setEntryDialog(dialog);
                 }
               }}
-            />
-          )}
-          {selection.section === "expert" && (
-            <RawYamlEditor
-              config={draft}
-              onApply={(next) => setDraft(structuredClone(next))}
             />
           )}
           {(

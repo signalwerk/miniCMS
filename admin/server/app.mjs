@@ -129,6 +129,13 @@ function validateFieldReference(reference, fields, context, status = 500) {
   }
 }
 
+function validateFieldName(reference, fields, context, status = 500) {
+  if (typeof reference !== "string") {
+    throw httpError(status, `${context} must use a field name.`);
+  }
+  validateFieldReference(reference, fields, context, status);
+}
+
 function validateConfig(config, status = 500) {
   const fail = (message) => {
     throw httpError(status, message);
@@ -270,6 +277,22 @@ function validateConfig(config, status = 500) {
       );
     }
     const rootFields = config.node_types[collection.node_type].fields;
+    if (collection.identifier_field) {
+      validateFieldName(
+        collection.identifier_field,
+        rootFields,
+        `Collection "${collectionName}" title field`,
+        status
+      );
+    }
+    if (collection.hierarchy?.id_field) {
+      validateFieldName(
+        collection.hierarchy.id_field,
+        rootFields,
+        `Collection "${collectionName}" hierarchy ID field`,
+        status
+      );
+    }
     if (list?.columns !== undefined && !Array.isArray(list.columns)) {
       fail(`Collection "${collectionName}" list columns must be an array.`);
     }
@@ -288,7 +311,7 @@ function validateConfig(config, status = 500) {
       fail(`Collection "${collectionName}" search fields must be an array.`);
     }
     for (const reference of list?.search?.fields ?? []) {
-      validateFieldReference(
+      validateFieldName(
         reference,
         rootFields,
         `Collection "${collectionName}" search fields`,
@@ -296,7 +319,7 @@ function validateConfig(config, status = 500) {
       );
     }
     if (list?.sort?.field) {
-      validateFieldReference(
+      validateFieldName(
         list.sort.field,
         rootFields,
         `Collection "${collectionName}" list sort`,
@@ -318,7 +341,7 @@ function validateConfig(config, status = 500) {
         ).map((reference) => ["description", reference])
       ]) {
         if (!reference) continue;
-        validateFieldReference(
+        validateFieldName(
           reference,
           rootFields,
           `Collection "${collectionName}" reference ${name}`,
@@ -338,7 +361,7 @@ function validateConfig(config, status = 500) {
       }
       if (field.value_field) {
         const targetCollection = config.collections[field.collection];
-        validateFieldReference(
+        validateFieldName(
           field.value_field,
           config.node_types[targetCollection.node_type].fields,
           `Node type "${typeName}" reference field "${fieldName}"`,

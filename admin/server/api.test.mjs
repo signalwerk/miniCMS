@@ -155,6 +155,21 @@ test("validates and atomically saves the guided configuration", async () => {
     assert.equal(rejected.status, 400);
     assert.match((await rejected.json()).message, /unsupported widget "object"/);
 
+    const structuredSearch = structuredClone(config);
+    structuredSearch.collections.pages.views.list.search = {
+      fields: [{ field: "title", appearance: "title" }]
+    };
+    const rejectedSearch = await fetch(`${baseUrl}/api/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(structuredSearch)
+    });
+    assert.equal(rejectedSearch.status, 400);
+    assert.match(
+      (await rejectedSearch.json()).message,
+      /search fields must use a field name/
+    );
+
     const current = await fetch(`${baseUrl}/api/config`).then((response) =>
       response.json()
     );

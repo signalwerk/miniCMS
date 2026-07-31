@@ -14,9 +14,9 @@ Preserve useful guidance and remove stale information.
   colocated `<Feature>.scss`. Keep related small components together instead
   of creating a folder for every button or row.
 - `components/ConfigurationEditor/`: handcrafted, human-first Settings
-  overlay. Its guided forms are the primary experience; advanced controls and
-  complete YAML are progressively disclosed. Do not reintroduce a
-  meta-configuration that describes this editor.
+  overlay. Every supported setting is edited through guided forms; technical
+  controls are progressively disclosed, but raw configuration source is never
+  shown. Do not reintroduce a meta-configuration that describes this editor.
 - `admin/src/styles.scss` contains only global foundations;
   `styles/_typography.scss` owns the shared Sass typography placeholders.
 - `admin/server/`: Express 5 API for config, complete YAML records, and media.
@@ -99,8 +99,9 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 - The active collection is stored as `#<collection-name>`.
 - Settings is a full-screen overlay organized around project, collection, and
   content-type tasks. Common changes must be additive and understandable
-  without knowing the YAML structure. Keep expert controls collapsed by
-  default and retain proper modal confirmation for destructive/discard flows.
+  without knowing the persisted structure. Keep technical controls collapsed
+  by default, never expose a raw YAML/source editor, and retain proper modal
+  confirmation for destructive/discard flows.
 
 ## API and testing
 
