@@ -107,6 +107,9 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
   modal, restore focus on close, expose selected/expanded states to assistive
   technology, support reduced motion, and remain usable in its stacked
   small-screen layout.
+- Icon settings use the accessible preview picker backed by `ICON_NAMES` and
+  `iconFor` in `model/editor.js`. Add supported icons to that shared registry;
+  do not reintroduce plain icon-name selects or a second option list.
 - Reorderable Settings lists use `@dnd-kit/core` through their visible grip
   handles. Match tree DnD behavior: keep and fade the source, use the shared
   pointer-offset overlay, and render zero-height absolute insertion lines.

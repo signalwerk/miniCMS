@@ -9,7 +9,8 @@ import {
   Menu,
   Newspaper,
   PanelLeft,
-  Search
+  Search,
+  Settings2
 } from "lucide-react";
 import { sanitizeFilenameStem } from "../../shared/slug.js";
 
@@ -24,8 +25,10 @@ const ICONS = {
   menu: Menu,
   newspaper: Newspaper,
   "panel-left": PanelLeft,
-  search: Search
+  search: Search,
+  settings: Settings2
 };
+const ICON_NAMES = Object.keys(ICONS);
 
 function iconFor(name, fallback = FileText) {
   return ICONS[name] || fallback;
@@ -644,6 +647,7 @@ function contentInsertionModes(record, selectedId, nodeTypes) {
 
 export {
   DRAG_OVERLAY_MODIFIERS,
+  ICON_NAMES,
   TREE_AUTO_SCROLL,
   LAYOUT_STORAGE_KEY,
   RESIZE_HANDLE_SIZE,

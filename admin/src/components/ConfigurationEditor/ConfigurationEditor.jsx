@@ -8,6 +8,7 @@ import {
   Database,
   FileCog,
   FileText,
+  Files,
   FolderTree,
   GripVertical,
   Layers3,
@@ -41,8 +42,10 @@ import {
 } from "@dnd-kit/core";
 import {
   DRAG_OVERLAY_MODIFIERS,
+  ICON_NAMES,
   TREE_AUTO_SCROLL,
-  cx
+  cx,
+  iconFor
 } from "../../model/editor.js";
 import { ConfirmationDialog } from "../Dialogs/Dialogs.jsx";
 import { Spinner } from "../Common/Common.jsx";
@@ -59,21 +62,6 @@ const WIDGET_OPTIONS = [
   ["image", "Image upload"],
   ["reference", "Collection reference"],
   ["uuid", "Generated UUID"]
-];
-
-const ICON_OPTIONS = [
-  "file-text",
-  "files",
-  "newspaper",
-  "image",
-  "align-left",
-  "columns-3",
-  "panel-left",
-  "layers",
-  "layout-template",
-  "menu",
-  "search",
-  "settings"
 ];
 
 const SYSTEM_FIELD_OPTIONS = [
@@ -261,6 +249,191 @@ function SelectInput({ value, onChange, children, ...props }) {
       </select>
       <ChevronDown size={14} />
     </span>
+  );
+}
+
+function IconSelect({
+  value,
+  onChange,
+  includeDefault = false,
+  defaultIcon: DefaultIcon = FileText,
+  ...props
+}) {
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const listboxId = useId();
+  const values = [
+    ...(includeDefault ? [""] : []),
+    ...ICON_NAMES,
+    ...(value && !ICON_NAMES.includes(value) ? [value] : [])
+  ];
+  const options = values.map((optionValue) => ({
+    value: optionValue,
+    label: optionValue ? labelFromKey(optionValue) : "Default"
+  }));
+  const selectedIndex = Math.max(
+    0,
+    options.findIndex((option) => option.value === (value || ""))
+  );
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(selectedIndex);
+  const selectedOption = options[selectedIndex] ?? options[0];
+  const SelectedIcon = selectedOption?.value
+    ? iconFor(selectedOption.value, DefaultIcon)
+    : DefaultIcon;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    setActiveIndex(selectedIndex);
+    function handlePointerDown(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open, selectedIndex]);
+
+  useEffect(() => {
+    if (!open) return;
+    rootRef.current
+      ?.querySelector(`[data-option-index="${activeIndex}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, open]);
+
+  function choose(index) {
+    const option = options[index];
+    if (!option) return;
+    onChange(option.value);
+    setActiveIndex(index);
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  function moveActive(offset) {
+    const startIndex = open ? activeIndex : selectedIndex;
+    setActiveIndex(
+      (startIndex + offset + options.length) % options.length
+    );
+    setOpen(true);
+  }
+
+  function handleKeyDown(event) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveActive(1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveActive(-1);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setActiveIndex(0);
+      setOpen(true);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setActiveIndex(options.length - 1);
+      setOpen(true);
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (open) choose(activeIndex);
+      else {
+        setActiveIndex(selectedIndex);
+        setOpen(true);
+      }
+    } else if (event.key === "Escape" && open) {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+    } else if (event.key === "Tab") {
+      setOpen(false);
+    } else if (
+      event.key.length === 1 &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey
+    ) {
+      const search = event.key.toLocaleLowerCase();
+      const startIndex = open ? activeIndex : selectedIndex;
+      const matchingIndex = options.findIndex(
+        (option, index) =>
+          index !== startIndex &&
+          option.label.toLocaleLowerCase().startsWith(search)
+      );
+      if (matchingIndex !== -1) {
+        event.preventDefault();
+        setActiveIndex(matchingIndex);
+        setOpen(true);
+      }
+    }
+  }
+
+  return (
+    <div
+      ref={rootRef}
+      className={cx("configuration-icon-select", open && "is-open")}
+    >
+      <button
+        {...props}
+        ref={triggerRef}
+        type="button"
+        className="configuration-icon-select__trigger"
+        role="combobox"
+        aria-autocomplete="none"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-controls={listboxId}
+        aria-activedescendant={
+          open ? `${listboxId}-option-${activeIndex}` : undefined
+        }
+        onClick={() => {
+          setActiveIndex(selectedIndex);
+          setOpen((current) => !current);
+        }}
+        onKeyDown={handleKeyDown}
+      >
+        <span className="configuration-icon-select__preview" aria-hidden="true">
+          <SelectedIcon size={15} />
+        </span>
+        <span>{selectedOption?.label}</span>
+        <ChevronDown size={14} aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          id={listboxId}
+          className="configuration-icon-select__options"
+          role="listbox"
+        >
+          {options.map((option, index) => {
+            const OptionIcon = option.value
+              ? iconFor(option.value, DefaultIcon)
+              : DefaultIcon;
+            const selected = index === selectedIndex;
+            return (
+              <button
+                type="button"
+                id={`${listboxId}-option-${index}`}
+                key={option.value || "default"}
+                className={cx(
+                  "configuration-icon-select__option",
+                  index === activeIndex && "is-active"
+                )}
+                role="option"
+                aria-selected={selected}
+                data-option-index={index}
+                tabIndex="-1"
+                onPointerMove={() => setActiveIndex(index)}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  choose(index);
+                }}
+              >
+                <span aria-hidden="true"><OptionIcon size={15} /></span>
+                <span>{option.label}</span>
+                {selected && <Check size={13} aria-hidden="true" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1487,8 +1660,10 @@ function InspectorLayoutEditor({
                   />
                 </FormField>
                 <FormField label="Icon" optional>
-                  <SelectInput
+                  <IconSelect
                     value={group.icon}
+                    includeDefault
+                    defaultIcon={Settings2}
                     onChange={(value) => updateType((nextType) => {
                       setOptional(
                         nextType.views.detail.panels[panelKey].groups[groupKey],
@@ -1496,10 +1671,7 @@ function InspectorLayoutEditor({
                         value
                       );
                     })}
-                  >
-                    <option value="">Default</option>
-                    {ICON_OPTIONS.map((icon) => <option key={icon}>{icon}</option>)}
-                  </SelectInput>
+                  />
                 </FormField>
               </div>
               <FormField label="Description" optional>
@@ -1607,14 +1779,12 @@ function TypeEditor({
             </SelectInput>
           </FormField>
           <FormField label="Icon">
-            <SelectInput
+            <IconSelect
               value={type.icon || "file-text"}
               onChange={(value) => updateType((nextType) => {
                 nextType.icon = value;
               })}
-            >
-              {ICON_OPTIONS.map((icon) => <option key={icon}>{icon}</option>)}
-            </SelectInput>
+            />
           </FormField>
         </div>
       </section>
@@ -2243,15 +2413,14 @@ function CollectionEditor({
       >
         <div className="configuration-entry-card__grid">
           <FormField label="Icon" optional>
-            <SelectInput
+            <IconSelect
               value={collection.icon}
+              includeDefault
+              defaultIcon={Files}
               onChange={(value) => updateCollection((nextCollection) => {
                 setOptional(nextCollection, "icon", value);
               })}
-            >
-              <option value="">Default</option>
-              {ICON_OPTIONS.map((icon) => <option key={icon}>{icon}</option>)}
-            </SelectInput>
+            />
           </FormField>
           <FormField label="File extension">
             <SelectInput

@@ -130,8 +130,9 @@ source. The overlay supports keyboard focus containment, reduced motion, and a
 stacked small-screen layout. Grip handles reorder fields, options, content
 areas, inspector layout, and table columns with the same source preview and
 insertion-line behavior as the content trees; adjacent move buttons remain
-available for keyboard operation. Saving validates the complete model before
-atomically replacing `cms.config.yml`.
+available for keyboard operation. Icon settings use a keyboard-accessible
+picker that previews every option from the shared icon registry. Saving
+validates the complete model before atomically replacing `cms.config.yml`.
 
 ## API
 
