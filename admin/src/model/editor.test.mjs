@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ICON_NAMES,
   defaultFieldValue,
   isSaveShortcut,
   referenceItemsForField
 } from "./editor.js";
+
+test("includes the file symlink icon in configurable icon choices", () => {
+  assert.equal(ICON_NAMES.includes("file-symlink"), true);
+});
 
 test("keeps optional selects empty until an option is chosen", () => {
   const options = [

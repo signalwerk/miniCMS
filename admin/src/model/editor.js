@@ -1,6 +1,7 @@
 import {
   AlignLeft,
   Columns3,
+  FileSymlink,
   FileText,
   Files,
   Image,
@@ -18,6 +19,7 @@ import { sanitizeFilenameStem } from "../../shared/slug.js";
 const ICONS = {
   "align-left": AlignLeft,
   "columns-3": Columns3,
+  "file-symlink": FileSymlink,
   "file-text": FileText,
   files: Files,
   image: Image,
