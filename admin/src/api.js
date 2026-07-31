@@ -9,6 +9,13 @@ async function request(path, options) {
 
 export const api = {
   config: () => request("/api/config"),
+  configurationEditor: () => request("/api/configuration-editor"),
+  saveConfig: (config) =>
+    request("/api/config", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(config)
+    }),
   list: (collection) => request(`/api/collections/${encodeURIComponent(collection)}`),
   record: (collection, id) =>
     request(

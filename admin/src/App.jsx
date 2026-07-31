@@ -51,6 +51,7 @@ import {
   slugTemplateFieldNames,
   uniqueFilenameStem
 } from "../shared/slug.js";
+import ConfigurationWorkspace from "./ConfigurationWorkspace.jsx";
 
 const ICONS = {
   "align-left": AlignLeft,
@@ -484,6 +485,9 @@ function createUuid() {
 
 function defaultFieldValue(field, generateUuid = false) {
   let value = field.default;
+  if (value !== undefined && value !== null && typeof value === "object") {
+    value = structuredClone(value);
+  }
   if (value === undefined && field.widget === "uuid") {
     value = generateUuid ? createUuid() : "";
   }
@@ -491,6 +495,15 @@ function defaultFieldValue(field, generateUuid = false) {
   if (value === undefined && field.widget === "select") {
     value = optionValue(field.options?.[0]) ?? "";
   }
+  if (value === undefined && field.widget === "object") {
+    value = Object.fromEntries(
+      Object.entries(field.fields ?? {}).map(([name, nestedField]) => [
+        name,
+        defaultFieldValue(nestedField, generateUuid)
+      ])
+    );
+  }
+  if (value === undefined && field.widget === "list") value = [];
   return value === undefined ? "" : value;
 }
 
@@ -503,11 +516,43 @@ function defaultProperties(type) {
   );
 }
 
+function refreshFieldUuids(field, value) {
+  if (field.widget === "uuid") return createUuid();
+  if (
+    field.widget === "object" &&
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  ) {
+    const nextValue = { ...value };
+    for (const [name, nestedField] of Object.entries(field.fields ?? {})) {
+      if (Object.hasOwn(value, name) || nestedField.widget === "uuid") {
+        nextValue[name] = refreshFieldUuids(nestedField, value[name]);
+      }
+    }
+    return nextValue;
+  }
+  if (field.widget === "list" && Array.isArray(value)) {
+    return value.map((item) => refreshFieldUuids(field.item ?? {}, item));
+  }
+  return value;
+}
+
 function refreshUuidFields(node, nodeTypes) {
   const type = nodeTypes[node.type];
+  node.properties = { ...(node.properties ?? {}) };
   for (const field of typeFields(type)) {
-    if (field.widget === "uuid") {
-      node.properties = { ...(node.properties ?? {}), [field.name]: createUuid() };
+    if (
+      field.widget === "uuid" ||
+      (
+        Object.hasOwn(node.properties, field.name) &&
+        ["object", "list"].includes(field.widget)
+      )
+    ) {
+      node.properties[field.name] = refreshFieldUuids(
+        field,
+        node.properties[field.name]
+      );
     }
   }
   for (const children of Object.values(node.slots ?? {})) {
@@ -1656,6 +1701,233 @@ function ReferenceField({ field, value, onChange, collections }) {
   );
 }
 
+function normalizedObjectFieldValue(field, value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  const fallback = defaultFieldValue(field, true);
+  if (value !== undefined && value !== null && value !== "") {
+    if (Object.hasOwn(fallback, "value")) fallback.value = value;
+    if (Object.hasOwn(fallback, "label")) fallback.label = String(value);
+  }
+  return fallback;
+}
+
+function ObjectFieldControl({
+  field,
+  value,
+  onChange,
+  idPrefix,
+  collections
+}) {
+  const objectValue = normalizedObjectFieldValue(field, value);
+  return (
+    <div className="object-field">
+      {Object.entries(field.fields ?? {}).map(([name, nestedField]) => (
+        <Field
+          key={name}
+          field={{ ...nestedField, name }}
+          value={objectValue[name]}
+          idPrefix={`${idPrefix}-${field.name}`}
+          collections={collections}
+          onChange={(nextValue) =>
+            onChange({ ...objectValue, [name]: nextValue })
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+function ListFieldControl({
+  field,
+  value,
+  onChange,
+  idPrefix,
+  collections
+}) {
+  const items = Array.isArray(value) ? value : [];
+  const itemField = {
+    label: "Item",
+    widget: "string",
+    ...(field.item ?? {}),
+    name: "item"
+  };
+
+  function updateItem(index, nextValue) {
+    onChange(items.map((item, itemIndex) => (
+      itemIndex === index ? nextValue : item
+    )));
+  }
+
+  function moveItem(index, direction) {
+    const destination = index + direction;
+    if (destination < 0 || destination >= items.length) return;
+    const nextItems = [...items];
+    const [moving] = nextItems.splice(index, 1);
+    nextItems.splice(destination, 0, moving);
+    onChange(nextItems);
+  }
+
+  return (
+    <div className="list-field">
+      <div className="list-field__items">
+        {items.map((item, index) => (
+          <div className="list-field__item" key={index}>
+            <div className="list-field__item-actions">
+              <span>{index + 1}</span>
+              <button
+                type="button"
+                title="Move up"
+                disabled={index === 0}
+                onClick={() => moveItem(index, -1)}
+              >
+                <ArrowUp size={13} />
+              </button>
+              <button
+                type="button"
+                title="Move down"
+                disabled={index === items.length - 1}
+                onClick={() => moveItem(index, 1)}
+              >
+                <ArrowDown size={13} />
+              </button>
+              <button
+                type="button"
+                title="Duplicate"
+                onClick={() => {
+                  const nextItems = [...items];
+                  nextItems.splice(index + 1, 0, structuredClone(item));
+                  onChange(nextItems);
+                }}
+              >
+                <Copy size={13} />
+              </button>
+              <button
+                type="button"
+                className="danger"
+                title="Remove"
+                onClick={() =>
+                  onChange(items.filter((_, itemIndex) => itemIndex !== index))
+                }
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+            <Field
+              field={{
+                ...itemField,
+                label: itemField.label || `Item ${index + 1}`
+              }}
+              value={
+                itemField.widget === "object"
+                  ? normalizedObjectFieldValue(itemField, item)
+                  : item
+              }
+              idPrefix={`${idPrefix}-${field.name}-${index}`}
+              collections={collections}
+              onChange={(nextValue) => updateItem(index, nextValue)}
+            />
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="button button--secondary list-field__add"
+        onClick={() =>
+          onChange([...items, defaultFieldValue(itemField, true)])
+        }
+      >
+        <Plus size={14} />
+        Add {String(itemField.label || "item").toLowerCase()}
+      </button>
+    </div>
+  );
+}
+
+function ScalarFieldControl({ id, value, onChange, placeholder }) {
+  const valueType =
+    value === null
+      ? "null"
+      : typeof value === "number"
+        ? "number"
+        : typeof value === "boolean"
+          ? "boolean"
+          : "string";
+  const [draft, setDraft] = useState(
+    value === null ? "null" : String(value ?? "")
+  );
+
+  useEffect(() => {
+    setDraft(value === null ? "null" : String(value ?? ""));
+  }, [value]);
+
+  function commit() {
+    let nextValue = draft;
+    if (valueType === "number" && draft !== "" && Number.isFinite(Number(draft))) {
+      nextValue = Number(draft);
+    } else if (valueType === "null") {
+      nextValue = null;
+    }
+    if (nextValue !== value) onChange(nextValue);
+  }
+
+  return (
+    <div className="scalar-field">
+      <div className="select-wrap scalar-field__type">
+        <select
+          aria-label="Scalar type"
+          value={valueType}
+          onChange={(event) => {
+            const nextType = event.target.value;
+            if (nextType === "null") onChange(null);
+            else if (nextType === "boolean") onChange(Boolean(value));
+            else if (nextType === "number") {
+              onChange(Number.isFinite(Number(value)) ? Number(value) : 0);
+            } else onChange(value === null ? "" : String(value ?? ""));
+          }}
+        >
+          <option value="string">Text</option>
+          <option value="number">Number</option>
+          <option value="boolean">Boolean</option>
+          <option value="null">Null</option>
+        </select>
+        <ChevronDown size={14} />
+      </div>
+      {valueType === "boolean" ? (
+        <div className="select-wrap">
+          <select
+            id={id}
+            value={value ? "true" : "false"}
+            onChange={(event) => onChange(event.target.value === "true")}
+          >
+            <option value="false">False</option>
+            <option value="true">True</option>
+          </select>
+          <ChevronDown size={14} />
+        </div>
+      ) : valueType === "null" ? (
+        <code className="scalar-field__null">null</code>
+      ) : (
+        <input
+          id={id}
+          type={valueType === "number" ? "number" : "text"}
+          value={draft}
+          placeholder={placeholder}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setDraft(value === null ? "null" : String(value ?? ""));
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 function Field({
   field,
   value,
@@ -1672,7 +1944,27 @@ function Field({
   };
 
   let control;
-  if (field.widget === "boolean") {
+  if (field.widget === "object") {
+    control = (
+      <ObjectFieldControl
+        field={field}
+        value={resolvedValue}
+        onChange={onChange}
+        idPrefix={idPrefix}
+        collections={collections}
+      />
+    );
+  } else if (field.widget === "list") {
+    control = (
+      <ListFieldControl
+        field={field}
+        value={resolvedValue}
+        onChange={onChange}
+        idPrefix={idPrefix}
+        collections={collections}
+      />
+    );
+  } else if (field.widget === "boolean") {
     control = (
       <button
         type="button"
@@ -1689,6 +1981,11 @@ function Field({
     control = (
       <div className="select-wrap">
         <select {...common}>
+          {resolvedValue === "" && (
+            <option value="" disabled={field.required !== false}>
+              Select…
+            </option>
+          )}
           {(field.options ?? []).map((option) => {
             const optionObject =
               typeof option === "object" ? option : { label: option, value: option };
@@ -1741,10 +2038,29 @@ function Field({
         collections={collections}
       />
     );
+  } else if (field.widget === "scalar") {
+    control = (
+      <ScalarFieldControl
+        id={id}
+        value={value}
+        onChange={onChange}
+        placeholder={field.hint || ""}
+      />
+    );
   } else {
     control = (
       <input
         {...common}
+        onChange={
+          field.widget === "number"
+            ? (event) =>
+                onChange(
+                  event.target.value === ""
+                    ? ""
+                    : Number(event.target.value)
+                )
+            : common.onChange
+        }
         type={
           field.widget === "datetime"
             ? "date"
@@ -3286,6 +3602,10 @@ function ConfirmationDialog({
 
 export default function App() {
   const [config, setConfig] = useState(null);
+  const [configurationEditor, setConfigurationEditor] = useState(null);
+  const [configurationDraft, setConfigurationDraft] = useState(null);
+  const [configurationDirty, setConfigurationDirty] = useState(false);
+  const [workspaceMode, setWorkspaceMode] = useState("content");
   const [activeCollection, setActiveCollection] = useState("");
   const [items, setItems] = useState([]);
   const [record, setRecord] = useState(null);
@@ -3398,6 +3718,19 @@ export default function App() {
     }px`,
     "--tree-split": `${layoutPreferences.treeSplit * 100}%`
   };
+  const activeDirty =
+    workspaceMode === "settings" ? configurationDirty : dirty;
+  const siteInitials = String(
+    (workspaceMode === "settings" ? configurationDraft?.site?.name : null) ||
+      config?.site?.name ||
+      "miniCMS"
+  )
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
 
   const showToast = useCallback((message) => {
     setToast(message);
@@ -3484,11 +3817,11 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .config()
-      .then((nextConfig) => {
+    Promise.all([api.config(), api.configurationEditor()])
+      .then(([nextConfig, nextConfigurationEditor]) => {
         if (cancelled) return;
         setConfig(nextConfig);
+        setConfigurationEditor(nextConfigurationEditor);
         const configuredCollections = collectionEntries(nextConfig);
         const initialCollection =
           collectionNameFromHash(nextConfig) ||
@@ -3519,6 +3852,10 @@ export default function App() {
   useEffect(() => {
     if (!config || !activeCollection) return undefined;
     function syncCollectionFromHash() {
+      if (workspaceMode === "settings") {
+        replaceCollectionHash(activeCollection);
+        return;
+      }
       const requestedCollection = collectionNameFromHash(config);
       if (!requestedCollection) {
         replaceCollectionHash(activeCollection);
@@ -3535,7 +3872,7 @@ export default function App() {
     window.addEventListener("hashchange", syncCollectionFromHash);
     return () =>
       window.removeEventListener("hashchange", syncCollectionFromHash);
-  }, [activeCollection, config, dirty, loadCollection]);
+  }, [activeCollection, config, dirty, loadCollection, workspaceMode]);
 
   useEffect(() => {
     try {
@@ -3641,29 +3978,48 @@ export default function App() {
   }
 
   function runAfterDiscardCheck(action) {
-    if (!dirty) {
+    const hasUnsavedChanges =
+      workspaceMode === "settings" ? configurationDirty : dirty;
+    if (!hasUnsavedChanges) {
       action();
       return;
     }
     setConfirmation({
       title: "Discard unsaved changes?",
       description:
-        "The current record has changes that have not been saved. This action cannot be undone.",
+        workspaceMode === "settings"
+          ? "The CMS configuration has changes that have not been saved. This action cannot be undone."
+          : "The current record has changes that have not been saved. This action cannot be undone.",
       confirmLabel: "Discard changes",
       danger: true,
       onConfirm: async () => {
-        setDirty(false);
+        if (workspaceMode === "settings") {
+          setConfigurationDirty(false);
+          setConfigurationDraft(structuredClone(config));
+        } else {
+          setDirty(false);
+        }
         await action();
       }
     });
   }
 
   function switchCollection(name) {
-    if (name === activeCollection) return;
+    if (workspaceMode === "content" && name === activeCollection) return;
     runAfterDiscardCheck(() => {
+      setWorkspaceMode("content");
       replaceCollectionHash(name);
       setSearch("");
       return loadCollection(name);
+    });
+  }
+
+  function openConfiguration() {
+    if (workspaceMode === "settings") return;
+    runAfterDiscardCheck(() => {
+      setConfigurationDraft(structuredClone(config));
+      setConfigurationDirty(false);
+      setWorkspaceMode("settings");
     });
   }
 
@@ -3743,6 +4099,23 @@ export default function App() {
       );
       setDirty(false);
       showToast(`${record.properties?.title || record.id} saved`);
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveConfiguration() {
+    if (!configurationDraft || saving || !configurationDirty) return;
+    setSaving(true);
+    setError("");
+    try {
+      const result = await api.saveConfig(configurationDraft);
+      setConfig(result.config);
+      setConfigurationDraft(structuredClone(result.config));
+      setConfigurationDirty(false);
+      showToast("CMS configuration saved");
     } catch (saveError) {
       setError(saveError.message);
     } finally {
@@ -4688,7 +5061,11 @@ export default function App() {
               <button
                 type="button"
                 key={entry.name}
-                className={cx(entry.name === activeCollection && "is-active")}
+                className={cx(
+                  workspaceMode === "content" &&
+                    entry.name === activeCollection &&
+                    "is-active"
+                )}
                 onClick={() => switchCollection(entry.name)}
               >
                 <Icon size={15} strokeWidth={1.8} />
@@ -4696,33 +5073,75 @@ export default function App() {
               </button>
             );
           })}
+          <button
+            type="button"
+            className={cx(
+              "collection-nav__settings",
+              workspaceMode === "settings" && "is-active"
+            )}
+            onClick={openConfiguration}
+          >
+            <Settings2 size={15} strokeWidth={1.8} />
+            Settings
+          </button>
         </nav>
 
         <div className="topbar__actions">
-          <span className={cx("save-state", dirty && "save-state--dirty")}>
+          <span className={cx("save-state", activeDirty && "save-state--dirty")}>
             <i />
-            {dirty ? "Unsaved changes" : "All changes saved"}
+            {activeDirty ? "Unsaved changes" : "All changes saved"}
           </span>
           <button
             type="button"
             className="button button--save"
-            onClick={saveRecord}
-            disabled={!record || !dirty || saving}
+            onClick={
+              workspaceMode === "settings" ? saveConfiguration : saveRecord
+            }
+            disabled={
+              workspaceMode === "settings"
+                ? !configurationDraft || !configurationDirty || saving
+                : !record || !dirty || saving
+            }
           >
-            {saving ? <Spinner small /> : dirty ? <Save size={15} /> : <Check size={15} />}
+            {saving ? (
+              <Spinner small />
+            ) : activeDirty ? (
+              <Save size={15} />
+            ) : (
+              <Check size={15} />
+            )}
             {saving ? "Saving" : "Save"}
           </button>
           <button type="button" className="avatar" title="Workspace account">
-            BR
+            {siteInitials}
           </button>
         </div>
       </header>
 
-      <main
-        ref={workspaceRef}
-        className={cx("workspace", isTableView && "workspace--table")}
-        style={workspaceStyle}
-      >
+      {workspaceMode === "settings" ? (
+        <ConfigurationWorkspace
+          schema={configurationEditor}
+          config={configurationDraft}
+          onChange={(nextConfiguration) => {
+            setConfigurationDraft(nextConfiguration);
+            setConfigurationDirty(true);
+          }}
+          renderField={({ field, value, onChange, idPrefix }) => (
+            <Field
+              field={field}
+              value={value}
+              onChange={onChange}
+              idPrefix={idPrefix}
+              collections={collections}
+            />
+          )}
+        />
+      ) : (
+        <main
+          ref={workspaceRef}
+          className={cx("workspace", isTableView && "workspace--table")}
+          style={workspaceStyle}
+        >
         {isTableView && (
           <CollectionTable
             key={collection.name}
@@ -5066,7 +5485,8 @@ export default function App() {
             />
           )}
         </aside>
-      </main>
+        </main>
+      )}
 
       {error && (
         <div className="error-banner">

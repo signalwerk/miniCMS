@@ -42,6 +42,20 @@ const FIELD_DISPLAYS = new Set([
 ]);
 const FIELD_APPEARANCES = new Set(["title", "muted", "monospace"]);
 const FIELD_ALIGNMENTS = new Set(["left", "center", "right"]);
+const FIELD_WIDGETS = new Set([
+  "string",
+  "text",
+  "markdown",
+  "select",
+  "boolean",
+  "datetime",
+  "number",
+  "image",
+  "reference",
+  "uuid",
+  "object",
+  "list"
+]);
 
 function httpError(status, message) {
   const error = new Error(message);
@@ -64,18 +78,18 @@ function isMapping(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function validateFieldReference(reference, fields, context) {
+function validateFieldReference(reference, fields, context, status = 500) {
   const configuration =
     typeof reference === "string" ? { field: reference } : reference;
   if (!isMapping(configuration) || typeof configuration.field !== "string") {
-    throw httpError(500, `${context} must contain field references.`);
+    throw httpError(status, `${context} must contain field references.`);
   }
   if (
     !SYSTEM_FIELDS.has(configuration.field) &&
     !fields[configuration.field]
   ) {
     throw httpError(
-      500,
+      status,
       `${context} references unknown field "${configuration.field}".`
     );
   }
@@ -84,7 +98,7 @@ function validateFieldReference(reference, fields, context) {
     !FIELD_MODES.has(configuration.mode)
   ) {
     throw httpError(
-      500,
+      status,
       `${context} uses unsupported mode "${configuration.mode}".`
     );
   }
@@ -93,7 +107,7 @@ function validateFieldReference(reference, fields, context) {
     !FIELD_DISPLAYS.has(configuration.display)
   ) {
     throw httpError(
-      500,
+      status,
       `${context} uses unsupported display "${configuration.display}".`
     );
   }
@@ -102,7 +116,7 @@ function validateFieldReference(reference, fields, context) {
     !FIELD_APPEARANCES.has(configuration.appearance)
   ) {
     throw httpError(
-      500,
+      status,
       `${context} uses unsupported appearance "${configuration.appearance}".`
     );
   }
@@ -111,10 +125,251 @@ function validateFieldReference(reference, fields, context) {
     !FIELD_ALIGNMENTS.has(configuration.align)
   ) {
     throw httpError(
-      500,
+      status,
       `${context} uses unsupported alignment "${configuration.align}".`
     );
   }
+}
+
+function visitFieldDefinitions(fields, context, status, visit) {
+  for (const [fieldName, field] of Object.entries(fields)) {
+    const fieldContext = `${context} field "${fieldName}"`;
+    if (!isMapping(field)) {
+      throw httpError(status, `${fieldContext} must be a mapping.`);
+    }
+    if (!FIELD_WIDGETS.has(field.widget)) {
+      throw httpError(
+        status,
+        `${fieldContext} uses unsupported widget "${field.widget ?? ""}".`
+      );
+    }
+    if (
+      field.widget === "select" &&
+      !Array.isArray(field.options)
+    ) {
+      throw httpError(
+        status,
+        `${fieldContext} must define options as an array.`
+      );
+    }
+    visit(field, fieldName, fieldContext);
+    if (field.widget === "object") {
+      if (!isMapping(field.fields)) {
+        throw httpError(
+          status,
+          `${fieldContext} must define fields as a mapping.`
+        );
+      }
+      visitFieldDefinitions(field.fields, fieldContext, status, visit);
+    }
+    if (field.widget === "list") {
+      if (!isMapping(field.item)) {
+        throw httpError(
+          status,
+          `${fieldContext} must define item as a field mapping.`
+        );
+      }
+      visitFieldDefinitions(
+        { item: field.item },
+        fieldContext,
+        status,
+        visit
+      );
+    }
+  }
+}
+
+function validateConfig(config, status = 500) {
+  const fail = (message) => {
+    throw httpError(status, message);
+  };
+  if (!isMapping(config?.collections)) {
+    fail("cms.config.yml must define collections as a mapping.");
+  }
+  if (!isMapping(config?.node_types)) {
+    fail("cms.config.yml must define node_types as a mapping.");
+  }
+  for (const [typeName, type] of Object.entries(config.node_types)) {
+    if (!isMapping(type?.fields)) {
+      fail(`Node type "${typeName}" must define fields as a mapping.`);
+    }
+    visitFieldDefinitions(
+      type.fields,
+      `Node type "${typeName}"`,
+      status,
+      () => {}
+    );
+    if (type.slots !== undefined && !isMapping(type.slots)) {
+      fail(`Node type "${typeName}" must define slots as a mapping.`);
+    }
+    for (const [slotName, slot] of Object.entries(type.slots ?? {})) {
+      if (!Array.isArray(slot?.allowed_types)) {
+        fail(
+          `Node type "${typeName}" slot "${slotName}" must define allowed_types as an array.`
+        );
+      }
+      for (const allowedType of slot.allowed_types) {
+        if (!config.node_types[allowedType]) {
+          fail(
+            `Node type "${typeName}" slot "${slotName}" references unknown node type "${allowedType}".`
+          );
+        }
+      }
+    }
+    for (const [panelName, panel] of Object.entries(
+      type.views?.detail?.panels ?? {}
+    )) {
+      if (!isMapping(panel?.groups)) {
+        fail(
+          `Node type "${typeName}" detail panel "${panelName}" must define groups as a mapping.`
+        );
+      }
+      for (const [groupName, group] of Object.entries(panel.groups)) {
+        if (!Array.isArray(group?.fields)) {
+          fail(
+            `Node type "${typeName}" detail group "${groupName}" must define a fields array.`
+          );
+        }
+        for (const reference of group.fields) {
+          validateFieldReference(
+            reference,
+            type.fields,
+            `Node type "${typeName}" detail group "${groupName}"`,
+            status
+          );
+        }
+      }
+    }
+  }
+  for (const [collectionName, collection] of Object.entries(
+    config.collections
+  )) {
+    if (
+      collection.slug !== undefined &&
+      (typeof collection.slug !== "string" || !collection.slug.trim())
+    ) {
+      fail(
+        `Collection "${collectionName}" must define slug as a non-empty template string.`
+      );
+    }
+    if (!config.node_types[collection.node_type]) {
+      fail(
+        `Collection "${collectionName}" references unknown node type "${collection.node_type}".`
+      );
+    }
+    if (
+      collection.allowed_types !== undefined &&
+      !Array.isArray(collection.allowed_types)
+    ) {
+      fail(
+        `Collection "${collectionName}" must define allowed_types as an array.`
+      );
+    }
+    for (const allowedType of collection.allowed_types ?? []) {
+      if (!config.node_types[allowedType]) {
+        fail(
+          `Collection "${collectionName}" references unknown allowed type "${allowedType}".`
+        );
+      }
+    }
+    if (
+      collection.hierarchy?.allowed_child_types !== undefined &&
+      !Array.isArray(collection.hierarchy.allowed_child_types)
+    ) {
+      fail(
+        `Collection "${collectionName}" hierarchy allowed_child_types must be an array.`
+      );
+    }
+    for (const childType of collection.hierarchy?.allowed_child_types ?? []) {
+      if (!config.node_types[childType]) {
+        fail(
+          `Collection "${collectionName}" hierarchy references unknown child type "${childType}".`
+        );
+      }
+    }
+    const list = collection.views?.list;
+    if (list?.type && !["tree", "table"].includes(list.type)) {
+      fail(
+        `Collection "${collectionName}" uses unsupported list type "${list.type}".`
+      );
+    }
+    const rootFields = config.node_types[collection.node_type].fields;
+    if (list?.columns !== undefined && !Array.isArray(list.columns)) {
+      fail(`Collection "${collectionName}" list columns must be an array.`);
+    }
+    for (const reference of list?.columns ?? []) {
+      validateFieldReference(
+        reference,
+        rootFields,
+        `Collection "${collectionName}" list columns`,
+        status
+      );
+    }
+    for (const reference of list?.search?.fields ?? []) {
+      validateFieldReference(
+        reference,
+        rootFields,
+        `Collection "${collectionName}" search fields`,
+        status
+      );
+    }
+    if (list?.sort?.field) {
+      validateFieldReference(
+        list.sort.field,
+        rootFields,
+        `Collection "${collectionName}" list sort`,
+        status
+      );
+    }
+    const referenceView = collection.views?.reference;
+    if (referenceView) {
+      for (const [name, reference] of [
+        ["value", referenceView.value],
+        ["image", referenceView.image],
+        ["title", referenceView.title],
+        ...(
+          Array.isArray(referenceView.description)
+            ? referenceView.description
+            : referenceView.description
+              ? [referenceView.description]
+              : []
+        ).map((reference) => ["description", reference])
+      ]) {
+        if (!reference) continue;
+        validateFieldReference(
+          reference,
+          rootFields,
+          `Collection "${collectionName}" reference ${name}`,
+          status
+        );
+      }
+    }
+  }
+  for (const [typeName, type] of Object.entries(config.node_types)) {
+    visitFieldDefinitions(
+      type.fields,
+      `Node type "${typeName}"`,
+      status,
+      (field, fieldName) => {
+        if (field.widget !== "reference") return;
+        if (!config.collections[field.collection]) {
+          fail(
+            `Node type "${typeName}" reference field "${fieldName}" uses unknown collection "${field.collection}".`
+          );
+        }
+        if (field.value_field) {
+          const targetCollection = config.collections[field.collection];
+          validateFieldReference(
+            field.value_field,
+            config.node_types[targetCollection.node_type].fields,
+            `Node type "${typeName}" reference field "${fieldName}"`,
+            status
+          );
+        }
+      }
+    );
+  }
+  return config;
 }
 
 async function readYaml(filePath) {
@@ -217,6 +472,12 @@ function summarize(record, stat, collection) {
 export function createApp({
   rootDir,
   configFile = path.join(rootDir, "cms.config.yml"),
+  configurationEditorFile = path.join(
+    packageAdminDirectory,
+    "..",
+    "config",
+    "configuration-editor.yml"
+  ),
   serveAdmin = false,
   adminDist = path.join(packageAdminDirectory, "dist")
 }) {
@@ -239,140 +500,7 @@ export function createApp({
     }
     if (!cachedConfig || cachedConfigMtime !== stat.mtimeMs) {
       const config = await readYaml(configFile);
-      if (!isMapping(config?.collections)) {
-        throw httpError(500, "cms.config.yml must define collections as a mapping.");
-      }
-      if (!isMapping(config?.node_types)) {
-        throw httpError(500, "cms.config.yml must define node_types as a mapping.");
-      }
-      for (const [typeName, type] of Object.entries(config.node_types)) {
-        if (!isMapping(type?.fields)) {
-          throw httpError(
-            500,
-            `Node type "${typeName}" must define fields as a mapping.`
-          );
-        }
-        for (const [panelName, panel] of Object.entries(
-          type.views?.detail?.panels ?? {}
-        )) {
-          if (!isMapping(panel?.groups)) {
-            throw httpError(
-              500,
-              `Node type "${typeName}" detail panel "${panelName}" must define groups as a mapping.`
-            );
-          }
-          for (const [groupName, group] of Object.entries(panel.groups)) {
-            if (!Array.isArray(group?.fields)) {
-              throw httpError(
-                500,
-                `Node type "${typeName}" detail group "${groupName}" must define a fields array.`
-              );
-            }
-            for (const reference of group.fields) {
-              validateFieldReference(
-                reference,
-                type.fields,
-                `Node type "${typeName}" detail group "${groupName}"`
-              );
-            }
-          }
-        }
-      }
-      for (const [collectionName, collection] of Object.entries(
-        config.collections
-      )) {
-        if (
-          collection.slug !== undefined &&
-          (typeof collection.slug !== "string" || !collection.slug.trim())
-        ) {
-          throw httpError(
-            500,
-            `Collection "${collectionName}" must define slug as a non-empty template string.`
-          );
-        }
-        if (!config.node_types[collection.node_type]) {
-          throw httpError(
-            500,
-            `Collection "${collectionName}" references unknown node type "${collection.node_type}".`
-          );
-        }
-        const list = collection.views?.list;
-        if (list?.type && !["tree", "table"].includes(list.type)) {
-          throw httpError(
-            500,
-            `Collection "${collectionName}" uses unsupported list type "${list.type}".`
-          );
-        }
-        const rootFields = config.node_types[collection.node_type].fields;
-        if (list?.columns !== undefined && !Array.isArray(list.columns)) {
-          throw httpError(
-            500,
-            `Collection "${collectionName}" list columns must be an array.`
-          );
-        }
-        for (const reference of list?.columns ?? []) {
-          validateFieldReference(
-            reference,
-            rootFields,
-            `Collection "${collectionName}" list columns`
-          );
-        }
-        for (const reference of list?.search?.fields ?? []) {
-          validateFieldReference(
-            reference,
-            rootFields,
-            `Collection "${collectionName}" search fields`
-          );
-        }
-        if (list?.sort?.field) {
-          validateFieldReference(
-            list.sort.field,
-            rootFields,
-            `Collection "${collectionName}" list sort`
-          );
-        }
-        const referenceView = collection.views?.reference;
-        if (referenceView) {
-          for (const [name, reference] of [
-            ["value", referenceView.value],
-            ["image", referenceView.image],
-            ["title", referenceView.title],
-            ...(
-              Array.isArray(referenceView.description)
-                ? referenceView.description
-                : referenceView.description
-                  ? [referenceView.description]
-                  : []
-            ).map((reference) => ["description", reference])
-          ]) {
-            if (!reference) continue;
-            validateFieldReference(
-              reference,
-              rootFields,
-              `Collection "${collectionName}" reference ${name}`
-            );
-          }
-        }
-      }
-      for (const [typeName, type] of Object.entries(config.node_types)) {
-        for (const [fieldName, field] of Object.entries(type.fields)) {
-          if (field.widget !== "reference") continue;
-          if (!config.collections[field.collection]) {
-            throw httpError(
-              500,
-              `Node type "${typeName}" reference field "${fieldName}" uses unknown collection "${field.collection}".`
-            );
-          }
-          if (field.value_field) {
-            const targetCollection = config.collections[field.collection];
-            validateFieldReference(
-              field.value_field,
-              config.node_types[targetCollection.node_type].fields,
-              `Node type "${typeName}" reference field "${fieldName}"`
-            );
-          }
-        }
-      }
+      validateConfig(config);
       cachedConfig = config;
       cachedConfigMtime = stat.mtimeMs;
     }
@@ -411,6 +539,37 @@ export function createApp({
   app.get("/api/config", async (_request, response, next) => {
     try {
       response.json(await getConfig());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/config", async (request, response, next) => {
+    try {
+      validateConfig(request.body, 400);
+      await writeYamlAtomic(configFile, request.body);
+      const stat = await fs.stat(configFile);
+      cachedConfig = request.body;
+      cachedConfigMtime = stat.mtimeMs;
+      response.json({ saved: true, config: request.body });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/configuration-editor", async (_request, response, next) => {
+    try {
+      const editor = await readYaml(configurationEditorFile);
+      if (
+        !isMapping(editor?.sections) ||
+        !isMapping(editor?.types)
+      ) {
+        throw httpError(
+          500,
+          "The miniCMS configuration editor must define sections and types as mappings."
+        );
+      }
+      response.json(editor);
     } catch (error) {
       next(error);
     }
