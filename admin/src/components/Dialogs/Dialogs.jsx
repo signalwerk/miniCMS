@@ -17,6 +17,7 @@ import {
   defaultFieldValue,
   defaultProperties,
   iconFor,
+  isSaveShortcut,
   slugifyId,
   typeField,
   typeFields
@@ -334,16 +335,24 @@ function ConfirmationDialog({
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
   const busy = Boolean(busyAction);
+  const hasSecondaryAction = Boolean(onSecondary && secondaryLabel);
 
   useEffect(() => {
-    function handleEscape(event) {
-      if (event.key !== "Escape" || busy) return;
-      event.preventDefault();
-      onCancel();
+    function handleKeyboard(event) {
+      if (isSaveShortcut(event)) {
+        if (!hasSecondaryAction) return;
+        event.preventDefault();
+        if (!busy) void runAction(onSecondary, "secondary");
+        return;
+      }
+      if (event.key === "Escape" && !busy) {
+        event.preventDefault();
+        onCancel();
+      }
     }
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [busy, onCancel]);
+    document.addEventListener("keydown", handleKeyboard);
+    return () => document.removeEventListener("keydown", handleKeyboard);
+  }, [busy, hasSecondaryAction, onCancel, onSecondary]);
 
   async function runAction(action, name) {
     setBusyAction(name);
@@ -359,7 +368,8 @@ function ConfirmationDialog({
 
   function submit(event) {
     event.preventDefault();
-    runAction(onConfirm, "confirm");
+    if (hasSecondaryAction) runAction(onSecondary, "secondary");
+    else runAction(onConfirm, "confirm");
   }
 
   return (
@@ -407,33 +417,23 @@ function ConfirmationDialog({
           <button
             type="button"
             className="button button--secondary"
-            autoFocus
+            autoFocus={!hasSecondaryAction}
             onClick={onCancel}
             disabled={busy}
           >
             Cancel
           </button>
-          {onSecondary && secondaryLabel && (
-            <button
-              type="button"
-              className="button button--primary"
-              onClick={() => runAction(onSecondary, "secondary")}
-              disabled={busy}
-            >
-              {busyAction === "secondary" ? (
-                <Spinner small />
-              ) : (
-                <Check size={15} />
-              )}
-              {secondaryLabel}
-            </button>
-          )}
           <button
-            type="submit"
+            type={hasSecondaryAction ? "button" : "submit"}
             className={cx(
               "button",
               danger ? "button--danger" : "button--primary"
             )}
+            onClick={
+              hasSecondaryAction
+                ? () => runAction(onConfirm, "confirm")
+                : undefined
+            }
             disabled={busy}
           >
             {busyAction === "confirm" ? (
@@ -445,6 +445,23 @@ function ConfirmationDialog({
             )}
             {confirmLabel}
           </button>
+          {hasSecondaryAction && (
+            <button
+              type="submit"
+              className="button button--primary"
+              aria-keyshortcuts="Enter Control+S Meta+S"
+              title={`${secondaryLabel} (Command/Ctrl+S)`}
+              autoFocus
+              disabled={busy}
+            >
+              {busyAction === "secondary" ? (
+                <Spinner small />
+              ) : (
+                <Check size={15} />
+              )}
+              {secondaryLabel}
+            </button>
+          )}
         </div>
       </form>
     </div>

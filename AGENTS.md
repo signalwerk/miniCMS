@@ -139,6 +139,8 @@ grip, and delete action visible while collapsed.
 - Use shared in-app modals, dismissible with Escape; never browser prompts.
 - Unsaved-change confirmation offers Cancel, Save, and Discard. Save persists
   the current record and then continues the action that opened the dialog.
+  Save is its rightmost/default action and responds to Enter and
+  Command/Ctrl+S; destructive confirmation remains a separate action.
 - Command/Ctrl+S suppresses the browser save dialog and persists the active
   record; while Settings is open it persists the configuration draft instead.
 - No record is selected implicitly after collection load or refresh.
