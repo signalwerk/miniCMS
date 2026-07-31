@@ -100,6 +100,8 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 - Hierarchy is visible and edited in the collection tree; do not duplicate
   hierarchy or parent information in the inspector.
 - Workspace split sizes persist in local storage and remain keyboard operable.
+- Column resize handles provide the sole visible pane divider; do not add
+  adjacent pane borders that create double separator lines.
 - The active collection is stored as `#<collection-name>`.
 - Settings is a full-screen overlay organized around project, collection, and
   content-type tasks. Common changes must be additive and understandable
