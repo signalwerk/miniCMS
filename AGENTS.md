@@ -97,7 +97,8 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 - Both tree add actions use the searchable insertion overlay.
 - Both trees use `@dnd-kit/core`, identical inside-drop behavior, absolute
   no-layout-shift indicators, and a pointer-offset drag overlay.
-- Hierarchy is edited by drag-and-drop, not by an inspector parent selector.
+- Hierarchy is visible and edited in the collection tree; do not duplicate
+  hierarchy or parent information in the inspector.
 - Workspace split sizes persist in local storage and remain keyboard operable.
 - The active collection is stored as `#<collection-name>`.
 - Settings is a full-screen overlay organized around project, collection, and

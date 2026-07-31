@@ -447,17 +447,6 @@
   line-height: 1.45;
 }
 
-.hierarchy-info__label {
-  @extend %type-normal;
-  display: block;
-  margin-bottom: 3px;
-  color: #cfd1c8;
-}
-
-.hierarchy-info code {
-  color: #777970;
-}
-
 .detail-value {
   margin-bottom: 11px;
 }

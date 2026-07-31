@@ -12,7 +12,6 @@ import {
 import { useState } from "react";
 import "./Inspector.scss";
 import {
-  collectionHierarchyValue,
   cx,
   findLocation,
   getNode,
@@ -112,20 +111,11 @@ function Inspector({
   const currentPanel =
     panels.find((panel) => panel.name === activePanel) || panels[0];
   const groups = groupsForPanel(type, currentPanel.name, isDocument);
-  const isPrimaryPanel = currentPanel.name === panels[0].name;
-  const fieldCount =
-    groups.reduce((total, group) => total + group.fields.length, 0) +
-    (isPrimaryPanel && isDocument && collection.hierarchy?.enabled ? 1 : 0);
+  const fieldCount = groups.reduce(
+    (total, group) => total + group.fields.length,
+    0
+  );
   const currentItem = items.find((item) => item.id === record.id);
-  const hierarchyParentValue = collectionHierarchyValue(
-    record,
-    collection,
-    "parent_field",
-    record.parent ?? null
-  );
-  const hierarchyParentItem = items.find(
-    (item) => (item.hierarchy_id || item.id) === hierarchyParentValue
-  );
   return (
     <div className="inspector">
       <div className="inspector__identity">
@@ -174,36 +164,6 @@ function Inspector({
       </div>
 
       <div className="inspector__fields">
-        {isPrimaryPanel && isDocument && collection.hierarchy?.enabled && (
-          <InspectorGroup
-            key={`${node.id}-hierarchy`}
-            group={{
-              label: "Hierarchy",
-              icon: "layers",
-              description: `Move this ${collection.label_singular?.toLowerCase() || "record"} in the ${collection.label} tree to change its position.`,
-              fields: [{ name: "parent" }]
-            }}
-          >
-            <dl className="record-info hierarchy-info">
-              <div>
-                <dt>
-                  Parent {collection.label_singular?.toLowerCase() || "record"}
-                </dt>
-                <dd>
-                  <span className="hierarchy-info__label">
-                    {hierarchyParentValue
-                      ? hierarchyParentItem?.title || "Unknown parent"
-                      : "Top level"}
-                  </span>
-                  {hierarchyParentValue && (
-                    <code>{hierarchyParentValue}</code>
-                  )}
-                </dd>
-              </div>
-            </dl>
-          </InspectorGroup>
-        )}
-
         {groups.map((group) => (
           <InspectorGroup
             key={`${node.id}-${currentPanel.name}-${group.name}`}
@@ -254,12 +214,11 @@ function Inspector({
           </InspectorGroup>
         ))}
 
-        {!groups.length &&
-          !(isPrimaryPanel && isDocument && collection.hierarchy?.enabled) && (
-            <EmptyState icon={Settings2} title="No fields configured">
-              Assign fields to a group in this panel in cms.config.yml.
-            </EmptyState>
-          )}
+        {!groups.length && (
+          <EmptyState icon={Settings2} title="No fields configured">
+            Assign fields to a group in this panel in cms.config.yml.
+          </EmptyState>
+        )}
       </div>
 
       {!isDocument && location && (
