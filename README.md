@@ -63,8 +63,8 @@ minicms start     # serve API and built editor on :8787
 minicms test      # API integration and slug tests
 ```
 
-Node.js 20 or newer is required. `PORT`, `ADMIN_PORT`, and `HOST` control the
-listening addresses.
+Node.js 24 or newer is required. The included `.nvmrc` selects that major
+version. `PORT`, `ADMIN_PORT`, and `HOST` control the listening addresses.
 
 ## Consumer structure
 

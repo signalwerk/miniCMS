@@ -37,7 +37,8 @@ The consumer declares `"workspaces": ["miniCMS"]` and depends on
 
 ## Commands
 
-Requires Node.js 20 or newer.
+Requires Node.js 24 or newer; `.nvmrc`, package engines, and consumer CI should
+stay aligned on that major version.
 
 ```sh
 npm install
