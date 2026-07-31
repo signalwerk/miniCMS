@@ -139,6 +139,8 @@ grip, and delete action visible while collapsed.
 - Use shared in-app modals, dismissible with Escape; never browser prompts.
 - Unsaved-change confirmation offers Cancel, Save, and Discard. Save persists
   the current record and then continues the action that opened the dialog.
+- Command/Ctrl+S suppresses the browser save dialog and persists the active
+  record; while Settings is open it persists the configuration draft instead.
 - No record is selected implicitly after collection load or refresh.
 - Multiple tree selections show only their selection count in the inspector.
 - Inspector panel and field-group headings do not show field-count badges.

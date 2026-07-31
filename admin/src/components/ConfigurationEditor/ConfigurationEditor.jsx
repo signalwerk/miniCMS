@@ -45,7 +45,8 @@ import {
   ICON_NAMES,
   TREE_AUTO_SCROLL,
   cx,
-  iconFor
+  iconFor,
+  isSaveShortcut
 } from "../../model/editor.js";
 import {
   DEFAULT_FILE_ACCEPT,
@@ -2873,6 +2874,23 @@ export default function ConfigurationEditor({
     });
   }
 
+  async function saveDraft() {
+    if (!dirty || saving || modalOpen) return false;
+    setSaving(true);
+    setError("");
+    try {
+      const saved = await onSave(draft);
+      setDraft(structuredClone(saved));
+      setSavedDraft(structuredClone(saved));
+      return true;
+    } catch (saveError) {
+      setError(saveError.message);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
   useEffect(() => {
     const previousFocus = document.activeElement;
     overlayRef.current?.focus();
@@ -2883,6 +2901,11 @@ export default function ConfigurationEditor({
 
   useEffect(() => {
     function handleKeyboard(event) {
+      if (isSaveShortcut(event)) {
+        event.preventDefault();
+        void saveDraft();
+        return;
+      }
       if (event.defaultPrevented) return;
       if (event.key === "Tab") {
         const overlay = overlayRef.current;
@@ -3195,20 +3218,10 @@ export default function ConfigurationEditor({
         <button
           type="button"
           className="button button--save"
+          aria-keyshortcuts="Control+S Meta+S"
+          title="Save settings (Command/Ctrl+S)"
           disabled={!dirty || saving}
-          onClick={async () => {
-            setSaving(true);
-            setError("");
-            try {
-              const saved = await onSave(draft);
-              setDraft(structuredClone(saved));
-              setSavedDraft(structuredClone(saved));
-            } catch (saveError) {
-              setError(saveError.message);
-            } finally {
-              setSaving(false);
-            }
-          }}
+          onClick={saveDraft}
         >
           {saving ? <Spinner small /> : <Save size={14} />}
           {saving ? "Saving" : "Save settings"}

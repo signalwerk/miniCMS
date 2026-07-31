@@ -58,6 +58,7 @@ import {
   getNode,
   getNodePath,
   iconFor,
+  isSaveShortcut,
   newNode,
   nextTreeSelection,
   readLayoutPreferences,
@@ -601,6 +602,28 @@ export default function App() {
       setSaving(false);
     }
   }
+
+  useEffect(() => {
+    function handleSaveShortcut(event) {
+      if (!isSaveShortcut(event) || settingsOpen) return;
+      event.preventDefault();
+      if (!record || !dirty || saving || confirmation || insertDialog) return;
+      void saveRecord();
+    }
+
+    document.addEventListener("keydown", handleSaveShortcut);
+    return () => document.removeEventListener("keydown", handleSaveShortcut);
+  }, [
+    activeCollection,
+    api,
+    confirmation,
+    dirty,
+    insertDialog,
+    record,
+    saving,
+    settingsOpen,
+    showToast
+  ]);
 
   async function saveConfiguration(nextConfig) {
     const result = await api.saveConfig(nextConfig);
@@ -1603,6 +1626,8 @@ export default function App() {
           <button
             type="button"
             className="button button--save"
+            aria-keyshortcuts="Control+S Meta+S"
+            title="Save (Command/Ctrl+S)"
             onClick={saveRecord}
             disabled={!record || !dirty || saving}
           >

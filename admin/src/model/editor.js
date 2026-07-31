@@ -439,6 +439,15 @@ function optionValue(option) {
   return typeof option === "object" ? option.value : option;
 }
 
+function isSaveShortcut(event) {
+  return (
+    String(event?.key).toLocaleLowerCase() === "s" &&
+    Boolean(event?.metaKey || event?.ctrlKey) &&
+    !event?.altKey &&
+    !event?.shiftKey
+  );
+}
+
 function referenceItemsForField(items, field) {
   const allowedTypes = field?.allowed_types;
   if (!allowedTypes?.length) return items;
@@ -691,6 +700,7 @@ export {
   getNode,
   getNodePath,
   iconFor,
+  isSaveShortcut,
   newNode,
   nextTreeSelection,
   optionValue,

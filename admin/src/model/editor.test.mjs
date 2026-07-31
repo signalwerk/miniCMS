@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultFieldValue, referenceItemsForField } from "./editor.js";
+import {
+  defaultFieldValue,
+  isSaveShortcut,
+  referenceItemsForField
+} from "./editor.js";
 
 test("keeps optional selects empty until an option is chosen", () => {
   const options = [
@@ -38,4 +42,14 @@ test("filters reference choices by configured record types", () => {
     referenceItemsForField(items, { allowed_types: ["page"] }),
     [{ id: "home", type: "page" }]
   );
+});
+
+test("recognizes the platform save shortcuts without stealing Save As", () => {
+  assert.equal(isSaveShortcut({ key: "s", metaKey: true }), true);
+  assert.equal(isSaveShortcut({ key: "S", ctrlKey: true }), true);
+  assert.equal(
+    isSaveShortcut({ key: "s", metaKey: true, shiftKey: true }),
+    false
+  );
+  assert.equal(isSaveShortcut({ key: "s" }), false);
 });
