@@ -28,7 +28,22 @@ import {
   useRef,
   useState
 } from "react";
-import { cx } from "../../model/editor.js";
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  pointerWithin,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors
+} from "@dnd-kit/core";
+import {
+  DRAG_OVERLAY_MODIFIERS,
+  TREE_AUTO_SCROLL,
+  cx
+} from "../../model/editor.js";
 import { ConfirmationDialog } from "../Dialogs/Dialogs.jsx";
 import { Spinner } from "../Common/Common.jsx";
 import "./ConfigurationEditor.scss";
@@ -126,6 +141,61 @@ function moveMappingEntry(mapping, key, direction) {
   const [moving] = nextEntries.splice(index, 1);
   nextEntries.splice(destination, 0, moving);
   return Object.fromEntries(nextEntries);
+}
+
+function moveArrayEntry(entries, sourceIndex, destinationIndex) {
+  const nextEntries = [...entries];
+  const [moving] = nextEntries.splice(sourceIndex, 1);
+  nextEntries.splice(destinationIndex, 0, moving);
+  return nextEntries;
+}
+
+function moveMappingEntryTo(mapping, key, destinationIndex) {
+  const entries = Object.entries(mapping ?? {});
+  const sourceIndex = entries.findIndex(([name]) => name === key);
+  if (
+    sourceIndex < 0 ||
+    destinationIndex < 0 ||
+    destinationIndex >= entries.length ||
+    sourceIndex === destinationIndex
+  ) {
+    return mapping;
+  }
+  return Object.fromEntries(
+    moveArrayEntry(entries, sourceIndex, destinationIndex)
+  );
+}
+
+function moveTypeFieldTo(type, fieldKey, sourceIndex, destinationIndex) {
+  const direction = Math.sign(destinationIndex - sourceIndex);
+  if (!direction) return;
+  for (
+    let currentIndex = sourceIndex;
+    currentIndex !== destinationIndex;
+    currentIndex += direction
+  ) {
+    type.fields = moveMappingEntry(type.fields, fieldKey, direction);
+    for (const panel of Object.values(type.views?.detail?.panels ?? {})) {
+      for (const group of Object.values(panel.groups ?? {})) {
+        const references = group.fields ?? [];
+        const referenceIndex = references.findIndex(
+          (reference) =>
+            (typeof reference === "string"
+              ? reference
+              : reference.field) === fieldKey
+        );
+        const referenceDestination = referenceIndex + direction;
+        if (
+          referenceIndex !== -1 &&
+          referenceDestination >= 0 &&
+          referenceDestination < references.length
+        ) {
+          const [moving] = references.splice(referenceIndex, 1);
+          references.splice(referenceDestination, 0, moving);
+        }
+      }
+    }
+  }
 }
 
 function setOptional(target, key, value) {
@@ -227,15 +297,30 @@ function EntryActions({
   count,
   onMove,
   onDuplicate,
-  onDelete
+  onDelete,
+  dragHandleProps,
+  dragLabel = "item"
 }) {
   return (
     <div className="configuration-entry-actions">
-      <GripVertical size={14} aria-hidden="true" />
+      {dragHandleProps ? (
+        <button
+          {...dragHandleProps}
+          type="button"
+          className="configuration-drag-handle"
+          title={`Drag to move ${dragLabel}`}
+          aria-label={`Drag to move ${dragLabel}`}
+          disabled={count < 2}
+        >
+          <GripVertical size={14} aria-hidden="true" />
+        </button>
+      ) : (
+        <GripVertical size={14} aria-hidden="true" />
+      )}
       <button
         type="button"
-        title="Move up"
-        aria-label="Move up"
+        title={`Move ${dragLabel} up`}
+        aria-label={`Move ${dragLabel} up`}
         disabled={index === 0}
         onClick={() => onMove(-1)}
       >
@@ -243,8 +328,8 @@ function EntryActions({
       </button>
       <button
         type="button"
-        title="Move down"
-        aria-label="Move down"
+        title={`Move ${dragLabel} down`}
+        aria-label={`Move ${dragLabel} down`}
         disabled={index === count - 1}
         onClick={() => onMove(1)}
       >
@@ -270,6 +355,173 @@ function EntryActions({
         <Trash2 size={13} />
       </button>
     </div>
+  );
+}
+
+function ConfigurationDropLine({
+  id,
+  insertionIndex,
+  enabled,
+  visible
+}) {
+  const { isOver, setNodeRef } = useDroppable({
+    id,
+    data: { insertionIndex },
+    disabled: !enabled
+  });
+  return (
+    <div
+      className={cx(
+        "configuration-drop-anchor",
+        visible && "is-visible",
+        enabled && isOver && "is-over"
+      )}
+      aria-hidden="true"
+    >
+      <div ref={setNodeRef} className="configuration-drop-target">
+        <span />
+      </div>
+    </div>
+  );
+}
+
+function ConfigurationDragPreview({ item }) {
+  if (!item) return null;
+  return (
+    <div className="configuration-drag-preview">
+      <GripVertical size={15} aria-hidden="true" />
+      <span>
+        <small>Moving</small>
+        <strong>{item.label}</strong>
+      </span>
+    </div>
+  );
+}
+
+function ConfigurationDndItem({
+  scope,
+  item,
+  index,
+  count,
+  activeIndex,
+  renderItem
+}) {
+  const {
+    attributes,
+    isDragging,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef
+  } = useDraggable({
+    id: `${scope}:item:${item.id}`,
+    data: { index, item },
+    disabled: count < 2
+  });
+  const beforeEnabled =
+    activeIndex !== null &&
+    index !== activeIndex &&
+    index !== activeIndex + 1;
+  const afterIndex = count;
+  const afterEnabled =
+    activeIndex !== null &&
+    index === count - 1 &&
+    afterIndex !== activeIndex &&
+    afterIndex !== activeIndex + 1;
+  const dragHandleProps = {
+    ref: setActivatorNodeRef,
+    ...attributes,
+    ...listeners
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      role="listitem"
+      className={cx(
+        "configuration-dnd-item",
+        isDragging && "configuration-dnd-item--dragging"
+      )}
+    >
+      <ConfigurationDropLine
+        id={`${scope}:drop:${index}`}
+        insertionIndex={index}
+        enabled={beforeEnabled}
+        visible={beforeEnabled}
+      />
+      {renderItem({ dragHandleProps, isDragging })}
+      {index === count - 1 && (
+        <ConfigurationDropLine
+          id={`${scope}:drop:${afterIndex}`}
+          insertionIndex={afterIndex}
+          enabled={afterEnabled}
+          visible={afterEnabled}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConfigurationDndList({
+  items,
+  onReorder,
+  className,
+  ariaLabel,
+  children
+}) {
+  const scope = useId();
+  const [activeDrag, setActiveDrag] = useState(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor)
+  );
+  const activeIndex = activeDrag?.index ?? null;
+
+  return (
+    <DndContext
+      sensors={sensors}
+      autoScroll={TREE_AUTO_SCROLL}
+      collisionDetection={pointerWithin}
+      onDragStart={({ active }) => setActiveDrag(active.data.current)}
+      onDragCancel={() => setActiveDrag(null)}
+      onDragEnd={({ active, over }) => {
+        const sourceIndex = active.data.current?.index;
+        const insertionIndex = over?.data.current?.insertionIndex;
+        setActiveDrag(null);
+        if (
+          !Number.isInteger(sourceIndex) ||
+          !Number.isInteger(insertionIndex)
+        ) {
+          return;
+        }
+        const destinationIndex =
+          insertionIndex > sourceIndex
+            ? insertionIndex - 1
+            : insertionIndex;
+        if (destinationIndex !== sourceIndex) {
+          onReorder(sourceIndex, destinationIndex);
+        }
+      }}
+    >
+      <div className={className} role="list" aria-label={ariaLabel}>
+        {items.map((item, index) => (
+          <ConfigurationDndItem
+            key={item.id}
+            scope={scope}
+            item={item}
+            index={index}
+            count={items.length}
+            activeIndex={activeIndex}
+            renderItem={(dragState) => children(item, index, dragState)}
+          />
+        ))}
+      </div>
+      <DragOverlay
+        dropAnimation={null}
+        modifiers={DRAG_OVERLAY_MODIFIERS}
+      >
+        <ConfigurationDragPreview item={activeDrag?.item} />
+      </DragOverlay>
+    </DndContext>
   );
 }
 
@@ -469,54 +721,68 @@ function SelectOptionsEditor({ options = [], onChange }) {
           <Plus size={13} /> Add option
         </button>
       </div>
-      {normalized.map((option, index) => (
-        <div className="configuration-option-row" key={index}>
-          <TextInput
-            value={option.label}
-            aria-label={`Option ${index + 1} label`}
-            placeholder="Editor label"
-            onChange={(value) =>
-              onChange(normalized.map((item, itemIndex) =>
-                itemIndex === index ? { ...item, label: value } : item
-              ))
-            }
-          />
-          <TextInput
-            value={option.value}
-            aria-label={`Option ${index + 1} value`}
-            placeholder="stored_value"
-            onChange={(value) =>
-              onChange(normalized.map((item, itemIndex) =>
-                itemIndex === index ? { ...item, value } : item
-              ))
-            }
-          />
-          <EntryActions
-            index={index}
-            count={normalized.length}
-            onMove={(direction) => {
-              const nextOptions = [...normalized];
-              const [moving] = nextOptions.splice(index, 1);
-              nextOptions.splice(index + direction, 0, moving);
-              onChange(nextOptions);
-            }}
-            onDuplicate={() => {
-              const nextOptions = [...normalized];
-              nextOptions.splice(index + 1, 0, {
-                label: `${option.label} copy`,
-                value: uniqueKey(
-                  Object.fromEntries(normalized.map((item) => [item.value, true])),
-                  `${option.value}_copy`
-                )
-              });
-              onChange(nextOptions);
-            }}
-            onDelete={() =>
-              onChange(normalized.filter((_, itemIndex) => itemIndex !== index))
-            }
-          />
-        </div>
-      ))}
+      <ConfigurationDndList
+        className="configuration-option-list"
+        ariaLabel="Dropdown options"
+        items={normalized.map((option, index) => ({
+          id: `option-${index}`,
+          label: option.label || option.value || `Option ${index + 1}`
+        }))}
+        onReorder={(sourceIndex, destinationIndex) =>
+          onChange(moveArrayEntry(normalized, sourceIndex, destinationIndex))
+        }
+      >
+        {(_, index, { dragHandleProps }) => {
+          const option = normalized[index];
+          return (
+            <div className="configuration-option-row">
+              <TextInput
+                value={option.label}
+                aria-label={`Option ${index + 1} label`}
+                placeholder="Editor label"
+                onChange={(value) =>
+                  onChange(normalized.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, label: value } : item
+                  ))
+                }
+              />
+              <TextInput
+                value={option.value}
+                aria-label={`Option ${index + 1} value`}
+                placeholder="stored_value"
+                onChange={(value) =>
+                  onChange(normalized.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, value } : item
+                  ))
+                }
+              />
+              <EntryActions
+                index={index}
+                count={normalized.length}
+                dragHandleProps={dragHandleProps}
+                dragLabel={option.label || `option ${index + 1}`}
+                onMove={(direction) =>
+                  onChange(moveArrayEntry(normalized, index, index + direction))
+                }
+                onDuplicate={() => {
+                  const nextOptions = [...normalized];
+                  nextOptions.splice(index + 1, 0, {
+                    label: `${option.label} copy`,
+                    value: uniqueKey(
+                      Object.fromEntries(normalized.map((item) => [item.value, true])),
+                      `${option.value}_copy`
+                    )
+                  });
+                  onChange(nextOptions);
+                }}
+                onDelete={() =>
+                  onChange(normalized.filter((_, itemIndex) => itemIndex !== index))
+                }
+              />
+            </div>
+          );
+        }}
+      </ConfigurationDndList>
       {!normalized.length && (
         <p className="configuration-muted">No options yet.</p>
       )}
@@ -534,7 +800,8 @@ function FieldEditor({
   onChange,
   onMove,
   onDuplicate,
-  onDelete
+  onDelete,
+  dragHandleProps
 }) {
   const widget = field.widget || "string";
   const widgetLabel =
@@ -580,6 +847,8 @@ function FieldEditor({
         <EntryActions
           index={index}
           count={count}
+          dragHandleProps={dragHandleProps}
+          dragLabel={field.label || labelFromKey(fieldKey)}
           onMove={onMove}
           onDuplicate={onDuplicate}
           onDelete={onDelete}
@@ -809,7 +1078,8 @@ function SlotEditor({
   nodeTypes,
   onChange,
   onMove,
-  onDelete
+  onDelete,
+  dragHandleProps
 }) {
   return (
     <article className="configuration-entry-card configuration-entry-card--compact">
@@ -824,6 +1094,8 @@ function SlotEditor({
         <EntryActions
           index={index}
           count={count}
+          dragHandleProps={dragHandleProps}
+          dragLabel={slot.label || labelFromKey(slotKey)}
           onMove={onMove}
           onDelete={onDelete}
         />
@@ -941,20 +1213,40 @@ function InspectorFieldsEditor({ references = [], fields, onChange }) {
           </button>
         </span>
       </div>
-      {references.map((reference, index) => {
-        const configured = normalizeFieldReference(reference);
-        const system = configured.field?.startsWith("$");
-        return (
-          <article className="configuration-field-reference" key={index}>
+      <ConfigurationDndList
+        className="configuration-inspector-field-list"
+        ariaLabel="Inspector fields"
+        items={references.map((reference, index) => {
+          const configured = normalizeFieldReference(reference);
+          return {
+            id: `reference-${index}`,
+            label:
+              configured.label ||
+              options.find(([key]) => key === configured.field)?.[1] ||
+              labelFromKey(configured.field)
+          };
+        })}
+        onReorder={(sourceIndex, destinationIndex) =>
+          onChange(moveArrayEntry(references, sourceIndex, destinationIndex))
+        }
+      >
+        {(_, index, { dragHandleProps }) => {
+          const configured = normalizeFieldReference(references[index]);
+          const system = configured.field?.startsWith("$");
+          const dragLabel =
+            configured.label ||
+            options.find(([key]) => key === configured.field)?.[1] ||
+            labelFromKey(configured.field);
+          return (
+          <article className="configuration-field-reference">
             <EntryActions
               index={index}
               count={references.length}
-              onMove={(direction) => {
-                const nextReferences = [...references];
-                const [moving] = nextReferences.splice(index, 1);
-                nextReferences.splice(index + direction, 0, moving);
-                onChange(nextReferences);
-              }}
+              dragHandleProps={dragHandleProps}
+              dragLabel={dragLabel}
+              onMove={(direction) =>
+                onChange(moveArrayEntry(references, index, index + direction))
+              }
               onDelete={() =>
                 onChange(references.filter((_, itemIndex) => itemIndex !== index))
               }
@@ -1046,8 +1338,9 @@ function InspectorFieldsEditor({ references = [], fields, onChange }) {
               </div>
             </AdvancedSection>
           </article>
-        );
-      })}
+          );
+        }}
+      </ConfigurationDndList>
       {!references.length && (
         <p className="configuration-muted">No fields assigned yet.</p>
       )}
@@ -1081,8 +1374,27 @@ function InspectorLayoutEditor({
           <Plus size={13} /> Add panel
         </button>
       </div>
-      {Object.entries(panels).map(([panelKey, panel], panelIndex) => (
-        <article className="configuration-layout-panel" key={panelKey}>
+      <ConfigurationDndList
+        className="configuration-panel-list"
+        ariaLabel="Inspector panels"
+        items={Object.entries(panels).map(([panelKey, panel]) => ({
+          id: panelKey,
+          label: panel.label || labelFromKey(panelKey)
+        }))}
+        onReorder={(sourceIndex, destinationIndex) => updateType((nextType) => {
+          const panelKey = Object.keys(panels)[sourceIndex];
+          nextType.views.detail.panels = moveMappingEntryTo(
+            nextType.views.detail.panels,
+            panelKey,
+            destinationIndex
+          );
+        })}
+      >
+        {(panelItem, panelIndex, { dragHandleProps }) => {
+          const panelKey = panelItem.id;
+          const panel = panels[panelKey];
+          return (
+        <article className="configuration-layout-panel">
           <div className="configuration-entry-card__top">
             <span className="configuration-entry-card__identity">
               <Layers3 size={15} />
@@ -1094,6 +1406,8 @@ function InspectorLayoutEditor({
             <EntryActions
               index={panelIndex}
               count={Object.keys(panels).length}
+              dragHandleProps={dragHandleProps}
+              dragLabel={panel.label || labelFromKey(panelKey)}
               onMove={(direction) => updateType((nextType) => {
                 nextType.views.detail.panels = moveMappingEntry(
                   nextType.views.detail.panels,
@@ -1126,13 +1440,33 @@ function InspectorLayoutEditor({
               <Plus size={13} /> Add group
             </button>
           </div>
-          {Object.entries(panel.groups ?? {}).map(([groupKey, group], groupIndex) => (
-            <div className="configuration-layout-group" key={groupKey}>
+          <ConfigurationDndList
+            className="configuration-group-list"
+            ariaLabel={`${panel.label || labelFromKey(panelKey)} groups`}
+            items={Object.entries(panel.groups ?? {}).map(([groupKey, group]) => ({
+              id: groupKey,
+              label: group.label || labelFromKey(groupKey)
+            }))}
+            onReorder={(sourceIndex, destinationIndex) => updateType((nextType) => {
+              const groupKey = Object.keys(panel.groups ?? {})[sourceIndex];
+              const groups =
+                nextType.views.detail.panels[panelKey].groups;
+              nextType.views.detail.panels[panelKey].groups =
+                moveMappingEntryTo(groups, groupKey, destinationIndex);
+            })}
+          >
+            {(groupItem, groupIndex, { dragHandleProps: groupDragHandleProps }) => {
+              const groupKey = groupItem.id;
+              const group = panel.groups[groupKey];
+              return (
+            <div className="configuration-layout-group">
               <div className="configuration-layout-group__top">
                 <span><strong>{group.label || labelFromKey(groupKey)}</strong><code>{groupKey}</code></span>
                 <EntryActions
                   index={groupIndex}
                   count={Object.keys(panel.groups ?? {}).length}
+                  dragHandleProps={groupDragHandleProps}
+                  dragLabel={group.label || labelFromKey(groupKey)}
                   onMove={(direction) => updateType((nextType) => {
                     const groups = nextType.views.detail.panels[panelKey].groups;
                     nextType.views.detail.panels[panelKey].groups =
@@ -1188,9 +1522,13 @@ function InspectorLayoutEditor({
                 })}
               />
             </div>
-          ))}
+              );
+            }}
+          </ConfigurationDndList>
         </article>
-      ))}
+          );
+        }}
+      </ConfigurationDndList>
       {!Object.keys(panels).length && (
         <p className="configuration-muted">No inspector panels configured.</p>
       )}
@@ -1293,44 +1631,46 @@ function TypeEditor({
           <Plus size={13} /> Add field
         </button>
       </div>
-      <div className="configuration-entry-list">
-        {Object.entries(fields).map(([fieldKey, field], index) => (
+      <ConfigurationDndList
+        className="configuration-entry-list"
+        ariaLabel="Content type fields"
+        items={Object.entries(fields).map(([fieldKey, field]) => ({
+          id: fieldKey,
+          label: field.label || labelFromKey(fieldKey)
+        }))}
+        onReorder={(sourceIndex, destinationIndex) => updateType((nextType) => {
+          const fieldKey = Object.keys(fields)[sourceIndex];
+          moveTypeFieldTo(
+            nextType,
+            fieldKey,
+            sourceIndex,
+            destinationIndex
+          );
+        })}
+      >
+        {(fieldItem, index, { dragHandleProps }) => {
+          const fieldKey = fieldItem.id;
+          const field = fields[fieldKey];
+          return (
           <FieldEditor
-            key={fieldKey}
             fieldKey={fieldKey}
             field={field}
             index={index}
             count={Object.keys(fields).length}
             collections={collections}
             nodeTypes={nodeTypes}
+            dragHandleProps={dragHandleProps}
             onChange={(change) => updateType((nextType) => {
               change(nextType.fields[fieldKey]);
             })}
-            onMove={(direction) => updateType((nextType) => {
-              nextType.fields = moveMappingEntry(nextType.fields, fieldKey, direction);
-              for (const panel of Object.values(
-                nextType.views?.detail?.panels ?? {}
-              )) {
-                for (const group of Object.values(panel.groups ?? {})) {
-                  const references = group.fields ?? [];
-                  const referenceIndex = references.findIndex(
-                    (reference) =>
-                      (typeof reference === "string"
-                        ? reference
-                        : reference.field) === fieldKey
-                  );
-                  const destination = referenceIndex + direction;
-                  if (
-                    referenceIndex !== -1 &&
-                    destination >= 0 &&
-                    destination < references.length
-                  ) {
-                    const [moving] = references.splice(referenceIndex, 1);
-                    references.splice(destination, 0, moving);
-                  }
-                }
-              }
-            })}
+            onMove={(direction) => updateType((nextType) =>
+              moveTypeFieldTo(
+                nextType,
+                fieldKey,
+                index,
+                index + direction
+              )
+            )}
             onDuplicate={() => updateType((nextType) => {
               const duplicateKey = uniqueKey(nextType.fields, `${fieldKey}_copy`);
               const entries = Object.entries(nextType.fields);
@@ -1362,14 +1702,15 @@ function TypeEditor({
             })}
             onDelete={() => onAdd({ kind: "delete-field", fieldKey })}
           />
-        ))}
-        {!Object.keys(fields).length && (
-          <div className="configuration-empty-list">
-            <FileCog size={20} aria-hidden="true" />
-            <strong>No fields yet</strong>
-          </div>
-        )}
-      </div>
+          );
+        }}
+      </ConfigurationDndList>
+      {!Object.keys(fields).length && (
+        <div className="configuration-empty-list">
+          <FileCog size={20} aria-hidden="true" />
+          <strong>No fields yet</strong>
+        </div>
+      )}
 
       <AdvancedSection
         title="Content areas"
@@ -1386,15 +1727,33 @@ function TypeEditor({
             <Plus size={13} /> Add content area
           </button>
         </div>
-        <div className="configuration-entry-list">
-          {Object.entries(slots).map(([slotKey, slot], index) => (
+        <ConfigurationDndList
+          className="configuration-entry-list"
+          ariaLabel="Content areas"
+          items={Object.entries(slots).map(([slotKey, slot]) => ({
+            id: slotKey,
+            label: slot.label || labelFromKey(slotKey)
+          }))}
+          onReorder={(sourceIndex, destinationIndex) => updateType((nextType) => {
+            const slotKey = Object.keys(slots)[sourceIndex];
+            nextType.slots = moveMappingEntryTo(
+              nextType.slots,
+              slotKey,
+              destinationIndex
+            );
+          })}
+        >
+          {(slotItem, index, { dragHandleProps }) => {
+            const slotKey = slotItem.id;
+            const slot = slots[slotKey];
+            return (
             <SlotEditor
-              key={slotKey}
               slotKey={slotKey}
               slot={slot}
               index={index}
               count={Object.keys(slots).length}
               nodeTypes={nodeTypes}
+              dragHandleProps={dragHandleProps}
               onChange={(change) => updateType((nextType) => {
                 change(nextType.slots[slotKey]);
               })}
@@ -1406,8 +1765,9 @@ function TypeEditor({
                 if (!Object.keys(nextType.slots).length) delete nextType.slots;
               })}
             />
-          ))}
-        </div>
+            );
+          }}
+        </ConfigurationDndList>
       </AdvancedSection>
 
       <InspectorLayoutEditor
@@ -1426,7 +1786,8 @@ function TableColumnEditor({
   count,
   onChange,
   onMove,
-  onDelete
+  onDelete,
+  dragHandleProps
 }) {
   const configured = typeof column === "string" ? { field: column } : column;
   const system = configured.field?.startsWith("$");
@@ -1459,6 +1820,8 @@ function TableColumnEditor({
         <EntryActions
           index={index}
           count={count}
+          dragHandleProps={dragHandleProps}
+          dragLabel={configured.label || fieldLabel}
           onMove={onMove}
           onDelete={onDelete}
         />
@@ -1611,14 +1974,37 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
           <Plus size={13} /> Add column
         </button>
       </div>
-      <div className="configuration-table-columns">
-        {columns.map((column, index) => (
+      <ConfigurationDndList
+        className="configuration-table-columns"
+        ariaLabel="Table columns"
+        items={columns.map((column, index) => {
+          const configured =
+            typeof column === "string" ? { field: column } : column;
+          return {
+            id: `column-${index}`,
+            label:
+              configured.label ||
+              fields.find(([key]) => key === configured.field)?.[1] ||
+              labelFromKey(configured.field)
+          };
+        })}
+        onReorder={(sourceIndex, destinationIndex) =>
+          updateCollection((nextCollection) => {
+            nextCollection.views.list.columns = moveArrayEntry(
+              nextCollection.views.list.columns,
+              sourceIndex,
+              destinationIndex
+            );
+          })
+        }
+      >
+        {(_, index, { dragHandleProps }) => (
           <TableColumnEditor
-            key={index}
-            column={column}
+            column={columns[index]}
             fields={fields}
             index={index}
             count={columns.length}
+            dragHandleProps={dragHandleProps}
             onChange={(value) => updateCollection((nextCollection) => {
               nextCollection.views.list.columns[index] = value;
             })}
@@ -1635,8 +2021,8 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
                 );
             })}
           />
-        ))}
-      </div>
+        )}
+      </ConfigurationDndList>
     </section>
   );
 }
@@ -2098,6 +2484,7 @@ export default function ConfigurationEditor({
 
   useEffect(() => {
     function handleKeyboard(event) {
+      if (event.defaultPrevented) return;
       if (event.key === "Tab") {
         const overlay = overlayRef.current;
         if (!overlay) return;

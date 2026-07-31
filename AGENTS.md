@@ -107,6 +107,10 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
   modal, restore focus on close, expose selected/expanded states to assistive
   technology, support reduced motion, and remain usable in its stacked
   small-screen layout.
+- Reorderable Settings lists use `@dnd-kit/core` through their visible grip
+  handles. Match tree DnD behavior: keep and fade the source, use the shared
+  pointer-offset overlay, and render zero-height absolute insertion lines.
+  Keep the adjacent move buttons as a keyboard-accessible alternative.
 - Retain proper modal confirmation for destructive/discard flows.
 
 ## API and testing

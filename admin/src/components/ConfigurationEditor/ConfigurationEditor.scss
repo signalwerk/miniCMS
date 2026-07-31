@@ -338,6 +338,114 @@
   color: #565851;
 }
 
+.configuration-drag-handle {
+  cursor: grab;
+  touch-action: none;
+}
+
+.configuration-drag-handle:active:not(:disabled) {
+  cursor: grabbing;
+}
+
+.configuration-drag-handle:disabled {
+  cursor: default;
+}
+
+.configuration-dnd-item {
+  position: relative;
+  min-width: 0;
+  transition: opacity 90ms ease;
+}
+
+.configuration-dnd-item--dragging {
+  opacity: 0.28;
+}
+
+.configuration-drop-anchor {
+  position: relative;
+  z-index: 12;
+  height: 0;
+  pointer-events: none;
+}
+
+.configuration-drop-target {
+  position: absolute;
+  top: -6px;
+  right: 4px;
+  left: 4px;
+  height: 12px;
+}
+
+.configuration-drop-target span {
+  position: absolute;
+  top: 5px;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: #839044;
+  border-radius: 1px;
+  opacity: 0;
+  transform: scaleX(0.96);
+  transform-origin: center;
+  transition:
+    opacity 90ms ease,
+    transform 90ms ease,
+    background 90ms ease;
+}
+
+.configuration-drop-anchor.is-visible .configuration-drop-target span {
+  opacity: 0.38;
+}
+
+.configuration-drop-anchor.is-over .configuration-drop-target span {
+  background: var(--lime);
+  box-shadow: 0 0 0 1px rgb(215 255 67 / 18%);
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.configuration-drag-preview {
+  display: flex;
+  min-width: 160px;
+  max-width: 260px;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 9px;
+  color: #e9eae3;
+  background: #2b2d27;
+  border: 1px solid #55594a;
+  border-radius: 3px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 38%);
+  cursor: grabbing;
+  pointer-events: none;
+}
+
+.configuration-drag-preview > svg {
+  flex: 0 0 auto;
+  color: #a3aa88;
+}
+
+.configuration-drag-preview > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.configuration-drag-preview small {
+  @extend %type-consulting;
+  margin-bottom: 2px;
+  color: #a5a79e;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.configuration-drag-preview strong {
+  @extend %type-normal-bold;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .configuration-card,
 .configuration-entry-card,
 .configuration-layout-panel {
@@ -736,6 +844,15 @@
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid #343630;
+}
+
+.configuration-option-list,
+.configuration-panel-list,
+.configuration-group-list,
+.configuration-inspector-field-list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
 }
 
 .configuration-option-row {
