@@ -52,6 +52,8 @@ In a consumer, the normal commands are `minicms dev|build|start|test`.
 `minicms build --static --out-dir dist/admin` creates the configured
 browser-adapter deployment. Local dev/build/start always use the Node adapter.
 `PORT`, `ADMIN_PORT`, and `HOST` are supported.
+Vite hot-reloads client changes only; restart `npm run dev` after changing the
+Express API or shared modules used by the running API process.
 
 ## Model and persistence
 
