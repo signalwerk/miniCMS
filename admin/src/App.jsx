@@ -15,7 +15,6 @@ import {
   RefreshCw,
   Save,
   Search,
-  Settings2,
   Trash2,
   X
 } from "lucide-react";
@@ -67,7 +66,6 @@ import {
   updateNode
 } from "./model/editor.js";
 import { panelsFor } from "./model/views.js";
-import ConfigurationWorkspace from "./components/ConfigurationWorkspace/ConfigurationWorkspace.jsx";
 import { CollectionTable } from "./components/CollectionTable/CollectionTable.jsx";
 import {
   BrandMark,
@@ -77,7 +75,6 @@ import {
   Spinner
 } from "./components/Common/Common.jsx";
 import { ConfirmationDialog, InsertionDialog } from "./components/Dialogs/Dialogs.jsx";
-import { Field } from "./components/Fields/Fields.jsx";
 import { Inspector } from "./components/Inspector/Inspector.jsx";
 import { Preview } from "./components/Preview/Preview.jsx";
 import { CollectionTree, ContentTree } from "./components/Trees/Trees.jsx";
@@ -85,10 +82,6 @@ import "./App.scss";
 
 export default function App() {
   const [config, setConfig] = useState(null);
-  const [configurationEditor, setConfigurationEditor] = useState(null);
-  const [configurationDraft, setConfigurationDraft] = useState(null);
-  const [configurationDirty, setConfigurationDirty] = useState(false);
-  const [workspaceMode, setWorkspaceMode] = useState("content");
   const [activeCollection, setActiveCollection] = useState("");
   const [items, setItems] = useState([]);
   const [record, setRecord] = useState(null);
@@ -201,19 +194,6 @@ export default function App() {
     }px`,
     "--tree-split": `${layoutPreferences.treeSplit * 100}%`
   };
-  const activeDirty =
-    workspaceMode === "settings" ? configurationDirty : dirty;
-  const siteInitials = String(
-    (workspaceMode === "settings" ? configurationDraft?.site?.name : null) ||
-      config?.site?.name ||
-      "miniCMS"
-  )
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
 
   const showToast = useCallback((message) => {
     setToast(message);
@@ -300,11 +280,11 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.config(), api.configurationEditor()])
-      .then(([nextConfig, nextConfigurationEditor]) => {
+    api
+      .config()
+      .then((nextConfig) => {
         if (cancelled) return;
         setConfig(nextConfig);
-        setConfigurationEditor(nextConfigurationEditor);
         const configuredCollections = collectionEntries(nextConfig);
         const initialCollection =
           collectionNameFromHash(nextConfig) ||
@@ -335,10 +315,6 @@ export default function App() {
   useEffect(() => {
     if (!config || !activeCollection) return undefined;
     function syncCollectionFromHash() {
-      if (workspaceMode === "settings") {
-        replaceCollectionHash(activeCollection);
-        return;
-      }
       const requestedCollection = collectionNameFromHash(config);
       if (!requestedCollection) {
         replaceCollectionHash(activeCollection);
@@ -355,7 +331,7 @@ export default function App() {
     window.addEventListener("hashchange", syncCollectionFromHash);
     return () =>
       window.removeEventListener("hashchange", syncCollectionFromHash);
-  }, [activeCollection, config, dirty, loadCollection, workspaceMode]);
+  }, [activeCollection, config, dirty, loadCollection]);
 
   useEffect(() => {
     try {
@@ -461,48 +437,29 @@ export default function App() {
   }
 
   function runAfterDiscardCheck(action) {
-    const hasUnsavedChanges =
-      workspaceMode === "settings" ? configurationDirty : dirty;
-    if (!hasUnsavedChanges) {
+    if (!dirty) {
       action();
       return;
     }
     setConfirmation({
       title: "Discard unsaved changes?",
       description:
-        workspaceMode === "settings"
-          ? "The CMS configuration has changes that have not been saved. This action cannot be undone."
-          : "The current record has changes that have not been saved. This action cannot be undone.",
+        "The current record has changes that have not been saved. This action cannot be undone.",
       confirmLabel: "Discard changes",
       danger: true,
       onConfirm: async () => {
-        if (workspaceMode === "settings") {
-          setConfigurationDirty(false);
-          setConfigurationDraft(structuredClone(config));
-        } else {
-          setDirty(false);
-        }
+        setDirty(false);
         await action();
       }
     });
   }
 
   function switchCollection(name) {
-    if (workspaceMode === "content" && name === activeCollection) return;
+    if (name === activeCollection) return;
     runAfterDiscardCheck(() => {
-      setWorkspaceMode("content");
       replaceCollectionHash(name);
       setSearch("");
       return loadCollection(name);
-    });
-  }
-
-  function openConfiguration() {
-    if (workspaceMode === "settings") return;
-    runAfterDiscardCheck(() => {
-      setConfigurationDraft(structuredClone(config));
-      setConfigurationDirty(false);
-      setWorkspaceMode("settings");
     });
   }
 
@@ -582,23 +539,6 @@ export default function App() {
       );
       setDirty(false);
       showToast(`${record.properties?.title || record.id} saved`);
-    } catch (saveError) {
-      setError(saveError.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function saveConfiguration() {
-    if (!configurationDraft || saving || !configurationDirty) return;
-    setSaving(true);
-    setError("");
-    try {
-      const result = await api.saveConfig(configurationDraft);
-      setConfig(result.config);
-      setConfigurationDraft(structuredClone(result.config));
-      setConfigurationDirty(false);
-      showToast("CMS configuration saved");
     } catch (saveError) {
       setError(saveError.message);
     } finally {
@@ -1544,11 +1484,7 @@ export default function App() {
               <button
                 type="button"
                 key={entry.name}
-                className={cx(
-                  workspaceMode === "content" &&
-                    entry.name === activeCollection &&
-                    "is-active"
-                )}
+                className={cx(entry.name === activeCollection && "is-active")}
                 onClick={() => switchCollection(entry.name)}
               >
                 <Icon size={15} strokeWidth={1.8} />
@@ -1556,75 +1492,33 @@ export default function App() {
               </button>
             );
           })}
-          <button
-            type="button"
-            className={cx(
-              "collection-nav__settings",
-              workspaceMode === "settings" && "is-active"
-            )}
-            onClick={openConfiguration}
-          >
-            <Settings2 size={15} strokeWidth={1.8} />
-            Settings
-          </button>
         </nav>
 
         <div className="topbar__actions">
-          <span className={cx("save-state", activeDirty && "save-state--dirty")}>
+          <span className={cx("save-state", dirty && "save-state--dirty")}>
             <i />
-            {activeDirty ? "Unsaved changes" : "All changes saved"}
+            {dirty ? "Unsaved changes" : "All changes saved"}
           </span>
           <button
             type="button"
             className="button button--save"
-            onClick={
-              workspaceMode === "settings" ? saveConfiguration : saveRecord
-            }
-            disabled={
-              workspaceMode === "settings"
-                ? !configurationDraft || !configurationDirty || saving
-                : !record || !dirty || saving
-            }
+            onClick={saveRecord}
+            disabled={!record || !dirty || saving}
           >
-            {saving ? (
-              <Spinner small />
-            ) : activeDirty ? (
-              <Save size={15} />
-            ) : (
-              <Check size={15} />
-            )}
+            {saving ? <Spinner small /> : dirty ? <Save size={15} /> : <Check size={15} />}
             {saving ? "Saving" : "Save"}
           </button>
           <button type="button" className="avatar" title="Workspace account">
-            {siteInitials}
+            BR
           </button>
         </div>
       </header>
 
-      {workspaceMode === "settings" ? (
-        <ConfigurationWorkspace
-          schema={configurationEditor}
-          config={configurationDraft}
-          onChange={(nextConfiguration) => {
-            setConfigurationDraft(nextConfiguration);
-            setConfigurationDirty(true);
-          }}
-          renderField={({ field, value, onChange, idPrefix }) => (
-            <Field
-              field={field}
-              value={value}
-              onChange={onChange}
-              idPrefix={idPrefix}
-              collections={collections}
-            />
-          )}
-        />
-      ) : (
-        <main
-          ref={workspaceRef}
-          className={cx("workspace", isTableView && "workspace--table")}
-          style={workspaceStyle}
-        >
+      <main
+        ref={workspaceRef}
+        className={cx("workspace", isTableView && "workspace--table")}
+        style={workspaceStyle}
+      >
         {isTableView && (
           <CollectionTable
             key={collection.name}
@@ -1968,8 +1862,7 @@ export default function App() {
             />
           )}
         </aside>
-        </main>
-      )}
+      </main>
 
       {error && (
         <div className="error-banner">

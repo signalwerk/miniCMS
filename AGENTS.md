@@ -18,8 +18,6 @@ Preserve useful guidance and remove stale information.
 - `admin/server/`: Express 5 API for config, complete YAML records, and media.
 - `admin/shared/slug.js`: browser/Node-compatible filename-template helpers.
 - `admin/vite.config.js`: editor development/build configuration.
-- `config/configuration-editor.yml`: package-owned meta-configuration for the
-  project configuration GUI. Keep Settings presentation declarative here.
 - `bin/minicms.mjs`: package CLI. It resolves consumer config/content from the
   current directory or `--project-root`, while editor assets remain here.
 - Consumer repositories own `cms.config.yml` and `content/`; miniCMS must not
@@ -57,13 +55,10 @@ In a consumer, the normal commands are `minicms dev|build|start|test`.
   collision-safe filename suffixes.
 
 Supported widgets include `string`, `text`, `markdown`, `select`, `boolean`,
-`datetime`, `number`, `image`, `reference`, `uuid`, `object`, and `list`.
-`object.fields` is a keyed nested field mapping; `list.item` is one scalar or
-object field definition. UUID regeneration must recurse through both. Select
-options may be scalars or `{label, value}` mappings. Image uploads are
-immediate. Reference presentation belongs to the target collection’s
-`views.reference` and may configure `value`, `image`, `title`, and
-`description`.
+`datetime`, `number`, `image`, `reference`, and `uuid`. Select options may be
+scalars or `{label, value}` mappings. Image uploads are immediate. Reference
+presentation belongs to the target collection’s `views.reference` and may
+configure `value`, `image`, `title`, and `description`.
 
 Detail layout belongs under
 `node_types.<type>.views.detail.panels.<panel>.groups.<group>.fields`.
@@ -94,17 +89,12 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 - Hierarchy is edited by drag-and-drop, not by an inspector parent selector.
 - Workspace split sizes persist in local storage and remain keyboard operable.
 - The active collection is stored as `#<collection-name>`.
-- Settings uses a structure tree plus inspector generated from
-  `config/configuration-editor.yml`. It edits a client-side complete config
-  draft and saves through validated `PUT /api/config`; invalid drafts must
-  never replace the project file. Saving YAML normalizes formatting/comments.
 
 ## API and testing
 
-The API provides config read/write, the package-owned configuration-editor
-schema, collection lists, record CRUD/rename, and media upload under `/api`.
-Production serves the built editor from this package, never from the
-consumer’s `admin/` directory.
+The API provides read-only config, collection lists, record CRUD/rename, and
+media upload under `/api`. Production serves the built editor from this
+package, never from the consumer’s `admin/` directory.
 
 Add integration coverage in `admin/server/api.test.mjs` for API changes and
 unit coverage beside shared helpers. Run both `npm test` and `npm run build`

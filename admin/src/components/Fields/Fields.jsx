@@ -1,14 +1,9 @@
 import {
-  ArrowDown,
-  ArrowUp,
   Check,
   ChevronDown,
   CircleAlert,
-  Copy,
   Image,
-  Plus,
   Search,
-  Trash2,
   Upload,
   X
 } from "lucide-react";
@@ -298,233 +293,6 @@ function ReferenceField({ field, value, onChange, collections }) {
   );
 }
 
-function normalizedObjectFieldValue(field, value) {
-  if (value && typeof value === "object" && !Array.isArray(value)) return value;
-  const fallback = defaultFieldValue(field, true);
-  if (value !== undefined && value !== null && value !== "") {
-    if (Object.hasOwn(fallback, "value")) fallback.value = value;
-    if (Object.hasOwn(fallback, "label")) fallback.label = String(value);
-  }
-  return fallback;
-}
-
-function ObjectFieldControl({
-  field,
-  value,
-  onChange,
-  idPrefix,
-  collections
-}) {
-  const objectValue = normalizedObjectFieldValue(field, value);
-  return (
-    <div className="object-field">
-      {Object.entries(field.fields ?? {}).map(([name, nestedField]) => (
-        <Field
-          key={name}
-          field={{ ...nestedField, name }}
-          value={objectValue[name]}
-          idPrefix={`${idPrefix}-${field.name}`}
-          collections={collections}
-          onChange={(nextValue) =>
-            onChange({ ...objectValue, [name]: nextValue })
-          }
-        />
-      ))}
-    </div>
-  );
-}
-
-function ListFieldControl({
-  field,
-  value,
-  onChange,
-  idPrefix,
-  collections
-}) {
-  const items = Array.isArray(value) ? value : [];
-  const itemField = {
-    label: "Item",
-    widget: "string",
-    ...(field.item ?? {}),
-    name: "item"
-  };
-
-  function updateItem(index, nextValue) {
-    onChange(items.map((item, itemIndex) => (
-      itemIndex === index ? nextValue : item
-    )));
-  }
-
-  function moveItem(index, direction) {
-    const destination = index + direction;
-    if (destination < 0 || destination >= items.length) return;
-    const nextItems = [...items];
-    const [moving] = nextItems.splice(index, 1);
-    nextItems.splice(destination, 0, moving);
-    onChange(nextItems);
-  }
-
-  return (
-    <div className="list-field">
-      <div className="list-field__items">
-        {items.map((item, index) => (
-          <div className="list-field__item" key={index}>
-            <div className="list-field__item-actions">
-              <span>{index + 1}</span>
-              <button
-                type="button"
-                title="Move up"
-                disabled={index === 0}
-                onClick={() => moveItem(index, -1)}
-              >
-                <ArrowUp size={13} />
-              </button>
-              <button
-                type="button"
-                title="Move down"
-                disabled={index === items.length - 1}
-                onClick={() => moveItem(index, 1)}
-              >
-                <ArrowDown size={13} />
-              </button>
-              <button
-                type="button"
-                title="Duplicate"
-                onClick={() => {
-                  const nextItems = [...items];
-                  nextItems.splice(index + 1, 0, structuredClone(item));
-                  onChange(nextItems);
-                }}
-              >
-                <Copy size={13} />
-              </button>
-              <button
-                type="button"
-                className="danger"
-                title="Remove"
-                onClick={() =>
-                  onChange(items.filter((_, itemIndex) => itemIndex !== index))
-                }
-              >
-                <Trash2 size={13} />
-              </button>
-            </div>
-            <Field
-              field={{
-                ...itemField,
-                label: itemField.label || `Item ${index + 1}`
-              }}
-              value={
-                itemField.widget === "object"
-                  ? normalizedObjectFieldValue(itemField, item)
-                  : item
-              }
-              idPrefix={`${idPrefix}-${field.name}-${index}`}
-              collections={collections}
-              onChange={(nextValue) => updateItem(index, nextValue)}
-            />
-          </div>
-        ))}
-      </div>
-      <button
-        type="button"
-        className="button button--secondary list-field__add"
-        onClick={() =>
-          onChange([...items, defaultFieldValue(itemField, true)])
-        }
-      >
-        <Plus size={14} />
-        Add {String(itemField.label || "item").toLowerCase()}
-      </button>
-    </div>
-  );
-}
-
-function ScalarFieldControl({ id, value, onChange, placeholder }) {
-  const valueType =
-    value === null
-      ? "null"
-      : typeof value === "number"
-        ? "number"
-        : typeof value === "boolean"
-          ? "boolean"
-          : "string";
-  const [draft, setDraft] = useState(
-    value === null ? "null" : String(value ?? "")
-  );
-
-  useEffect(() => {
-    setDraft(value === null ? "null" : String(value ?? ""));
-  }, [value]);
-
-  function commit() {
-    let nextValue = draft;
-    if (valueType === "number" && draft !== "" && Number.isFinite(Number(draft))) {
-      nextValue = Number(draft);
-    } else if (valueType === "null") {
-      nextValue = null;
-    }
-    if (nextValue !== value) onChange(nextValue);
-  }
-
-  return (
-    <div className="scalar-field">
-      <div className="select-wrap scalar-field__type">
-        <select
-          aria-label="Scalar type"
-          value={valueType}
-          onChange={(event) => {
-            const nextType = event.target.value;
-            if (nextType === "null") onChange(null);
-            else if (nextType === "boolean") onChange(Boolean(value));
-            else if (nextType === "number") {
-              onChange(Number.isFinite(Number(value)) ? Number(value) : 0);
-            } else onChange(value === null ? "" : String(value ?? ""));
-          }}
-        >
-          <option value="string">Text</option>
-          <option value="number">Number</option>
-          <option value="boolean">Boolean</option>
-          <option value="null">Null</option>
-        </select>
-        <ChevronDown size={14} />
-      </div>
-      {valueType === "boolean" ? (
-        <div className="select-wrap">
-          <select
-            id={id}
-            value={value ? "true" : "false"}
-            onChange={(event) => onChange(event.target.value === "true")}
-          >
-            <option value="false">False</option>
-            <option value="true">True</option>
-          </select>
-          <ChevronDown size={14} />
-        </div>
-      ) : valueType === "null" ? (
-        <code className="scalar-field__null">null</code>
-      ) : (
-        <input
-          id={id}
-          type={valueType === "number" ? "number" : "text"}
-          value={draft}
-          placeholder={placeholder}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") event.currentTarget.blur();
-            if (event.key === "Escape") {
-              event.preventDefault();
-              setDraft(value === null ? "null" : String(value ?? ""));
-              event.currentTarget.blur();
-            }
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
 function Field({
   field,
   value,
@@ -541,27 +309,7 @@ function Field({
   };
 
   let control;
-  if (field.widget === "object") {
-    control = (
-      <ObjectFieldControl
-        field={field}
-        value={resolvedValue}
-        onChange={onChange}
-        idPrefix={idPrefix}
-        collections={collections}
-      />
-    );
-  } else if (field.widget === "list") {
-    control = (
-      <ListFieldControl
-        field={field}
-        value={resolvedValue}
-        onChange={onChange}
-        idPrefix={idPrefix}
-        collections={collections}
-      />
-    );
-  } else if (field.widget === "boolean") {
+  if (field.widget === "boolean") {
     control = (
       <button
         type="button"
@@ -633,15 +381,6 @@ function Field({
         value={resolvedValue}
         onChange={onChange}
         collections={collections}
-      />
-    );
-  } else if (field.widget === "scalar") {
-    control = (
-      <ScalarFieldControl
-        id={id}
-        value={value}
-        onChange={onChange}
-        placeholder={field.hint || ""}
       />
     );
   } else {

@@ -445,9 +445,6 @@ function createUuid() {
 
 function defaultFieldValue(field, generateUuid = false) {
   let value = field.default;
-  if (value !== undefined && value !== null && typeof value === "object") {
-    value = structuredClone(value);
-  }
   if (value === undefined && field.widget === "uuid") {
     value = generateUuid ? createUuid() : "";
   }
@@ -455,15 +452,6 @@ function defaultFieldValue(field, generateUuid = false) {
   if (value === undefined && field.widget === "select") {
     value = optionValue(field.options?.[0]) ?? "";
   }
-  if (value === undefined && field.widget === "object") {
-    value = Object.fromEntries(
-      Object.entries(field.fields ?? {}).map(([name, nestedField]) => [
-        name,
-        defaultFieldValue(nestedField, generateUuid)
-      ])
-    );
-  }
-  if (value === undefined && field.widget === "list") value = [];
   return value === undefined ? "" : value;
 }
 
@@ -476,43 +464,11 @@ function defaultProperties(type) {
   );
 }
 
-function refreshFieldUuids(field, value) {
-  if (field.widget === "uuid") return createUuid();
-  if (
-    field.widget === "object" &&
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value)
-  ) {
-    const nextValue = { ...value };
-    for (const [name, nestedField] of Object.entries(field.fields ?? {})) {
-      if (Object.hasOwn(value, name) || nestedField.widget === "uuid") {
-        nextValue[name] = refreshFieldUuids(nestedField, value[name]);
-      }
-    }
-    return nextValue;
-  }
-  if (field.widget === "list" && Array.isArray(value)) {
-    return value.map((item) => refreshFieldUuids(field.item ?? {}, item));
-  }
-  return value;
-}
-
 function refreshUuidFields(node, nodeTypes) {
   const type = nodeTypes[node.type];
-  node.properties = { ...(node.properties ?? {}) };
   for (const field of typeFields(type)) {
-    if (
-      field.widget === "uuid" ||
-      (
-        Object.hasOwn(node.properties, field.name) &&
-        ["object", "list"].includes(field.widget)
-      )
-    ) {
-      node.properties[field.name] = refreshFieldUuids(
-        field,
-        node.properties[field.name]
-      );
+    if (field.widget === "uuid") {
+      node.properties = { ...(node.properties ?? {}), [field.name]: createUuid() };
     }
   }
   for (const children of Object.values(node.slots ?? {})) {
