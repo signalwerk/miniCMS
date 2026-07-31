@@ -91,6 +91,8 @@ Unannotated image values remain path strings; annotated values use
 pixels. Always read images through `model/image.js` so both shapes remain compatible. Reference
 presentation belongs to the target collection’s `views.reference` and may
 configure `value`, `image`, `title`, and `description`.
+Optional select fields default to an empty value and retain a clearable `None`
+option; required selects may fall back to their first configured option.
 
 Detail layout belongs under
 `node_types.<type>.views.detail.panels.<panel>.groups.<group>.fields`.

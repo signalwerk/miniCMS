@@ -166,6 +166,9 @@ Inspector groups assign fields, optional custom labels, and order. Fine-grained
 mode, display, appearance, and alignment controls belong to table columns; the
 runtime still reads older detail-field presentation configuration.
 
+Select fields marked `required: false` start empty and retain a `None` option,
+so editors can clear a previously selected value.
+
 Image fields keep their compact path-string value until a region or point is
 added. Annotated values expand without losing backwards compatibility:
 

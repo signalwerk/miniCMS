@@ -453,7 +453,9 @@ function defaultFieldValue(field, generateUuid = false) {
   }
   if (value === undefined && field.widget === "boolean") value = false;
   if (value === undefined && field.widget === "select") {
-    value = optionValue(field.options?.[0]) ?? "";
+    value = field.required === false
+      ? ""
+      : optionValue(field.options?.[0]) ?? "";
   }
   return value === undefined ? "" : value;
 }

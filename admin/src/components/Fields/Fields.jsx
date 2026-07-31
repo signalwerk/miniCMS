@@ -285,9 +285,9 @@ function Field({
     control = (
       <div className="select-wrap">
         <select {...common}>
-          {resolvedValue === "" && (
+          {(resolvedValue === "" || field.required === false) && (
             <option value="" disabled={field.required !== false}>
-              Select…
+              {field.required === false ? "None" : "Select…"}
             </option>
           )}
           {(field.options ?? []).map((option) => {
