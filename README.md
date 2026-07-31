@@ -195,10 +195,11 @@ supported option has a form control; Settings never exposes raw configuration
 source. The overlay supports keyboard focus containment, reduced motion, and a
 stacked small-screen layout. Grip handles reorder fields, options, content
 areas, inspector layout, and table columns with the same source preview and
-insertion-line behavior as the content trees; adjacent move buttons remain
-available for keyboard operation. Icon settings use a keyboard-accessible
-picker that previews every option from the shared icon registry. Saving
-validates the complete model before atomically replacing `cms.config.yml`.
+insertion-line behavior as the content trees. The grip handles support both
+pointer and keyboard reordering; list rows do not add redundant up/down
+buttons. Icon settings use a keyboard-accessible picker that previews every
+option from the shared icon registry. Saving validates the complete model
+before atomically replacing `cms.config.yml`.
 
 ### Icons
 

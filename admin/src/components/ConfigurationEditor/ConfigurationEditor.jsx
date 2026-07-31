@@ -466,9 +466,7 @@ function AdvancedSection({ title, children }) {
 }
 
 function EntryActions({
-  index,
   count,
-  onMove,
   onDuplicate,
   onDelete,
   dragHandleProps,
@@ -490,24 +488,6 @@ function EntryActions({
       ) : (
         <GripVertical size={14} aria-hidden="true" />
       )}
-      <button
-        type="button"
-        title={`Move ${dragLabel} up`}
-        aria-label={`Move ${dragLabel} up`}
-        disabled={index === 0}
-        onClick={() => onMove(-1)}
-      >
-        <ArrowUp size={13} />
-      </button>
-      <button
-        type="button"
-        title={`Move ${dragLabel} down`}
-        aria-label={`Move ${dragLabel} down`}
-        disabled={index === count - 1}
-        onClick={() => onMove(1)}
-      >
-        <ArrowDown size={13} />
-      </button>
       {onDuplicate && (
         <button
           type="button"
@@ -1015,13 +995,9 @@ function SelectOptionsEditor({ options = [], onChange }) {
                 }
               />
               <EntryActions
-                index={index}
                 count={normalized.length}
                 dragHandleProps={dragHandleProps}
                 dragLabel={option.label || `option ${index + 1}`}
-                onMove={(direction) =>
-                  onChange(moveArrayEntry(normalized, index, index + direction))
-                }
                 onDuplicate={() => {
                   const nextOptions = [...normalized];
                   nextOptions.splice(index + 1, 0, {
@@ -1051,12 +1027,10 @@ function SelectOptionsEditor({ options = [], onChange }) {
 function FieldEditor({
   fieldKey,
   field,
-  index,
   count,
   collections,
   nodeTypes,
   onChange,
-  onMove,
   onDuplicate,
   onDelete,
   dragHandleProps
@@ -1103,11 +1077,9 @@ function FieldEditor({
           <ChevronDown size={15} aria-hidden="true" />
         </button>
         <EntryActions
-          index={index}
           count={count}
           dragHandleProps={dragHandleProps}
           dragLabel={field.label || labelFromKey(fieldKey)}
-          onMove={onMove}
           onDuplicate={onDuplicate}
           onDelete={onDelete}
         />
@@ -1331,11 +1303,9 @@ function FieldEditor({
 function SlotEditor({
   slotKey,
   slot,
-  index,
   count,
   nodeTypes,
   onChange,
-  onMove,
   onDelete,
   dragHandleProps
 }) {
@@ -1350,11 +1320,9 @@ function SlotEditor({
           </span>
         </span>
         <EntryActions
-          index={index}
           count={count}
           dragHandleProps={dragHandleProps}
           dragLabel={slot.label || labelFromKey(slotKey)}
-          onMove={onMove}
           onDelete={onDelete}
         />
       </div>
@@ -1498,13 +1466,9 @@ function InspectorFieldsEditor({ references = [], fields, onChange }) {
           return (
           <article className="configuration-field-reference">
             <EntryActions
-              index={index}
               count={references.length}
               dragHandleProps={dragHandleProps}
               dragLabel={dragLabel}
-              onMove={(direction) =>
-                onChange(moveArrayEntry(references, index, index + direction))
-              }
               onDelete={() =>
                 onChange(references.filter((_, itemIndex) => itemIndex !== index))
               }
@@ -1648,7 +1612,7 @@ function InspectorLayoutEditor({
           );
         })}
       >
-        {(panelItem, panelIndex, { dragHandleProps }) => {
+        {(panelItem, _panelIndex, { dragHandleProps }) => {
           const panelKey = panelItem.id;
           const panel = panels[panelKey];
           return (
@@ -1662,17 +1626,9 @@ function InspectorLayoutEditor({
               </span>
             </span>
             <EntryActions
-              index={panelIndex}
               count={Object.keys(panels).length}
               dragHandleProps={dragHandleProps}
               dragLabel={panel.label || labelFromKey(panelKey)}
-              onMove={(direction) => updateType((nextType) => {
-                nextType.views.detail.panels = moveMappingEntry(
-                  nextType.views.detail.panels,
-                  panelKey,
-                  direction
-                );
-              })}
               onDelete={() => updateType((nextType) => {
                 delete nextType.views.detail.panels[panelKey];
               })}
@@ -1713,7 +1669,7 @@ function InspectorLayoutEditor({
                 moveMappingEntryTo(groups, groupKey, destinationIndex);
             })}
           >
-            {(groupItem, groupIndex, { dragHandleProps: groupDragHandleProps }) => {
+            {(groupItem, _groupIndex, { dragHandleProps: groupDragHandleProps }) => {
               const groupKey = groupItem.id;
               const group = panel.groups[groupKey];
               return (
@@ -1721,15 +1677,9 @@ function InspectorLayoutEditor({
               <div className="configuration-layout-group__top">
                 <span><strong>{group.label || labelFromKey(groupKey)}</strong><code>{groupKey}</code></span>
                 <EntryActions
-                  index={groupIndex}
                   count={Object.keys(panel.groups ?? {}).length}
                   dragHandleProps={groupDragHandleProps}
                   dragLabel={group.label || labelFromKey(groupKey)}
-                  onMove={(direction) => updateType((nextType) => {
-                    const groups = nextType.views.detail.panels[panelKey].groups;
-                    nextType.views.detail.panels[panelKey].groups =
-                      moveMappingEntry(groups, groupKey, direction);
-                  })}
                   onDelete={() => updateType((nextType) => {
                     delete nextType.views.detail.panels[panelKey].groups[groupKey];
                   })}
@@ -1903,14 +1853,13 @@ function TypeEditor({
           );
         })}
       >
-        {(fieldItem, index, { dragHandleProps }) => {
+        {(fieldItem, _index, { dragHandleProps }) => {
           const fieldKey = fieldItem.id;
           const field = fields[fieldKey];
           return (
           <FieldEditor
             fieldKey={fieldKey}
             field={field}
-            index={index}
             count={Object.keys(fields).length}
             collections={collections}
             nodeTypes={nodeTypes}
@@ -1918,14 +1867,6 @@ function TypeEditor({
             onChange={(change) => updateType((nextType) => {
               change(nextType.fields[fieldKey]);
             })}
-            onMove={(direction) => updateType((nextType) =>
-              moveTypeFieldTo(
-                nextType,
-                fieldKey,
-                index,
-                index + direction
-              )
-            )}
             onDuplicate={() => updateType((nextType) => {
               const duplicateKey = uniqueKey(nextType.fields, `${fieldKey}_copy`);
               const entries = Object.entries(nextType.fields);
@@ -1998,22 +1939,18 @@ function TypeEditor({
             );
           })}
         >
-          {(slotItem, index, { dragHandleProps }) => {
+          {(slotItem, _index, { dragHandleProps }) => {
             const slotKey = slotItem.id;
             const slot = slots[slotKey];
             return (
             <SlotEditor
               slotKey={slotKey}
               slot={slot}
-              index={index}
               count={Object.keys(slots).length}
               nodeTypes={nodeTypes}
               dragHandleProps={dragHandleProps}
               onChange={(change) => updateType((nextType) => {
                 change(nextType.slots[slotKey]);
-              })}
-              onMove={(direction) => updateType((nextType) => {
-                nextType.slots = moveMappingEntry(nextType.slots, slotKey, direction);
               })}
               onDelete={() => updateType((nextType) => {
                 delete nextType.slots[slotKey];
@@ -2037,10 +1974,8 @@ function TypeEditor({
 function TableColumnEditor({
   column,
   fields,
-  index,
   count,
   onChange,
-  onMove,
   onDelete,
   dragHandleProps
 }) {
@@ -2073,11 +2008,9 @@ function TableColumnEditor({
           <ChevronDown size={15} aria-hidden="true" />
         </button>
         <EntryActions
-          index={index}
           count={count}
           dragHandleProps={dragHandleProps}
           dragLabel={configured.label || fieldLabel}
-          onMove={onMove}
           onDelete={onDelete}
         />
       </div>
@@ -2257,17 +2190,10 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
           <TableColumnEditor
             column={columns[index]}
             fields={fields}
-            index={index}
             count={columns.length}
             dragHandleProps={dragHandleProps}
             onChange={(value) => updateCollection((nextCollection) => {
               nextCollection.views.list.columns[index] = value;
-            })}
-            onMove={(direction) => updateCollection((nextCollection) => {
-              const nextColumns = [...nextCollection.views.list.columns];
-              const [moving] = nextColumns.splice(index, 1);
-              nextColumns.splice(index + direction, 0, moving);
-              nextCollection.views.list.columns = nextColumns;
             })}
             onDelete={() => updateCollection((nextCollection) => {
               nextCollection.views.list.columns =

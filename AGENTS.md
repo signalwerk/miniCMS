@@ -144,8 +144,8 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 - Reorderable Settings lists use `@dnd-kit/core` through their visible grip
   handles. Match tree DnD behavior: keep and fade the source, use the shared
   pointer-offset overlay, and render zero-height absolute insertion lines
-  centered in the list-owned gap between items. Keep the adjacent move buttons
-  as a keyboard-accessible alternative.
+  centered in the list-owned gap between items. The grip is the sole reorder
+  control and must retain keyboard DnD; do not add adjacent up/down buttons.
 - Retain proper modal confirmation for destructive/discard flows.
 
 ## Adapters, API, and testing
