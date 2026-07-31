@@ -1,0 +1,169 @@
+import { typeField, typeFields } from "./editor.js";
+
+function displayValue(value, field) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (field.display === "date" || field.widget === "datetime") {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return field.display === "datetime"
+        ? date.toLocaleString()
+        : date.toLocaleDateString();
+    }
+  }
+  if (field.widget === "select") {
+    const option = field.options?.find((candidate) =>
+      typeof candidate === "object"
+        ? candidate.value === value
+        : candidate === value
+    );
+    if (option && typeof option === "object") return option.label;
+  }
+  return String(value);
+}
+
+function systemFieldValue(name, record, collection, item) {
+  const extension = String(collection.extension || "yml").replace(/^\./, "");
+  const fileName = `${record.id}.${extension}`;
+  if (name === "$id") return record.id;
+  if (name === "$filename") return fileName;
+  if (name === "$storage_path") {
+    return `${String(collection.folder).replace(/\/$/, "")}/${fileName}`;
+  }
+  if (name === "$updated_at") return item?.updated_at;
+  if (name === "$created_at") return item?.created_at;
+  return "";
+}
+
+const SYSTEM_FIELD_DEFINITIONS = {
+  $id: { label: "Record ID", display: "code" },
+  $filename: { label: "File name", display: "code" },
+  $storage_path: { label: "Storage path", display: "code" },
+  $updated_at: { label: "Updated", display: "datetime" },
+  $created_at: { label: "Created", display: "datetime" }
+};
+
+function detailField(type, reference) {
+  const configuration =
+    typeof reference === "string" ? { field: reference } : reference;
+  const name = configuration?.field;
+  if (!name) return null;
+  if (name.startsWith("$")) {
+    const systemField = SYSTEM_FIELD_DEFINITIONS[name];
+    return systemField
+      ? {
+          name,
+          system: true,
+          mode: "read",
+          ...systemField,
+          ...configuration
+        }
+      : null;
+  }
+  const field = typeField(type, name);
+  return field
+    ? {
+        mode: "edit",
+        ...field,
+        ...configuration,
+        name
+      }
+    : null;
+}
+
+function panelsFor(type, includeInfo = false) {
+  const configuredPanels = type?.views?.detail?.panels ?? {};
+  let panels = Object.entries(configuredPanels)
+    .filter(([name]) => name !== "info")
+    .map(([name, panel], index) => ({
+      name,
+      label: panel.label || name,
+      position: panel.position ?? index,
+      groups: panel.groups ?? {}
+    }));
+  if (!panels.length) {
+    panels = [
+      {
+        name: "inspector",
+        label: "Inspector",
+        position: 0,
+        groups: {}
+      }
+    ];
+  }
+  if (includeInfo) {
+    const configuredInfo = configuredPanels.info ?? {};
+    panels.push({
+      name: "info",
+      label: configuredInfo.label || "Info",
+      position: configuredInfo.position ?? 1000,
+      groups: configuredInfo.groups ?? {}
+    });
+  }
+  return panels.sort(
+    (a, b) => a.position - b.position || a.label.localeCompare(b.label)
+  );
+}
+
+function groupsForPanel(type, panelName, includeInfo = false) {
+  const panels = panelsFor(type, includeInfo);
+  const activePanel = panels.find((panel) => panel.name === panelName) || panels[0];
+  const definitions = activePanel.groups;
+  let groups = Object.entries(definitions)
+    .map(([name, definition], index) => ({
+      name,
+      label: definition.label || name,
+      icon: definition.icon,
+      description: definition.description,
+      position: definition.position ?? index,
+      fields: (definition.fields ?? [])
+        .map((reference) => detailField(type, reference))
+        .filter(Boolean)
+    }))
+    .filter((group) => group.fields.length)
+    .sort((a, b) => a.position - b.position || a.label.localeCompare(b.label));
+
+  if (!groups.length && activePanel.name === panels[0].name) {
+    groups = [
+      {
+        name: "properties",
+        label: "Properties",
+        position: 0,
+        fields: typeFields(type).map((field) => ({
+          mode: "edit",
+          ...field
+        }))
+      }
+    ];
+  }
+
+  if (activePanel.name === "info") {
+    const configuredNames = new Set(
+      groups.flatMap((group) => group.fields.map((field) => field.name))
+    );
+    const missingSystemFields = ["$filename", "$storage_path"].filter(
+      (name) => !configuredNames.has(name)
+    );
+    if (missingSystemFields.length) {
+      groups.push({
+        name: "stored_file",
+        label: "Stored file",
+        icon: "file-text",
+        description: "Repository-relative collection record location.",
+        position: 1000,
+        fields: missingSystemFields.map((name) => detailField(type, name))
+      });
+    }
+  }
+  return groups;
+}
+
+
+export {
+  SYSTEM_FIELD_DEFINITIONS,
+  detailField,
+  displayValue,
+  groupsForPanel,
+  panelsFor,
+  systemFieldValue
+};

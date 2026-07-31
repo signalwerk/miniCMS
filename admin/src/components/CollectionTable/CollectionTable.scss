@@ -1,0 +1,260 @@
+@use "../../styles/typography" as *;
+
+.table-pane {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 58px minmax(0, 1fr);
+  background: #1d1e1b;
+}
+
+.table-toolbar {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid #353630;
+}
+
+.table-toolbar__identity {
+  display: flex;
+  min-width: 130px;
+  flex-direction: column;
+}
+
+.table-toolbar__identity strong {
+  @extend %type-normal-bold;
+  color: #e4e5de;
+}
+
+.table-toolbar__identity span {
+  @extend %type-consulting;
+  margin-top: 3px;
+  color: #777970;
+}
+
+.table-search {
+  max-width: 480px;
+  flex: 1;
+  margin: 0;
+}
+
+.table-toolbar__new {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #1b1c18;
+  background: var(--lime);
+}
+
+.table-toolbar__new:hover {
+  background: var(--lime-strong);
+}
+
+.table-scroll {
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-color: #45473f transparent;
+  scrollbar-width: thin;
+}
+
+.collection-table {
+  display: block;
+  width: 100%;
+  border-spacing: 0;
+}
+
+.collection-table thead {
+  display: block;
+  position: sticky;
+  z-index: 4;
+  top: 0;
+  background: #20211e;
+  box-shadow: 0 1px #353630;
+}
+
+.collection-table tbody {
+  display: block;
+}
+
+.collection-table tr {
+  display: grid;
+  min-width: 100%;
+  grid-template-columns: var(--table-columns);
+}
+
+.collection-table th {
+  min-width: 0;
+  height: 36px;
+  padding: 0;
+  color: #7f8179;
+  text-align: left;
+}
+
+.collection-table th button {
+  @extend %type-consulting;
+  display: flex;
+  width: 100%;
+  height: 36px;
+  gap: 6px;
+  align-items: center;
+  padding: 0 12px;
+  color: inherit;
+  background: transparent;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.collection-table th button:hover:not(:disabled) {
+  color: #d7d9d1;
+  background: #292a26;
+}
+
+.collection-table th button:disabled {
+  cursor: default;
+}
+
+.collection-table th + th,
+.collection-table td + td {
+  border-left: 1px solid #30312d;
+}
+
+.collection-table tbody tr {
+  cursor: pointer;
+}
+
+.collection-table tbody tr:hover {
+  background: #242521;
+}
+
+.collection-table tbody tr.is-selected {
+  background: #303328;
+  box-shadow: inset 3px 0 var(--lime);
+}
+
+.collection-table tbody tr.is-hidden:not(.is-selected) {
+  opacity: 0.55;
+}
+
+.collection-table tbody tr:focus-visible {
+  outline: 2px solid #7790f8;
+  outline-offset: -2px;
+}
+
+.collection-table td {
+  @extend %type-normal;
+  display: flex;
+  min-width: 0;
+  height: 42px;
+  align-items: center;
+  padding: 0 12px;
+  overflow: hidden;
+  color: #bfc1b8;
+  border-bottom: 1px solid #30312d;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-table .table-cell--title {
+  @extend %type-normal-bold;
+  color: #e0e1da;
+}
+
+.collection-table .table-cell--muted {
+  color: #777970;
+}
+
+.collection-table .table-cell--monospace,
+.collection-table td code {
+  @extend %type-consulting;
+}
+
+.collection-table .table-cell--center {
+  justify-content: center;
+  text-align: center;
+}
+
+.collection-table th.table-cell--center button {
+  justify-content: center;
+}
+
+.collection-table .table-cell--right,
+.collection-table th.table-cell--right button {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.table-cell__toggle {
+  flex: 0 0 auto;
+}
+
+.table-cell__image,
+.table-cell__image-placeholder {
+  width: 44px;
+  height: 32px;
+  border-radius: 2px;
+}
+
+.table-cell__image {
+  display: block;
+  object-fit: cover;
+}
+
+.table-cell__image-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #777970;
+  background: #242521;
+}
+
+.table-cell__select {
+  width: 100%;
+}
+
+.table-cell__select select {
+  @extend %type-normal;
+  width: 100%;
+  height: 29px;
+  padding: 0 25px 0 7px;
+  color: #cfd1c8;
+  background: #242521;
+  border: 1px solid #41433c;
+  border-radius: 3px;
+}
+
+.table-cell__input {
+  @extend %type-normal;
+  width: 100%;
+  height: 29px;
+  padding: 0 7px;
+  color: #cfd1c8;
+  background: #242521;
+  border: 1px solid #41433c;
+  border-radius: 3px;
+}
+
+.table-cell__input:focus,
+.table-cell__select select:focus {
+  border-color: #73786a;
+  outline: 0;
+  box-shadow: 0 0 0 2px rgb(215 255 67 / 6%);
+}
+
+.table-cell__badge,
+.detail-value__badge {
+  @extend %type-consulting;
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 1px 7px;
+  color: #cfd7a8;
+  background: #303328;
+  border-radius: 10px;
+}
+
+.table-scroll > .empty-state,
+.table-scroll > .panel-loader {
+  min-height: 260px;
+}

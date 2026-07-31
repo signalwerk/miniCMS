@@ -16,6 +16,7 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import "./ConfigurationWorkspace.scss";
 
 const CONFIG_ICONS = {
   "file-text": FileText,

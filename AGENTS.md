@@ -7,8 +7,14 @@ Preserve useful guidance and remove stale information.
 
 ## Architecture
 
-- `admin/src/`: React 19 editor. `App.jsx` holds editor state/UI, `api.js` is
-  the HTTP client, and `styles.scss` is the single Sass entry point.
+- `admin/src/`: React 19 editor. `App.jsx` is the state/persistence
+  orchestrator, `model/` contains shared content/layout/view helpers, and
+  `api.js` is the HTTP client.
+- `admin/src/components/<Feature>/`: cohesive feature components with a
+  colocated `<Feature>.scss`. Keep related small components together instead
+  of creating a folder for every button or row.
+- `admin/src/styles.scss` contains only global foundations;
+  `styles/_typography.scss` owns the shared Sass typography placeholders.
 - `admin/server/`: Express 5 API for config, complete YAML records, and media.
 - `admin/shared/slug.js`: browser/Node-compatible filename-template helpers.
 - `admin/vite.config.js`: editor development/build configuration.
@@ -71,7 +77,10 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 - Keep the editor compact and dark across trees, tables, previews, inspectors,
   and overlays.
 - Typography has exactly three size tokens and three Sass style primitives;
-  reuse the `%type-*` placeholders in `styles.scss`.
+  reuse the `%type-*` placeholders from `styles/_typography.scss`.
+- Import each feature stylesheet from its component entry file. Keep selectors
+  with the feature that renders them and reserve `styles.scss` for document
+  defaults.
 - Read-only metadata renders as plain selectable text, not disabled inputs.
 - Use shared in-app modals, dismissible with Escape; never browser prompts.
 - No record is selected implicitly after collection load or refresh.

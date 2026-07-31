@@ -1,0 +1,34 @@
+%font-regular {
+  font-family: var(--font-family-regular);
+  font-weight: var(--font-weight-regular);
+}
+
+%font-bold {
+  font-family: var(--font-family-regular);
+  font-weight: var(--font-weight-bold);
+}
+
+%font-monospaced-regular {
+  font-family: var(--font-family-monospaced-regular);
+  font-weight: var(--font-weight-regular);
+}
+
+%type-title {
+  @extend %font-bold;
+  font-size: var(--font-size-title);
+}
+
+%type-normal {
+  @extend %font-regular;
+  font-size: var(--font-size-normal);
+}
+
+%type-normal-bold {
+  @extend %font-bold;
+  font-size: var(--font-size-normal);
+}
+
+%type-consulting {
+  @extend %font-monospaced-regular;
+  font-size: var(--font-size-consulting);
+}
