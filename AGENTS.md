@@ -71,6 +71,8 @@ sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 - Use shared in-app modals, dismissible with Escape; never browser prompts.
 - No record is selected implicitly after collection load or refresh.
 - Multiple tree selections show only their selection count in the inspector.
+- Content-tree rows use their configured icon as the type indicator; do not
+  add a redundant type-name suffix on the right side.
 - Tree action bars and operations must respect multi-selection.
 - Both tree add actions use the searchable insertion overlay.
 - Both trees use `@dnd-kit/core`, identical inside-drop behavior, absolute

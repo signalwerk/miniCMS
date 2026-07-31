@@ -1038,10 +1038,6 @@ body.is-resizing-rows * {
   color: #777a72;
 }
 
-.tree-row__visibility + .tree-row__type {
-  margin-left: 5px;
-}
-
 .tree-row--selected .tree-row__visibility {
   color: #c6ccb5;
 }
@@ -1065,21 +1061,6 @@ body.is-resizing-rows * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.tree-row__type {
-  @extend %type-consulting;
-  margin-left: auto;
-  overflow: hidden;
-  color: #70726a;
-  letter-spacing: 0.06em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.tree-row--selected .tree-row__type {
-  color: #9ea390;
 }
 
 .tree-row--content {

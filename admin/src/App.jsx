@@ -1175,7 +1175,6 @@ function ContentNodeRow({
       {node.properties?.hidden && (
         <EyeOff className="tree-row__visibility" size={13} aria-label="Hidden" />
       )}
-      <span className="tree-row__type">{isRoot ? "Page" : type.label}</span>
     </button>
   );
 }
