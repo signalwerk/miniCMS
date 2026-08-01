@@ -2,6 +2,7 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronDown,
+  Eye,
   Image,
   Plus,
   Search,
@@ -203,6 +204,7 @@ function CollectionTable({
   onSearch,
   onSelect,
   onCreate,
+  onOpenPreview,
   onEdit
 }) {
   const listView = collection.views?.list ?? {};
@@ -343,6 +345,17 @@ function CollectionTable({
             </button>
           )}
         </div>
+        {onOpenPreview && (
+          <button
+            type="button"
+            className="button table-toolbar__preview"
+            disabled={!selectedId}
+            onClick={onOpenPreview}
+          >
+            <Eye size={15} />
+            Preview selected
+          </button>
+        )}
         <button type="button" className="button table-toolbar__new" onClick={onCreate}>
           <Plus size={15} />
           New {collection.label_singular}

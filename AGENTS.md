@@ -29,6 +29,13 @@ Preserve useful guidance and remove stale information.
 - `bin/minicms.mjs`: package CLI. It resolves consumer config/content from the
   current directory or `--project-root`; `build --static` writes a Pages-ready
   output with bootstrap config and media outside the package.
+- Consumer `package.json` may set `minicms.preview` to a relative module or a
+  workspace/package export. The CLI bundles that browser-safe React preview at
+  build time through its virtual Vite module; missing registration retains the
+  built-in placeholder. Project previews render in an isolated iframe with
+  their exported inline stylesheet and receive only a read-only content source.
+  Reads of the active record and collection overlay the in-memory draft while
+  other reads continue through the configured storage adapter.
 - Consumer repositories own `cms.config.yml` and `content/`; miniCMS must not
   contain project-specific models or records.
 
@@ -51,6 +58,9 @@ node bin/minicms.mjs dev --project-root /path/to/content-project
 In a consumer, the normal commands are `minicms dev|build|start|test`.
 `minicms build --static --out-dir dist/admin` creates the configured
 browser-adapter deployment. Local dev/build/start always use the Node adapter.
+Static builds preserve an existing parent `index.html`, allowing a site build
+to own the root while miniCMS adds `/admin/`; the fallback redirect is created
+only when the parent output has no index.
 `PORT`, `ADMIN_PORT`, and `HOST` are supported.
 Vite hot-reloads client changes only; restart `npm run dev` after changing the
 Express API or shared modules used by the running API process.
@@ -166,6 +176,13 @@ grip, and delete action visible while collapsed.
 - Column resize handles provide the sole visible pane divider; do not add
   adjacent pane borders that create double separator lines.
 - The active collection is stored as `#<collection-name>`.
+- Registered project previews map collection names to React renderers and mark
+  rendered content boundaries with `data-minicms-node-id`. The iframe adds
+  hover, focus, and selected outlines; click, Enter, or Space selects the
+  matching content-tree node and expands its ancestors. Keep this helper
+  generic and do not put project renderers or styles inside miniCMS. Registered
+  table collections expose an explicit Preview selected surface; returning to
+  the table preserves its sort and scroll state.
 - Settings is a full-screen overlay organized around project, collection, and
   content-type tasks. Common changes must be additive and understandable
   without knowing the persisted structure. Fields and table columns use
@@ -203,6 +220,7 @@ from this package. Static builds bootstrap from their copied `cms.config.yml`
 and then load live repository data through the configured adapter.
 
 Add integration coverage in `admin/server/api.test.mjs` for API changes and
-unit/mock coverage beside adapters and shared helpers. Run `npm test`,
+unit/mock coverage beside adapters and shared helpers. Preview manifest and
+virtual-module coverage lives in `bin/project-preview.test.mjs`. Run `npm test`,
 `npm run build`, and a representative static build after adapter changes.
 Never commit `node_modules/`, `admin/dist/`, logs, or environment files.

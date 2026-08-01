@@ -108,9 +108,10 @@ bootstrap data:
 minicms build --static --project-root . --out-dir dist/admin
 ```
 
-The static build also writes a root redirect, `.nojekyll`, and a media snapshot
-to the parent output folder. Serve that folder at a Pages site and open
-`/admin/`.
+The static build also writes `.nojekyll` and a media snapshot to the parent
+output folder. It creates a root redirect only when no `index.html` exists, so
+an Astro or other site build can own the root while miniCMS adds `/admin/`.
+Serve that folder at a Pages site and open `/admin/`.
 
 The static GitHub editor shows only a centered sign-in action until the OAuth
 session exists; the editor workspace is not mounted or displayed beforehand.
@@ -118,6 +119,78 @@ The returned token stays in session storage. Repository reads, record updates,
 configuration writes, renames, deletions, and binary uploads then use GitHub
 tree/commit/ref operations so each editor operation advances the configured
 branch atomically. The local Node adapter remains available without login.
+
+## Project previews
+
+A consuming project can bundle its own React renderer into the editor without
+adding project behavior to miniCMS. Point `minicms.preview` in the consumer
+`package.json` to either a workspace/package export or a path relative to that
+manifest:
+
+```json
+{
+  "workspaces": ["miniCMS", "site"],
+  "minicms": {
+    "preview": "@example/site/preview"
+  }
+}
+```
+
+The preview entry exports a registration with collection-name renderers and an
+optional compiled stylesheet string. With Vite, a Sass entry can be imported
+using `?inline`:
+
+```tsx
+import PagePreview from "./components/PagePreview/PagePreview";
+import stylesheet from "./styles/preview.scss?inline";
+
+export default {
+  collections: {
+    pages: PagePreview
+  },
+  stylesheet
+};
+```
+
+Each renderer receives the current unsaved record plus the active editor
+context:
+
+```ts
+type PreviewProps = {
+  record: ContentRecord;
+  selectedId: string;
+  config: CmsConfig;
+  collection: CmsCollection & {name: string};
+  items: CollectionSummary[];
+  contentSource: {
+    list(collection: string): Promise<{items: CollectionSummary[]}>;
+    record(collection: string, id: string): Promise<ContentRecord>;
+    resolveMediaUrl(path: string): string;
+  };
+};
+```
+
+`contentSource` intentionally exposes no write methods. The active `record`
+prop is the editor's in-memory draft, and reads of that record or its collection
+overlay the same live data. Other list and record reads come from whichever
+Node or GitHub adapter provides the editor files.
+
+The project's shared type dispatcher should put
+`data-minicms-node-id={node.id}` on each rendered node boundary. miniCMS makes
+those boundaries keyboard-focusable and uses click, Enter, or Space to select
+the corresponding content-tree node. Hover, focus, and selected outlines are
+injected after the project stylesheet. The renderer and inline CSS run inside
+a same-origin preview iframe, keeping project styles out of the editor UI.
+Renderer JavaScript still executes in the editor's React realm, so responsive
+preview behavior should use CSS media/container queries rather than reading the
+global `window` width; the iframe widths correctly drive its CSS breakpoints.
+
+If `minicms.preview` is omitted, the generic placeholder remains. The preview
+module is a build-time dependency, so restart development after changing its
+package export or manifest location. Source edits inside the registered module
+still use Vite hot reload. Registered table collections keep their table as the
+default surface and expose a **Preview selected** action; returning to the table
+preserves its sort and scroll state.
 
 ## Configuration
 

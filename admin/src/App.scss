@@ -169,6 +169,25 @@
     var(--right-pane-width, 320px);
 }
 
+.table-surface,
+.table-surface__table {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+}
+
+.table-surface {
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+}
+
+.table-surface > * {
+  grid-area: 1 / 1;
+}
+
+.table-surface__table[hidden] {
+  display: none;
+}
+
 
 .center-pane,
 .right-rail {

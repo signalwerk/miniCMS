@@ -82,7 +82,10 @@ import {
 } from "./components/Common/Common.jsx";
 import { ConfirmationDialog, InsertionDialog } from "./components/Dialogs/Dialogs.jsx";
 import { Inspector } from "./components/Inspector/Inspector.jsx";
-import { Preview } from "./components/Preview/Preview.jsx";
+import {
+  hasProjectPreview,
+  Preview
+} from "./components/Preview/Preview.jsx";
 import { CollectionTree, ContentTree } from "./components/Trees/Trees.jsx";
 import "./App.scss";
 
@@ -118,6 +121,7 @@ export default function App() {
   const [confirmation, setConfirmation] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
+  const [tableSurface, setTableSurface] = useState("table");
   const [layoutPreferences, setLayoutPreferences] = useState(
     readLayoutPreferences
   );
@@ -125,10 +129,16 @@ export default function App() {
   const breadcrumbRef = useRef(null);
   const workspaceRef = useRef(null);
   const leftRailRef = useRef(null);
+  const previewStateRef = useRef({
+    activeCollection: "",
+    record: null,
+    treeItems: []
+  });
 
   const collections = useMemo(() => collectionEntries(config), [config]);
   const collection = collections.find((entry) => entry.name === activeCollection);
   const isTableView = collection?.views?.list?.type === "table";
+  const collectionHasPreview = hasProjectPreview(collection?.name);
   const nodeTypes = config?.node_types ?? {};
   const documentType = collection ? nodeTypes[collection.node_type] : null;
   const documentHasHidden = Boolean(typeField(documentType, "hidden"));
@@ -145,6 +155,58 @@ export default function App() {
           : item
       ),
     [items, record]
+  );
+  previewStateRef.current = { activeCollection, record, treeItems };
+  const previewContentSource = useMemo(
+    () =>
+      Object.freeze({
+        list: (collectionName) => {
+          const previewState = previewStateRef.current;
+          if (collectionName !== previewState.activeCollection) {
+            return api.list(collectionName);
+          }
+          const existingSummary = previewState.treeItems.find(
+            (item) => item.id === previewState.record?.id
+          );
+          const liveSummary = previewState.record
+            ? {
+                ...(existingSummary ?? {}),
+                id: previewState.record.id,
+                type: previewState.record.type,
+                order: Number.isFinite(previewState.record.order)
+                  ? previewState.record.order
+                  : 0,
+                title:
+                  previewState.record.properties?.title ||
+                  previewState.record.id,
+                hidden: Boolean(previewState.record.properties?.hidden),
+                properties: structuredClone(
+                  previewState.record.properties ?? {}
+                )
+              }
+            : null;
+          const liveItems = liveSummary
+            ? existingSummary
+              ? previewState.treeItems.map((item) =>
+                  item.id === liveSummary.id ? liveSummary : item
+                )
+              : [...previewState.treeItems, liveSummary]
+            : previewState.treeItems;
+          return Promise.resolve({
+            collection: collectionName,
+            items: structuredClone(liveItems)
+          });
+        },
+        record: (collectionName, id) => {
+          const previewState = previewStateRef.current;
+          return collectionName === previewState.activeCollection &&
+            id === previewState.record?.id
+            ? Promise.resolve(structuredClone(previewState.record))
+            : api.record(collectionName, id);
+        },
+        resolveMediaUrl: (path) => api.resolveMediaUrl(path)
+      }),
+    [api]
   );
   const selectedNode = getNode(record, selectedId);
   const selectedNodePath = getNodePath(record, selectedId);
@@ -208,6 +270,12 @@ export default function App() {
     }px`,
     "--tree-split": `${layoutPreferences.treeSplit * 100}%`
   };
+  const tablePreviewVisible = Boolean(
+    isTableView &&
+      collectionHasPreview &&
+      tableSurface === "preview" &&
+      record
+  );
 
   const showToast = useCallback((message) => {
     setToast(message);
@@ -345,6 +413,10 @@ export default function App() {
     if (!breadcrumbRef.current) return;
     breadcrumbRef.current.scrollLeft = breadcrumbRef.current.scrollWidth;
   }, [selectedId, record?.id]);
+
+  useEffect(() => {
+    setTableSurface("table");
+  }, [activeCollection, record?.id]);
 
   useEffect(() => {
     if (!config || !activeCollection) return undefined;
@@ -551,6 +623,19 @@ export default function App() {
       anchorId: id,
       activeId: id
     });
+  }
+
+  function selectPreviewNode(id) {
+    if (!getNode(record, id)) return;
+    const path = getNodePath(record, id);
+    setContentExpanded(
+      (current) =>
+        new Set([
+          ...current,
+          ...path.slice(0, -1).map((node) => node.id)
+        ])
+    );
+    selectBreadcrumbNode(id);
   }
 
   function clearContentSelection() {
@@ -1565,6 +1650,83 @@ export default function App() {
     });
   }
 
+  function renderPreviewPane(onCollectionClick) {
+    return (
+      <section className="center-pane">
+        <div className="pane-heading">
+          <div className="breadcrumbs" ref={breadcrumbRef}>
+            <button
+              type="button"
+              className="breadcrumb-link"
+              title={
+                isTableView
+                  ? `Back to ${collection?.label}`
+                  : collection?.label
+              }
+              onClick={onCollectionClick}
+            >
+              {collection?.label}
+            </button>
+            {selectedNodePath.length ? (
+              selectedNodePath.map((node, index) => {
+                const label =
+                  index === 0
+                    ? node.properties?.title || node.id
+                    : nodeTypes[node.type]?.label || node.type;
+                const isCurrent = index === selectedNodePath.length - 1;
+                return (
+                  <span className="breadcrumb-segment" key={node.id}>
+                    <ChevronRight size={13} aria-hidden="true" />
+                    <button
+                      type="button"
+                      className={cx(
+                        "breadcrumb-link",
+                        isCurrent && "is-current"
+                      )}
+                      title={label}
+                      aria-current={isCurrent ? "page" : undefined}
+                      onClick={() => selectBreadcrumbNode(node.id)}
+                    >
+                      {label}
+                    </button>
+                  </span>
+                );
+              })
+            ) : (
+              <span className="breadcrumb-segment">
+                <ChevronRight size={13} />
+                <strong>No selection</strong>
+              </span>
+            )}
+          </div>
+          <div className="pane-heading__right">
+            <span className="status-pill">
+              <i />
+              Draft workspace
+            </span>
+          </div>
+        </div>
+        {record ? (
+          <Preview
+            record={record}
+            selectedId={selectedId}
+            nodeTypes={nodeTypes}
+            config={config}
+            collection={collection}
+            items={treeItems}
+            contentSource={previewContentSource}
+            onSelectNode={selectPreviewNode}
+            siteName={config.site?.name}
+          />
+        ) : (
+          <EmptyState
+            title={`No ${collection?.label_singular?.toLowerCase()} selected`}
+          />
+        )}
+      </section>
+    );
+  }
+
   if (!config && loading) {
     return (
       <div className="boot-screen">
@@ -1677,20 +1839,31 @@ export default function App() {
         style={workspaceStyle}
       >
         {isTableView && (
-          <CollectionTable
-            key={collection.name}
-            collection={collection}
-            items={treeItems}
-            nodeTypes={nodeTypes}
-            selectedId={record?.id}
-            loading={loading}
-            search={search}
-            editing={saving}
-            onSearch={setSearch}
-            onSelect={selectRecord}
-            onCreate={() => setInsertDialog("collection")}
-            onEdit={editTableField}
-          />
+          <div className="table-surface">
+            <div className="table-surface__table" hidden={tablePreviewVisible}>
+              <CollectionTable
+                key={collection.name}
+                collection={collection}
+                items={treeItems}
+                nodeTypes={nodeTypes}
+                selectedId={record?.id}
+                loading={loading}
+                search={search}
+                editing={saving}
+                onSearch={setSearch}
+                onSelect={selectRecord}
+                onCreate={() => setInsertDialog("collection")}
+                onOpenPreview={
+                  collectionHasPreview
+                    ? () => setTableSurface("preview")
+                    : undefined
+                }
+                onEdit={editTableField}
+              />
+            </div>
+            {tablePreviewVisible &&
+              renderPreviewPane(() => setTableSurface("table"))}
+          </div>
         )}
 
         {!isTableView && (
@@ -1906,69 +2079,7 @@ export default function App() {
           />
         )}
 
-        {!isTableView && (
-          <section className="center-pane">
-            <div className="pane-heading">
-              <div className="breadcrumbs" ref={breadcrumbRef}>
-                <button
-                  type="button"
-                  className="breadcrumb-link"
-                  title={collection?.label}
-                  onClick={clearCollectionSelection}
-                >
-                  {collection?.label}
-                </button>
-                {selectedNodePath.length ? (
-                  selectedNodePath.map((node, index) => {
-                    const label =
-                      index === 0
-                        ? node.properties?.title || node.id
-                        : nodeTypes[node.type]?.label || node.type;
-                    const isCurrent = index === selectedNodePath.length - 1;
-                    return (
-                      <span className="breadcrumb-segment" key={node.id}>
-                        <ChevronRight size={13} aria-hidden="true" />
-                        <button
-                          type="button"
-                          className={cx(
-                            "breadcrumb-link",
-                            isCurrent && "is-current"
-                          )}
-                          title={label}
-                          aria-current={isCurrent ? "page" : undefined}
-                          onClick={() => selectBreadcrumbNode(node.id)}
-                        >
-                          {label}
-                        </button>
-                      </span>
-                    );
-                  })
-                ) : (
-                  <span className="breadcrumb-segment">
-                    <ChevronRight size={13} />
-                    <strong>No selection</strong>
-                  </span>
-                )}
-              </div>
-              <div className="pane-heading__right">
-                <span className="status-pill">
-                  <i />
-                  Draft workspace
-                </span>
-              </div>
-            </div>
-            {record ? (
-              <Preview
-                record={record}
-                selectedId={selectedId}
-                nodeTypes={nodeTypes}
-                siteName={config.site?.name}
-              />
-            ) : (
-              <EmptyState title={`No ${collection?.label_singular?.toLowerCase()} selected`} />
-            )}
-          </section>
-        )}
+        {!isTableView && renderPreviewPane(clearCollectionSelection)}
 
         <ResizeHandle
           axis="x"

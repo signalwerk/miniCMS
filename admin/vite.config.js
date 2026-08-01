@@ -11,6 +11,9 @@ export default defineConfig({
   root: adminRoot,
   base: "./",
   plugins: [react()],
+  resolve: {
+    dedupe: ["react", "react-dom"]
+  },
   define: {
     __MINICMS_ADAPTER_OVERRIDE__: JSON.stringify(
       process.env.MINICMS_ADAPTER_OVERRIDE || ""

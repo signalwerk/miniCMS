@@ -41,13 +41,29 @@
 
 .table-toolbar__new {
   flex: 0 0 auto;
-  margin-left: auto;
   color: #1b1c18;
   background: var(--lime);
 }
 
 .table-toolbar__new:hover {
   background: var(--lime-strong);
+}
+
+.table-toolbar__preview {
+  flex: 0 0 auto;
+  color: #c8cac1;
+  background: #292a26;
+  border: 1px solid #3a3c36;
+}
+
+.table-toolbar__preview:hover:not(:disabled) {
+  color: #f0f1ea;
+  background: #343630;
+}
+
+.table-toolbar__preview:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .table-scroll {

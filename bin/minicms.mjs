@@ -13,6 +13,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, createServer } from "vite";
 import { createApp } from "../admin/server/app.mjs";
+import {
+  createProjectPreviewPlugin,
+  resolveProjectPreview
+} from "./project-preview.mjs";
 
 const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -79,7 +83,8 @@ async function runTests() {
     path.join(packageRoot, "admin", "src", "model", "auth.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "editor.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "image.test.mjs"),
-    path.join(packageRoot, "admin", "src", "model", "views.test.mjs")
+    path.join(packageRoot, "admin", "src", "model", "views.test.mjs"),
+    path.join(packageRoot, "bin", "project-preview.test.mjs")
   ];
   const child = spawn(process.execPath, ["--test", ...testFiles], {
     cwd: packageRoot,
@@ -90,9 +95,12 @@ async function runTests() {
 }
 
 async function runBuild() {
+  const previewEntry = await resolveProjectPreview(projectRoot);
+  const previewPlugin = createProjectPreviewPlugin(previewEntry);
   if (!staticBuild) {
     await build({
       configFile: viteConfig,
+      plugins: [previewPlugin],
       define: {
         __MINICMS_ADAPTER_OVERRIDE__: JSON.stringify("node")
       }
@@ -117,6 +125,7 @@ async function runBuild() {
   await build({
     configFile: viteConfig,
     base: "./",
+    plugins: [previewPlugin],
     define: {
       __MINICMS_ADAPTER_OVERRIDE__: JSON.stringify("")
     },
@@ -131,9 +140,10 @@ async function runBuild() {
   );
   await mkdir(pagesOutput, { recursive: true });
   await writeFile(path.join(pagesOutput, ".nojekyll"), "", "utf8");
-  await writeFile(
-    path.join(pagesOutput, "index.html"),
-    `<!doctype html>
+  try {
+    await writeFile(
+      path.join(pagesOutput, "index.html"),
+      `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -143,8 +153,11 @@ async function runBuild() {
   <body><a href="./admin/">Open miniCMS</a></body>
 </html>
 `,
-    "utf8"
-  );
+      { encoding: "utf8", flag: "wx" }
+    );
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+  }
   try {
     await access(path.join(projectRoot, "content", "media"));
     await cp(
@@ -169,15 +182,20 @@ async function runBuild() {
 
 async function runDev() {
   await assertProject();
+  const previewEntry = await resolveProjectPreview(projectRoot);
   const apiServer = await listen(createApp({ rootDir: projectRoot }), apiPort);
   const vite = await createServer({
     configFile: viteConfig,
+    plugins: [createProjectPreviewPlugin(previewEntry)],
     define: {
       __MINICMS_ADAPTER_OVERRIDE__: JSON.stringify("node")
     },
     server: {
       host,
       port: adminPort,
+      fs: {
+        allow: [projectRoot, packageRoot]
+      },
       proxy: {
         "/api": `http://${host}:${apiPort}`,
         "/media": `http://${host}:${apiPort}`
