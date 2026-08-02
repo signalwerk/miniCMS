@@ -21,13 +21,20 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
+import { createContentAdapter } from "../../content/index.js";
 import {
   renderSlugTemplate,
   slugTemplateFieldNames,
   uniqueFilenameStem
-} from "../shared/slug.js";
-import { recordMediaStoragePaths } from "../shared/media.js";
+} from "../../core/slug.js";
+import { recordMediaStoragePaths } from "../../core/media.js";
 import {
   DEFAULT_LAYOUT_PREFERENCES,
   LAYOUT_STORAGE_KEY,
@@ -47,7 +54,6 @@ import {
   collectionEntries,
   collectionHierarchyValue,
   collectionInsertionModes,
-  collectionNameFromHash,
   contentInsertionModes,
   contentPasteTarget,
   cx,
@@ -58,12 +64,16 @@ import {
   getNode,
   getNodePath,
   iconFor,
+  isInspectorFocusShortcut,
   isSaveShortcut,
   newNode,
   nextTreeSelection,
   readLayoutPreferences,
-  refreshUuidFields,
-  replaceCollectionHash,
+  refreshGeneratedIdFields,
+  replaceSelectionHash,
+  selectionIdForRecord,
+  selectionRouteFromHash,
+  selectionRouteForState,
   selectedTopLevelContentNodes,
   typeField,
   uniqueRecordId,
@@ -82,14 +92,11 @@ import {
 } from "./components/Common/Common.jsx";
 import { ConfirmationDialog, InsertionDialog } from "./components/Dialogs/Dialogs.jsx";
 import { Inspector } from "./components/Inspector/Inspector.jsx";
-import {
-  hasProjectPreview,
-  Preview
-} from "./components/Preview/Preview.jsx";
+import { Preview } from "./components/Preview/Preview.jsx";
 import { CollectionTree, ContentTree } from "./components/Trees/Trees.jsx";
 import "./App.scss";
 
-export default function App() {
+export default function App({ PreviewComponent = null }) {
   const {
     adapter: api,
     session: adapterSession,
@@ -115,6 +122,7 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [insertDialog, setInsertDialog] = useState(null);
   const [activePanel, setActivePanel] = useState("inspector");
+  const [inspectorFocus, setInspectorFocus] = useState(null);
   const [clipboard, setClipboard] = useState(null);
   const [clipboardBusy, setClipboardBusy] = useState(false);
   const [activeTreeSelection, setActiveTreeSelection] = useState("collection");
@@ -122,23 +130,19 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
   const [tableSurface, setTableSurface] = useState("table");
+  const [previewRevealRequest, setPreviewRevealRequest] = useState(null);
   const [layoutPreferences, setLayoutPreferences] = useState(
     readLayoutPreferences
   );
   const activeCollectionRef = useRef("");
+  const selectionLoadTokenRef = useRef(0);
   const breadcrumbRef = useRef(null);
   const workspaceRef = useRef(null);
   const leftRailRef = useRef(null);
-  const previewStateRef = useRef({
-    activeCollection: "",
-    record: null,
-    treeItems: []
-  });
-
   const collections = useMemo(() => collectionEntries(config), [config]);
   const collection = collections.find((entry) => entry.name === activeCollection);
   const isTableView = collection?.views?.list?.type === "table";
-  const collectionHasPreview = hasProjectPreview(collection?.name);
+  const collectionHasPreview = Boolean(collection && PreviewComponent);
   const nodeTypes = config?.node_types ?? {};
   const documentType = collection ? nodeTypes[collection.node_type] : null;
   const documentHasHidden = Boolean(typeField(documentType, "hidden"));
@@ -156,57 +160,17 @@ export default function App() {
       ),
     [items, record]
   );
-  previewStateRef.current = { activeCollection, record, treeItems };
-  const previewContentSource = useMemo(
+  const previewContent = useMemo(
     () =>
-      Object.freeze({
-        list: (collectionName) => {
-          const previewState = previewStateRef.current;
-          if (collectionName !== previewState.activeCollection) {
-            return api.list(collectionName);
-          }
-          const existingSummary = previewState.treeItems.find(
-            (item) => item.id === previewState.record?.id
-          );
-          const liveSummary = previewState.record
-            ? {
-                ...(existingSummary ?? {}),
-                id: previewState.record.id,
-                type: previewState.record.type,
-                order: Number.isFinite(previewState.record.order)
-                  ? previewState.record.order
-                  : 0,
-                title:
-                  previewState.record.properties?.title ||
-                  previewState.record.id,
-                hidden: Boolean(previewState.record.properties?.hidden),
-                properties: structuredClone(
-                  previewState.record.properties ?? {}
-                )
-              }
-            : null;
-          const liveItems = liveSummary
-            ? existingSummary
-              ? previewState.treeItems.map((item) =>
-                  item.id === liveSummary.id ? liveSummary : item
-                )
-              : [...previewState.treeItems, liveSummary]
-            : previewState.treeItems;
-          return Promise.resolve({
-            collection: collectionName,
-            items: structuredClone(liveItems)
-          });
-        },
-        record: (collectionName, id) => {
-          const previewState = previewStateRef.current;
-          return collectionName === previewState.activeCollection &&
-            id === previewState.record?.id
-            ? Promise.resolve(structuredClone(previewState.record))
-            : api.record(collectionName, id);
-        },
-        resolveMediaUrl: (path) => api.resolveMediaUrl(path)
-      }),
-    [api]
+      config
+        ? createContentAdapter({
+            config,
+            listRaw: (collectionName) => api.list(collectionName),
+            getRaw: (collectionName, id) => api.record(collectionName, id),
+            resolveMediaUrl: (path) => api.resolveMediaUrl(path)
+          })
+        : null,
+    [api, config]
   );
   const selectedNode = getNode(record, selectedId);
   const selectedNodePath = getNodePath(record, selectedId);
@@ -218,6 +182,11 @@ export default function App() {
   const effectivePanel =
     inspectorPanels.find((panel) => panel.name === activePanel)?.name ||
     inspectorPanels[0].name;
+  const inspectorPanelFocused = Boolean(
+    selectedNode &&
+      inspectorFocus?.nodeId === selectedId &&
+      inspectorFocus?.panelName === effectivePanel
+  );
   const selectedNodeHasHidden = Boolean(typeField(selectedNodeType, "hidden"));
   const collectionInsertModes = collection
     ? collectionInsertionModes(collection, items, record)
@@ -283,17 +252,16 @@ export default function App() {
   }, []);
 
   async function toggleAdapterSession() {
-    if (api.name !== "github" || authenticating) return;
-    if (adapterSession.authenticated) {
-      logoutAdapter();
-      showToast("Signed out from GitHub");
-      return;
-    }
+    if (!adapterSession.authenticationRequired || authenticating) return;
     setAuthenticating(true);
     setError("");
     try {
+      if (adapterSession.authenticated) {
+        await logoutAdapter();
+        return;
+      }
       const nextSession = await loginAdapter();
-      showToast(`Signed in as ${nextSession.login || "GitHub"}`);
+      showToast(`Signed in as ${nextSession.login || nextSession.label}`);
       if (activeCollection) await loadCollection(activeCollection);
     } catch (loginError) {
       setError(loginError.message);
@@ -302,39 +270,86 @@ export default function App() {
     }
   }
 
-  const loadRecord = useCallback(async (collectionName, id) => {
-    setLoading(true);
-    setError("");
-    try {
-      const nextRecord = await api.record(collectionName, id);
-      if (activeCollectionRef.current !== collectionName) return;
-      setRecord(nextRecord);
-      setSelectedId(nextRecord.id);
-      setSelectedContentIds(new Set([nextRecord.id]));
-      setContentSelectionAnchor(nextRecord.id);
-      const expanded = new Set([nextRecord.id]);
-      const expandContainers = (node) => {
-        for (const children of Object.values(node.slots ?? {})) {
-          if (children.length) expanded.add(node.id);
-          children.forEach(expandContainers);
-        }
-      };
-      expandContainers(nextRecord);
-      setContentExpanded(expanded);
-      setDirty(false);
-    } catch (loadError) {
-      setError(loadError.message);
+  const loadRecord = useCallback(
+    async (
+      collectionName,
+      id,
+      preferredContentId = null,
+      selectionLoadToken = null
+    ) => {
+      const loadToken =
+        selectionLoadToken ?? ++selectionLoadTokenRef.current;
+      replaceSelectionHash({
+        collectionName,
+        recordId: id,
+        contentId: preferredContentId
+      });
+      setLoading(true);
+      setError("");
       setRecord(null);
       setSelectedId("");
       setSelectedContentIds(new Set());
       setContentSelectionAnchor("");
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
+      try {
+        const nextRecord = await api.record(collectionName, id);
+        if (
+          activeCollectionRef.current !== collectionName ||
+          selectionLoadTokenRef.current !== loadToken
+        ) {
+          return;
+        }
+        const nextSelectedId = selectionIdForRecord(
+          nextRecord,
+          preferredContentId
+        );
+        const selectsContentNode =
+          Boolean(preferredContentId) &&
+          nextSelectedId === preferredContentId;
+        setRecord(nextRecord);
+        setSelectedId(nextSelectedId);
+        setSelectedContentIds(new Set([nextSelectedId]));
+        setContentSelectionAnchor(nextSelectedId);
+        setActiveTreeSelection(selectsContentNode ? "content" : "collection");
+        const expanded = new Set([nextRecord.id]);
+        const expandContainers = (node) => {
+          for (const children of Object.values(node.slots ?? {})) {
+            if (children.length) expanded.add(node.id);
+            children.forEach(expandContainers);
+          }
+        };
+        expandContainers(nextRecord);
+        setContentExpanded(expanded);
+        setDirty(false);
+      } catch (loadError) {
+        if (
+          activeCollectionRef.current !== collectionName ||
+          selectionLoadTokenRef.current !== loadToken
+        ) {
+          return;
+        }
+        setError(loadError.message);
+        setRecord(null);
+        setSelectedId("");
+        setSelectedRecordIds(new Set());
+        setRecordSelectionAnchor("");
+        setSelectedContentIds(new Set());
+        setContentSelectionAnchor("");
+      } finally {
+        if (selectionLoadTokenRef.current === loadToken) {
+          setLoading(false);
+        }
+      }
+    },
+    [api]
+  );
 
   const loadCollection = useCallback(
-    async (collectionName, preferredId = null) => {
+    async (
+      collectionName,
+      preferredId = null,
+      preferredContentId = null
+    ) => {
+      const loadToken = ++selectionLoadTokenRef.current;
       activeCollectionRef.current = collectionName;
       setActiveCollection(collectionName);
       setActiveTreeSelection("collection");
@@ -348,7 +363,12 @@ export default function App() {
       setError("");
       try {
         const result = await api.list(collectionName);
-        if (activeCollectionRef.current !== collectionName) return;
+        if (
+          activeCollectionRef.current !== collectionName ||
+          selectionLoadTokenRef.current !== loadToken
+        ) {
+          return;
+        }
         setItems(result.items);
         const parentReferences = new Set(
           result.items.map((item) => item.parent).filter(Boolean)
@@ -368,11 +388,17 @@ export default function App() {
         if (nextId) {
           setSelectedRecordIds(new Set([nextId]));
           setRecordSelectionAnchor(nextId);
-          await loadRecord(collectionName, nextId);
+          await loadRecord(
+            collectionName,
+            nextId,
+            preferredContentId,
+            loadToken
+          );
         } else {
           setLoading(false);
         }
       } catch (loadError) {
+        if (selectionLoadTokenRef.current !== loadToken) return;
         setError(loadError.message);
         setLoading(false);
       }
@@ -388,12 +414,18 @@ export default function App() {
         if (cancelled) return;
         setConfig(nextConfig);
         const configuredCollections = collectionEntries(nextConfig);
+        const requestedSelection = selectionRouteFromHash(nextConfig);
         const initialCollection =
-          collectionNameFromHash(nextConfig) ||
-          configuredCollections[0]?.name;
+          requestedSelection?.collectionName || configuredCollections[0]?.name;
         if (initialCollection) {
-          replaceCollectionHash(initialCollection);
-          loadCollection(initialCollection);
+          if (!requestedSelection) {
+            replaceSelectionHash({ collectionName: initialCollection });
+          }
+          loadCollection(
+            initialCollection,
+            requestedSelection?.recordId,
+            requestedSelection?.contentId
+          );
         } else {
           setLoading(false);
         }
@@ -419,25 +451,200 @@ export default function App() {
   }, [activeCollection, record?.id]);
 
   useEffect(() => {
-    if (!config || !activeCollection) return undefined;
-    function syncCollectionFromHash() {
-      const requestedCollection = collectionNameFromHash(config);
-      if (!requestedCollection) {
-        replaceCollectionHash(activeCollection);
+    if (
+      !previewRevealRequest ||
+      (previewRevealRequest.recordId === record?.id &&
+        previewRevealRequest.nodeId === selectedId)
+    ) {
+      return;
+    }
+    setPreviewRevealRequest(null);
+  }, [previewRevealRequest, record?.id, selectedId]);
+
+  useEffect(() => {
+    if (!config || !activeCollection || loading) return;
+    replaceSelectionHash(
+      selectionRouteForState(
+        activeCollection,
+        record?.id,
+        selectedId,
+        activeTreeSelection
+      )
+    );
+  }, [
+    activeCollection,
+    activeTreeSelection,
+    config,
+    loading,
+    record?.id,
+    selectedId
+  ]);
+
+  useEffect(() => {
+    if (!inspectorFocus || inspectorPanelFocused) return;
+    setInspectorFocus(null);
+  }, [inspectorFocus, inspectorPanelFocused]);
+
+  useEffect(() => {
+    function handleInspectorFocusShortcut(event) {
+      if (
+        !isInspectorFocusShortcut(event) ||
+        settingsOpen ||
+        confirmation ||
+        insertDialog ||
+        multipleTreeSelection ||
+        loading ||
+        document.querySelector(".dialog-backdrop") ||
+        !selectedNode
+      ) {
         return;
       }
-      if (requestedCollection === activeCollection) return;
-      if (dirty) replaceCollectionHash(activeCollection);
-      runAfterDiscardCheck(() => {
-        replaceCollectionHash(requestedCollection);
-        setSearch("");
-        return loadCollection(requestedCollection);
+      event.preventDefault();
+      event.stopPropagation();
+      setInspectorFocus({
+        nodeId: selectedId,
+        panelName: effectivePanel
       });
     }
-    window.addEventListener("hashchange", syncCollectionFromHash);
+
+    document.addEventListener("keydown", handleInspectorFocusShortcut, true);
     return () =>
-      window.removeEventListener("hashchange", syncCollectionFromHash);
-  }, [activeCollection, config, dirty, loadCollection]);
+      document.removeEventListener(
+        "keydown",
+        handleInspectorFocusShortcut,
+        true
+      );
+  }, [
+    confirmation,
+    effectivePanel,
+    insertDialog,
+    loading,
+    multipleTreeSelection,
+    selectedId,
+    selectedNode,
+    settingsOpen
+  ]);
+
+  useEffect(() => {
+    if (!config || !activeCollection) return undefined;
+
+    const currentSelectionRoute = () =>
+      selectionRouteForState(
+        activeCollection,
+        record?.id,
+        selectedId,
+        activeTreeSelection
+      );
+
+    const clearRecordSelection = () => {
+      selectionLoadTokenRef.current += 1;
+      setLoading(false);
+      setActiveTreeSelection("collection");
+      setSelectedRecordIds(new Set());
+      setRecordSelectionAnchor("");
+      setSelectedContentIds(new Set());
+      setContentSelectionAnchor("");
+      setSelectedId("");
+      setRecord(null);
+    };
+
+    function syncSelectionFromHash() {
+      const requestedSelection = selectionRouteFromHash(config);
+      const currentRoute = currentSelectionRoute();
+      if (!requestedSelection) {
+        replaceSelectionHash(currentRoute);
+        return;
+      }
+
+      const applySelection = () => {
+        setSearch("");
+        if (
+          loading ||
+          requestedSelection.collectionName !== activeCollection
+        ) {
+          return loadCollection(
+            requestedSelection.collectionName,
+            requestedSelection.recordId,
+            requestedSelection.contentId
+          );
+        }
+
+        if (!requestedSelection.recordId) {
+          clearRecordSelection();
+          return undefined;
+        }
+
+        if (requestedSelection.recordId !== record?.id) {
+          const recordExists = items.some(
+            (item) => item.id === requestedSelection.recordId
+          );
+          if (!recordExists) {
+            clearRecordSelection();
+            return undefined;
+          }
+          setActiveTreeSelection("collection");
+          setSelectedRecordIds(
+            new Set([requestedSelection.recordId])
+          );
+          setRecordSelectionAnchor(requestedSelection.recordId);
+          return loadRecord(
+            activeCollection,
+            requestedSelection.recordId,
+            requestedSelection.contentId
+          );
+        }
+
+        const nextSelectedId = selectionIdForRecord(
+          record,
+          requestedSelection.contentId
+        );
+        const selectsContentNode =
+          Boolean(requestedSelection.contentId) &&
+          nextSelectedId === requestedSelection.contentId;
+        setActiveTreeSelection(selectsContentNode ? "content" : "collection");
+        setSelectedRecordIds(new Set([record.id]));
+        setRecordSelectionAnchor(record.id);
+        setSelectedContentIds(new Set([nextSelectedId]));
+        setContentSelectionAnchor(nextSelectedId);
+        setSelectedId(nextSelectedId);
+        if (selectsContentNode) {
+          const path = getNodePath(record, nextSelectedId);
+          setContentExpanded(
+            (current) =>
+              new Set([
+                ...current,
+                ...path.slice(0, -1).map((node) => node.id)
+              ])
+          );
+        }
+        return undefined;
+      };
+
+      const changesLoadedRecord =
+        requestedSelection.collectionName !== activeCollection ||
+        requestedSelection.recordId !== (record?.id || null);
+      if (changesLoadedRecord && dirty) {
+        replaceSelectionHash(currentRoute);
+      }
+      if (changesLoadedRecord) runAfterDiscardCheck(applySelection);
+      else applySelection();
+    }
+
+    window.addEventListener("hashchange", syncSelectionFromHash);
+    return () =>
+      window.removeEventListener("hashchange", syncSelectionFromHash);
+  }, [
+    activeCollection,
+    activeTreeSelection,
+    config,
+    dirty,
+    items,
+    loadCollection,
+    loadRecord,
+    loading,
+    record,
+    selectedId
+  ]);
 
   useEffect(() => {
     try {
@@ -568,14 +775,22 @@ export default function App() {
   function switchCollection(name) {
     if (name === activeCollection) return;
     runAfterDiscardCheck(() => {
-      replaceCollectionHash(name);
+      replaceSelectionHash({ collectionName: name });
       setSearch("");
       return loadCollection(name);
     });
   }
 
   function selectRecord(id) {
-    if (id === record?.id) return;
+    if (id === record?.id) {
+      setActiveTreeSelection("collection");
+      setSelectedRecordIds(new Set([id]));
+      setRecordSelectionAnchor(id);
+      setSelectedId(id);
+      setSelectedContentIds(new Set([id]));
+      setContentSelectionAnchor(id);
+      return;
+    }
     runAfterDiscardCheck(() => {
       setActiveTreeSelection("collection");
       setSelectedRecordIds(new Set([id]));
@@ -592,6 +807,10 @@ export default function App() {
       if (activeId !== record?.id) {
         return loadRecord(activeCollection, activeId);
       }
+      setSelectedId(record.id);
+      setSelectedContentIds(new Set([record.id]));
+      setContentSelectionAnchor(record.id);
+      return undefined;
     };
     if (activeId === record?.id) applySelection();
     else runAfterDiscardCheck(applySelection);
@@ -600,6 +819,8 @@ export default function App() {
   function clearCollectionSelection() {
     if (!selectedRecordIds.size && !record) return;
     runAfterDiscardCheck(() => {
+      selectionLoadTokenRef.current += 1;
+      setLoading(false);
       setActiveTreeSelection("collection");
       setSelectedRecordIds(new Set());
       setRecordSelectionAnchor("");
@@ -615,6 +836,16 @@ export default function App() {
     setSelectedContentIds(selectedIds);
     setContentSelectionAnchor(anchorId);
     setSelectedId(activeId);
+  }
+
+  function changeContentStructureSelection(selection) {
+    changeContentSelection(selection);
+    if (!record || !selection.activeId) return;
+    setPreviewRevealRequest((current) => ({
+      recordId: record.id,
+      nodeId: selection.activeId,
+      sequence: (current?.sequence ?? 0) + 1
+    }));
   }
 
   function selectBreadcrumbNode(id) {
@@ -649,6 +880,15 @@ export default function App() {
   function changeRecord(update) {
     setRecord((current) => update(current));
     setDirty(true);
+  }
+
+  function openInspectorPanelFocus() {
+    if (!selectedId) return;
+    setInspectorFocus({ nodeId: selectedId, panelName: effectivePanel });
+  }
+
+  function closeInspectorPanelFocus() {
+    setInspectorFocus(null);
   }
 
   function changeProperty(nodeId, name, value) {
@@ -696,8 +936,9 @@ export default function App() {
       void saveRecord();
     }
 
-    document.addEventListener("keydown", handleSaveShortcut);
-    return () => document.removeEventListener("keydown", handleSaveShortcut);
+    document.addEventListener("keydown", handleSaveShortcut, true);
+    return () =>
+      document.removeEventListener("keydown", handleSaveShortcut, true);
   }, [
     activeCollection,
     api,
@@ -718,7 +959,7 @@ export default function App() {
         ? activeCollection
         : Object.keys(result.config.collections ?? {})[0];
     if (nextCollection) {
-      replaceCollectionHash(nextCollection);
+      replaceSelectionHash({ collectionName: nextCollection });
       await loadCollection(nextCollection);
     }
     showToast("CMS settings saved");
@@ -891,8 +1132,8 @@ export default function App() {
           "parent_field",
           sourceRecord.parent ?? null
         );
-        const duplicate = structuredClone(sourceRecord);
-        refreshUuidFields(duplicate, nodeTypes);
+        const duplicate = cloneContentNode(sourceRecord, new Set());
+        refreshGeneratedIdFields(duplicate, nodeTypes);
         if (titleSuffix && duplicate.properties?.title) {
           duplicate.properties.title = `${duplicate.properties.title} ${titleSuffix}`;
         }
@@ -1112,7 +1353,7 @@ export default function App() {
     const usedIds = collectNodeIds(record);
     const nodes = clipboard.nodes.map((node) => {
       const clone = cloneContentNode(node, usedIds);
-      refreshUuidFields(clone, nodeTypes);
+      refreshGeneratedIdFields(clone, nodeTypes);
       return clone;
     });
     changeRecord((current) =>
@@ -1391,7 +1632,7 @@ export default function App() {
       const location = findLocation(record, node.id);
       if (!location) continue;
       const duplicate = cloneContentNode(node, usedIds);
-      refreshUuidFields(duplicate, nodeTypes);
+      refreshGeneratedIdFields(duplicate, nodeTypes);
       if (duplicate.properties?.heading) {
         duplicate.properties.heading = `${duplicate.properties.heading} duplicate`;
       }
@@ -1433,7 +1674,11 @@ export default function App() {
 
   function insertContentNode({ choice }) {
     setActiveTreeSelection("content");
-    const node = newNode(choice.typeName, nodeTypes[choice.typeName]);
+    const node = newNode(
+      choice.typeName,
+      nodeTypes[choice.typeName],
+      collectNodeIds(record)
+    );
     changeRecord((current) =>
       updateNode(current, choice.parentId, (parent) => {
         const children = [...(parent.slots?.[choice.slotName] ?? [])];
@@ -1708,14 +1953,14 @@ export default function App() {
         </div>
         {record ? (
           <Preview
+            PreviewComponent={PreviewComponent}
             record={record}
             selectedId={selectedId}
             nodeTypes={nodeTypes}
-            config={config}
             collection={collection}
-            items={treeItems}
-            contentSource={previewContentSource}
+            content={previewContent}
             onSelectNode={selectPreviewNode}
+            revealRequest={previewRevealRequest}
             siteName={config.site?.name}
           />
         ) : (
@@ -1803,27 +2048,27 @@ export default function App() {
               adapterSession.authenticated && "is-authenticated"
             )}
             title={
-              api.name === "github"
+              adapterSession.authenticationRequired
                 ? adapterSession.authenticated
-                  ? `Sign out ${adapterSession.login || "GitHub"}`
+                  ? `Sign out ${adapterSession.login || adapterSession.label}`
                   : "Sign in with GitHub"
-                : "Local Node server"
+                : adapterSession.label
             }
             aria-label={
-              api.name === "github"
+              adapterSession.authenticationRequired
                 ? adapterSession.authenticated
-                  ? `Sign out ${adapterSession.login || "GitHub"}`
+                  ? `Sign out ${adapterSession.login || adapterSession.label}`
                   : "Sign in with GitHub"
-                : "Local Node server"
+                : adapterSession.label
             }
-            disabled={api.name !== "github" || authenticating}
+            disabled={!adapterSession.authenticationRequired || authenticating}
             onClick={toggleAdapterSession}
           >
             {authenticating ? (
               <Spinner small />
             ) : adapterSession.avatarUrl ? (
               <img src={adapterSession.avatarUrl} alt="" />
-            ) : api.name === "github" ? (
+            ) : adapterSession.provider === "github" ? (
               <Github size={16} />
             ) : (
               <HardDrive size={15} />
@@ -2057,7 +2302,7 @@ export default function App() {
                   nodeTypes={nodeTypes}
                   selectedIds={selectedContentIds}
                   selectionAnchor={contentSelectionAnchor}
-                  onSelectionChange={changeContentSelection}
+                  onSelectionChange={changeContentStructureSelection}
                   expanded={contentExpanded}
                   onToggle={(id) => toggleSet(setContentExpanded, id)}
                   onMove={moveContentByDrag}
@@ -2132,6 +2377,9 @@ export default function App() {
               collections={collections}
               items={items}
               activePanel={effectivePanel}
+              focused={inspectorPanelFocused}
+              onFocus={openInspectorPanelFocus}
+              onExitFocus={closeInspectorPanelFocus}
               onPropertyChange={changeProperty}
               onMove={moveSelected}
               onDelete={requestDeleteSelectedContent}

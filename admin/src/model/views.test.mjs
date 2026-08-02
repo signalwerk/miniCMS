@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fieldIsVisible, groupsForPanel, panelsFor } from "./views.js";
+import {
+  displayValue,
+  fieldIsVisible,
+  groupsForPanel,
+  panelsFor
+} from "./views.js";
 
 const type = {
   fields: {
@@ -90,4 +95,53 @@ test("filters inspector fields using the current record properties", () => {
     })[0].fields.map((field) => field.name),
     ["mode", "target"]
   );
+});
+
+test("provides implicit Inspector and document Info panels", () => {
+  const implicitType = {
+    fields: {
+      title: { label: "Title", widget: "string" }
+    }
+  };
+
+  assert.deepEqual(
+    panelsFor(implicitType, false).map(({ name, label }) => ({ name, label })),
+    [{ name: "inspector", label: "Inspector" }]
+  );
+  assert.deepEqual(
+    panelsFor(implicitType, true).map(({ name, label }) => ({ name, label })),
+    [
+      { name: "inspector", label: "Inspector" },
+      { name: "info", label: "Info" }
+    ]
+  );
+  assert.deepEqual(
+    groupsForPanel(implicitType, "inspector", false).map((group) =>
+      group.fields.map((field) => field.name)
+    ),
+    [["title"]]
+  );
+});
+
+test("ignores retired Inspector group focus configuration", () => {
+  const legacyType = structuredClone(type);
+  legacyType.views.detail.panels.inspector.groups.content.focus = true;
+
+  const [contentGroup] = groupsForPanel(legacyType, "inspector", false);
+  assert.equal(Object.hasOwn(contentGroup, "focus"), false);
+});
+
+test("displays structured reference values by their target reference", () => {
+  assert.equal(
+    displayValue(
+      {
+        ref: "image-uuid",
+        selections: { crop: "landscape" }
+      },
+      { widget: "reference" }
+    ),
+    "image-uuid"
+  );
+  assert.equal(displayValue(0, { widget: "reference" }), "0");
+  assert.equal(displayValue(false, { widget: "reference" }), "false");
 });

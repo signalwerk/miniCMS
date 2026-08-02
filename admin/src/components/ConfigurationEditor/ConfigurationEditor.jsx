@@ -48,12 +48,13 @@ import {
   iconFor,
   isSaveShortcut
 } from "../../model/editor.js";
+import { isGeneratedIdWidget } from "../../../../core/id.js";
 import {
   DEFAULT_FILE_ACCEPT,
   DEFAULT_IMAGE_ACCEPT,
   acceptTokens,
   validateMediaAccept
-} from "../../../shared/media.js";
+} from "../../../../core/media.js";
 import { ConfirmationDialog } from "../Dialogs/Dialogs.jsx";
 import { Spinner } from "../Common/Common.jsx";
 import "./ConfigurationEditor.scss";
@@ -69,8 +70,14 @@ const WIDGET_OPTIONS = [
   ["file", "File upload"],
   ["image", "Image upload"],
   ["reference", "Collection reference"],
-  ["uuid", "Generated UUID"]
+  ["id", "Generated ID"]
 ];
+
+function generatedIdFieldName(type) {
+  return Object.entries(type?.fields ?? {}).find(([, field]) =>
+    isGeneratedIdWidget(field?.widget)
+  )?.[0];
+}
 
 const SYSTEM_FIELD_OPTIONS = [
   ["$id", "Record ID"],
@@ -97,6 +104,11 @@ const FIELD_APPEARANCE_OPTIONS = [
   ["title", "Title"],
   ["muted", "Muted"],
   ["monospace", "Monospaced"]
+];
+
+const REFERENCE_SELECTION_KIND_OPTIONS = [
+  ["image_region", "Image region"],
+  ["image_point", "Image point"]
 ];
 
 function slugifyKey(value, fallback = "item") {
@@ -189,6 +201,88 @@ function moveTypeFieldTo(type, fieldKey, sourceIndex, destinationIndex) {
           const [moving] = references.splice(referenceIndex, 1);
           references.splice(referenceDestination, 0, moving);
         }
+      }
+    }
+  }
+}
+
+function removePublishedReferenceSelection(config, collectionKey, selectionKey) {
+  const selections =
+    config.collections?.[collectionKey]?.views?.reference?.selections;
+  if (selections) {
+    delete selections[selectionKey];
+    if (!Object.keys(selections).length) {
+      delete config.collections[collectionKey].views.reference.selections;
+    }
+  }
+  for (const type of Object.values(config.node_types ?? {})) {
+    for (const field of Object.values(type.fields ?? {})) {
+      if (
+        field.widget !== "reference" ||
+        field.collection !== collectionKey ||
+        !Array.isArray(field.selections)
+      ) {
+        continue;
+      }
+      field.selections = field.selections.filter(
+        (name) => name !== selectionKey
+      );
+      if (!field.selections.length) delete field.selections;
+    }
+  }
+}
+
+function clearPublishedReferenceSelections(config, collectionKey) {
+  const names = Object.keys(
+    config.collections?.[collectionKey]?.views?.reference?.selections ?? {}
+  );
+  for (const name of names) {
+    removePublishedReferenceSelection(config, collectionKey, name);
+  }
+}
+
+function reconcileReferenceFieldsForCollection(config, collectionKey) {
+  const collection = config.collections?.[collectionKey];
+  if (!collection) return;
+  const targetTypes = collection.allowed_types ?? [collection.node_type];
+  const targetFields = config.node_types?.[collection.node_type]?.fields ?? {};
+  const systemFields = new Set(SYSTEM_FIELD_OPTIONS.map(([name]) => name));
+  const publishedSelections =
+    collection.views?.reference?.selections ?? {};
+
+  for (const type of Object.values(config.node_types ?? {})) {
+    for (const field of Object.values(type.fields ?? {})) {
+      if (
+        field.widget !== "reference" ||
+        field.collection !== collectionKey
+      ) {
+        continue;
+      }
+      if (Array.isArray(field.allowed_types)) {
+        field.allowed_types = field.allowed_types.filter((name) =>
+          targetTypes.includes(name)
+        );
+        if (!field.allowed_types.length) delete field.allowed_types;
+      }
+      if (
+        field.value_field &&
+        !systemFields.has(field.value_field) &&
+        !targetFields[field.value_field]
+      ) {
+        delete field.value_field;
+      }
+      if (Array.isArray(field.selections)) {
+        const enabled = new Set(field.selections);
+        const available = Object.keys(publishedSelections).filter((name) =>
+          enabled.has(name)
+        );
+        const sourceField =
+          publishedSelections[available[0]]?.options?.field;
+        field.selections = available.filter(
+          (name) =>
+            publishedSelections[name]?.options?.field === sourceField
+        );
+        if (!field.selections.length) delete field.selections;
       }
     }
   }
@@ -814,7 +908,7 @@ function AddEntryDialog({
 }
 
 function SiteEditor({ site, backend = {}, update }) {
-  const backendName = backend.name || "node";
+  const backendName = backend.name || "api";
   return (
     <div className="configuration-editor-pane">
       <SectionHeading
@@ -852,13 +946,13 @@ function SiteEditor({ site, backend = {}, update }) {
                 };
               } else {
                 next.backend = {
-                  name: "node",
+                  name: "api",
                   ...(backend.api_url ? { api_url: backend.api_url } : {})
                 };
               }
             })}
           >
-            <option value="node">Node server</option>
+            <option value="api">miniCMS API</option>
             <option value="github">GitHub repository</option>
           </SelectInput>
         </FormField>
@@ -907,14 +1001,14 @@ function SiteEditor({ site, backend = {}, update }) {
           </AdvancedSection>
         </>
       )}
-      {backendName === "node" && (
-        <AdvancedSection title="Node adapter">
+      {backendName === "api" && (
+        <AdvancedSection title="miniCMS API">
           <FormField label="API URL">
             <TextInput
               value={backend.api_url}
               placeholder="Same origin"
               onChange={(value) => update((next) => {
-                next.backend ??= { name: "node" };
+                next.backend ??= { name: "api" };
                 setOptional(next.backend, "api_url", value);
               })}
             />
@@ -1153,6 +1247,14 @@ function FieldEditor({
     }
   }
   const targetFields = [...targetFieldMap];
+  const targetReferenceSelectionMap =
+    targetCollection?.views?.reference?.selections ?? {};
+  const targetReferenceSelections = Object.entries(
+    targetReferenceSelectionMap
+  ).map(([key, selection]) => [
+    key,
+    selection.label || labelFromKey(key)
+  ]);
   const conditionFields = Object.entries(fields).filter(
     ([key]) => key !== fieldKey
   );
@@ -1232,6 +1334,7 @@ function FieldEditor({
                 delete nextField.collection;
                 delete nextField.value_field;
                 delete nextField.allowed_types;
+                delete nextField.selections;
               }
               if (!["image", "file"].includes(value)) {
                 delete nextField.accept;
@@ -1279,6 +1382,7 @@ function FieldEditor({
                 nextField.collection = value;
                 delete nextField.value_field;
                 delete nextField.allowed_types;
+                delete nextField.selections;
               })}
             >
               <option value="">Choose a collection…</option>
@@ -1295,6 +1399,30 @@ function FieldEditor({
                 onChange={(value) => onChange((nextField) => {
                   if (value.length) nextField.allowed_types = value;
                   else delete nextField.allowed_types;
+                })}
+              />
+            </FormField>
+          )}
+          {targetReferenceSelections.length > 0 && (
+            <FormField label="Reference selections" optional>
+              <MultiChoice
+                options={targetReferenceSelections}
+                value={field.selections ?? []}
+                onChange={(value) => onChange((nextField) => {
+                  const current = field.selections ?? [];
+                  const added = value.find((name) => !current.includes(name));
+                  const sourceField = targetReferenceSelectionMap[
+                    added || value[0]
+                  ]?.options?.field;
+                  const compatible = sourceField
+                    ? value.filter(
+                        (name) =>
+                          targetReferenceSelectionMap[name]?.options?.field ===
+                          sourceField
+                      )
+                    : value;
+                  if (compatible.length) nextField.selections = compatible;
+                  else delete nextField.selections;
                 })}
               />
             </FormField>
@@ -1421,7 +1549,7 @@ function FieldEditor({
               })}
             </SelectInput>
           </FormField>
-        ) : widget !== "uuid" ? (
+        ) : !isGeneratedIdWidget(widget) ? (
           <FormField
             label={
               ["image", "file"].includes(widget)
@@ -1484,7 +1612,7 @@ function FieldEditor({
             </SelectInput>
           </FormField>
         )}
-        {widget !== "uuid" && (
+        {!isGeneratedIdWidget(widget) && (
           <div className="configuration-inline-setting">
             <span>
               <strong>Read only</strong>
@@ -1499,7 +1627,7 @@ function FieldEditor({
             />
           </div>
         )}
-        {widget === "uuid" && (
+        {isGeneratedIdWidget(widget) && (
           <div className="configuration-inline-setting">
             <span>
               <strong>Read only</strong>
@@ -2415,10 +2543,196 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
   );
 }
 
+function ReferenceSelectionsEditor({
+  collectionKey,
+  collection,
+  type,
+  updateConfig,
+  updateCollection,
+  onDeleteSelection
+}) {
+  const imageFields = Object.entries(type?.fields ?? {})
+    .filter(([, field]) => field.widget === "image")
+    .map(([key, field]) => [key, field.label || labelFromKey(key)]);
+  const selections = collection.views?.reference?.selections ?? {};
+  const entries = Object.entries(selections);
+
+  function addSelection(kind) {
+    if (!imageFields.length) return;
+    updateCollection((nextCollection) => {
+      nextCollection.views ??= {};
+      nextCollection.views.reference ??= {};
+      nextCollection.views.reference.selections ??= {};
+      const nextSelections = nextCollection.views.reference.selections;
+      const isRegion = kind === "image_region";
+      const key = uniqueKey(nextSelections, isRegion ? "crop" : "focus");
+      nextSelections[key] = {
+        label: isRegion ? "Crop region" : "Focus point",
+        kind,
+        options: {
+          field: imageFields[0][0],
+          path: isRegion ? "regions" : "points",
+          value: "id",
+          label: "label"
+        }
+      };
+    });
+  }
+
+  return (
+    <div className="configuration-options configuration-reference-selections">
+      <div className="configuration-subheading">
+        <div>
+          <strong>Reference selections</strong>
+          <small>Optional target-owned values exposed to reference fields.</small>
+        </div>
+        <span className="configuration-reference-selections__actions">
+          <button
+            type="button"
+            className="configuration-small-button"
+            disabled={!imageFields.length}
+            onClick={() => addSelection("image_region")}
+          >
+            <Plus size={13} /> Region
+          </button>
+          <button
+            type="button"
+            className="configuration-small-button"
+            disabled={!imageFields.length}
+            onClick={() => addSelection("image_point")}
+          >
+            <Plus size={13} /> Point
+          </button>
+        </span>
+      </div>
+      <ConfigurationDndList
+        className="configuration-reference-selection-list"
+        ariaLabel="Reference selections"
+        items={entries.map(([key, selection]) => ({
+          id: key,
+          label: selection.label || labelFromKey(key)
+        }))}
+        onReorder={(sourceIndex, destinationIndex) =>
+          updateCollection((nextCollection) => {
+            const mapping = nextCollection.views.reference.selections;
+            const key = Object.keys(mapping)[sourceIndex];
+            nextCollection.views.reference.selections = moveMappingEntryTo(
+              mapping,
+              key,
+              destinationIndex
+            );
+          })
+        }
+      >
+        {(_, index, { dragHandleProps }) => {
+          const [key, selection] = entries[index];
+          return (
+            <article className="configuration-reference-selection">
+              <div className="configuration-reference-selection__top">
+                <span>
+                  <strong>{selection.label || labelFromKey(key)}</strong>
+                  <code>{key}</code>
+                </span>
+                <EntryActions
+                  count={entries.length}
+                  dragHandleProps={dragHandleProps}
+                  dragLabel={selection.label || labelFromKey(key)}
+                  onDelete={() => onDeleteSelection(key)}
+                />
+              </div>
+              <div className="configuration-entry-card__grid">
+                <FormField label="Label">
+                  <TextInput
+                    value={selection.label}
+                    onChange={(value) => updateCollection((nextCollection) => {
+                      setOptional(
+                        nextCollection.views.reference.selections[key],
+                        "label",
+                        value.trim() ? value : undefined
+                      );
+                    })}
+                  />
+                </FormField>
+                <FormField label="Selection type">
+                  <SelectInput
+                    value={selection.kind}
+                    onChange={(value) => updateCollection((nextCollection) => {
+                      const nextSelection =
+                        nextCollection.views.reference.selections[key];
+                      nextSelection.kind = value;
+                      nextSelection.options.path =
+                        value === "image_region" ? "regions" : "points";
+                    })}
+                  >
+                    {REFERENCE_SELECTION_KIND_OPTIONS.map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </SelectInput>
+                </FormField>
+                <FormField label="Source image field">
+                  <SelectInput
+                    value={selection.options?.field}
+                    onChange={(value) => updateConfig((next) => {
+                      const nextSelections =
+                        next.collections[collectionKey].views.reference.selections;
+                      nextSelections[key].options.field = value;
+                      for (const candidateType of Object.values(
+                        next.node_types
+                      )) {
+                        for (const candidateField of Object.values(
+                          candidateType.fields ?? {}
+                        )) {
+                          if (
+                            candidateField.widget !== "reference" ||
+                            candidateField.collection !== collectionKey ||
+                            !candidateField.selections?.includes(key)
+                          ) {
+                            continue;
+                          }
+                          const incompatible = candidateField.selections.some(
+                            (name) =>
+                              name !== key &&
+                              nextSelections[name]?.options?.field !== value
+                          );
+                          if (incompatible) {
+                            candidateField.selections =
+                              candidateField.selections.filter(
+                                (name) => name !== key
+                              );
+                            if (!candidateField.selections.length) {
+                              delete candidateField.selections;
+                            }
+                          }
+                        }
+                      }
+                    })}
+                  >
+                    {imageFields.map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </SelectInput>
+                </FormField>
+              </div>
+            </article>
+          );
+        }}
+      </ConfigurationDndList>
+      {!entries.length && (
+        <p className="configuration-muted">
+          {imageFields.length
+            ? "No reference selections published."
+            : "This content type has no image field."}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function CollectionEditor({
   collectionKey,
   collection,
   nodeTypes,
+  updateConfig,
   updateCollection,
   onMove,
   onDelete
@@ -2488,7 +2802,9 @@ function CollectionEditor({
           <FormField label="Content type">
             <SelectInput
               value={collection.node_type}
-              onChange={(value) => updateCollection((nextCollection) => {
+              onChange={(value) => updateConfig((next) => {
+                clearPublishedReferenceSelections(next, collectionKey);
+                const nextCollection = next.collections[collectionKey];
                 const fieldKeys = Object.keys(nodeTypes[value]?.fields ?? {});
                 const identifierField = fieldKeys.includes("title")
                   ? "title"
@@ -2507,12 +2823,12 @@ function CollectionEditor({
                   delete nextCollection.views.list.columns;
                 }
                 if (nextCollection.hierarchy?.enabled) {
-                  const idField = fieldKeys.includes("uuid")
-                    ? "uuid"
-                    : fieldKeys[0];
+                  const idField =
+                    generatedIdFieldName(nodeTypes[value]) || fieldKeys[0];
                   setOptional(nextCollection.hierarchy, "id_field", idField);
                   nextCollection.hierarchy.allowed_child_types = [value];
                 }
+                reconcileReferenceFieldsForCollection(next, collectionKey);
               })}
             >
               {Object.entries(nodeTypes).map(([key, nodeType]) => (
@@ -2602,14 +2918,15 @@ function CollectionEditor({
                   const fieldKeys = Object.keys(
                     nodeTypes[nextCollection.node_type]?.fields ?? {}
                   );
-                  const idField = fieldKeys.includes("uuid")
-                    ? "uuid"
-                    : fieldKeys[0];
+                  const idField =
+                    generatedIdFieldName(
+                      nodeTypes[nextCollection.node_type]
+                    ) || fieldKeys[0];
                   nextCollection.hierarchy = {
                     enabled: true,
                     ...(idField ? { id_field: idField } : {}),
                     parent_field:
-                      nextCollection.hierarchy?.parent_field || "parent_uuid",
+                      nextCollection.hierarchy?.parent_field || "parent_id",
                     allowed_child_types:
                       nextCollection.hierarchy?.allowed_child_types ||
                       [nextCollection.node_type]
@@ -2692,8 +3009,13 @@ function CollectionEditor({
               nodeType.label || key
             ])}
             value={collection.allowed_types ?? [collection.node_type]}
-            onChange={(value) => updateCollection((nextCollection) => {
-              nextCollection.allowed_types = value;
+            onChange={(value) => updateConfig((next) => {
+              setOptional(
+                next.collections[collectionKey],
+                "allowed_types",
+                value.length ? value : undefined
+              );
+              reconcileReferenceFieldsForCollection(next, collectionKey);
             })}
           />
         </FormField>
@@ -2798,6 +3120,20 @@ function CollectionEditor({
             })}
           />
         </FormField>
+        <ReferenceSelectionsEditor
+          collectionKey={collectionKey}
+          collection={collection}
+          type={type}
+          updateConfig={updateConfig}
+          updateCollection={updateCollection}
+          onDeleteSelection={(selectionKey) => updateConfig((next) => {
+            removePublishedReferenceSelection(
+              next,
+              collectionKey,
+              selectionKey
+            );
+          })}
+        />
       </AdvancedSection>
     </div>
   );
@@ -2857,6 +3193,27 @@ export default function ConfigurationEditor({
     update((next) => {
       next.node_types[key].fields ??= {};
       change(next.node_types[key]);
+      for (const [collectionKey, collection] of Object.entries(
+        next.collections
+      )) {
+        if (collection.node_type !== key) continue;
+        const invalidSelections = Object.entries(
+          collection.views?.reference?.selections ?? {}
+        )
+          .filter(([, referenceSelection]) =>
+            next.node_types[key].fields[
+              referenceSelection.options?.field
+            ]?.widget !== "image"
+          )
+          .map(([name]) => name);
+        for (const selectionName of invalidSelections) {
+          removePublishedReferenceSelection(
+            next,
+            collectionKey,
+            selectionName
+          );
+        }
+      }
     });
   }
 
@@ -3129,7 +3486,9 @@ export default function ConfigurationEditor({
             delete candidateField.visible_when;
           }
         }
-        for (const collection of Object.values(next.collections)) {
+        for (const [collectionKey, collection] of Object.entries(
+          next.collections
+        )) {
           if (collection.node_type !== typeKey) continue;
           if (collection.identifier_field === fieldKey) {
             delete collection.identifier_field;
@@ -3162,6 +3521,20 @@ export default function ConfigurationEditor({
             }
           } else if (descriptions === fieldKey) {
             delete collection.views.reference.description;
+          }
+          const selectionNames = Object.entries(
+            collection.views?.reference?.selections ?? {}
+          )
+            .filter(([, referenceSelection]) =>
+              referenceSelection.options?.field === fieldKey
+            )
+            .map(([name]) => name);
+          for (const selectionName of selectionNames) {
+            removePublishedReferenceSelection(
+              next,
+              collectionKey,
+              selectionName
+            );
           }
         }
         for (const candidateType of Object.values(next.node_types)) {
@@ -3363,6 +3736,7 @@ export default function ConfigurationEditor({
               collectionKey={selection.key}
               collection={selectedCollection}
               nodeTypes={draft.node_types}
+              updateConfig={update}
               updateCollection={(change) => updateCollection(selection.key, change)}
               onMove={(direction) => update((next) => {
                 next.collections = moveMappingEntry(next.collections, selection.key, direction);

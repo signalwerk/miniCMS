@@ -14,7 +14,9 @@ import {
   Search,
   Settings2
 } from "lucide-react";
-import { sanitizeFilenameStem } from "../../shared/slug.js";
+import { createId, isGeneratedIdWidget } from "../../../core/id.js";
+import { sanitizeFilenameStem } from "../../../core/slug.js";
+import { refreshImageAnnotationIds } from "./image.js";
 
 const ICONS = {
   "align-left": AlignLeft,
@@ -117,27 +119,99 @@ function readLayoutPreferences() {
   }
 }
 
-function collectionNameFromHash(config) {
-  const hashValue = window.location.hash.slice(1);
+function selectionRouteFromHash(config, hash = window.location.hash) {
+  const hashValue = String(hash ?? "").replace(/^#/, "");
   if (!hashValue) return null;
+
+  const segments = hashValue.split("/");
+  let collectionName;
   try {
-    const name = decodeURIComponent(hashValue);
-    return Object.hasOwn(config.collections ?? {}, name)
-      ? name
-      : null;
+    collectionName = decodeURIComponent(segments[0]);
   } catch {
     return null;
   }
+  if (
+    !collectionName ||
+    !Object.hasOwn(config.collections ?? {}, collectionName)
+  ) {
+    return null;
+  }
+
+  const collectionRoute = {
+    collectionName,
+    recordId: null,
+    contentId: null
+  };
+  if (!segments[1]) return collectionRoute;
+
+  let recordId;
+  try {
+    recordId = decodeURIComponent(segments[1]);
+  } catch {
+    return collectionRoute;
+  }
+  if (!recordId) return collectionRoute;
+
+  const recordRoute = { ...collectionRoute, recordId };
+  if (!segments[2] || segments.length > 3) return recordRoute;
+
+  try {
+    return {
+      ...recordRoute,
+      contentId: decodeURIComponent(segments[2]) || null
+    };
+  } catch {
+    return recordRoute;
+  }
 }
 
-function replaceCollectionHash(name) {
-  const hash = `#${encodeURIComponent(name)}`;
+function selectionRouteHash({ collectionName, recordId, contentId }) {
+  if (!collectionName) return "";
+  const segments = [collectionName];
+  if (recordId) segments.push(recordId);
+  if (recordId && contentId) segments.push(contentId);
+  return `#${segments.map((segment) => encodeURIComponent(segment)).join("/")}`;
+}
+
+function selectionRouteForState(
+  collectionName,
+  recordId,
+  selectedId,
+  activeTreeSelection
+) {
+  return {
+    collectionName,
+    recordId: recordId || null,
+    contentId:
+      recordId && activeTreeSelection === "content" && selectedId
+        ? selectedId
+        : null
+  };
+}
+
+function selectionIdForRecord(record, preferredContentId) {
+  if (!record) return "";
+  return preferredContentId && getNode(record, preferredContentId)
+    ? preferredContentId
+    : record.id;
+}
+
+function replaceSelectionHash(route) {
+  const hash = selectionRouteHash(route);
   if (window.location.hash === hash) return;
   window.history.replaceState(
     window.history.state,
     "",
     `${window.location.pathname}${window.location.search}${hash}`
   );
+}
+
+function collectionNameFromHash(config) {
+  return selectionRouteFromHash(config)?.collectionName ?? null;
+}
+
+function replaceCollectionHash(name) {
+  replaceSelectionHash({ collectionName: name });
 }
 
 function fitLayoutPreferences(preferences, viewportWidth) {
@@ -288,21 +362,9 @@ function collectNodeIds(node, ids = new Set()) {
 }
 
 function cloneContentNode(node, usedIds) {
-  const uniqueId = (sourceId) => {
-    const baseId = `${sourceId}-duplicate`;
-    let candidate = baseId;
-    let suffix = 2;
-    while (usedIds.has(candidate)) {
-      candidate = `${baseId}-${suffix}`;
-      suffix += 1;
-    }
-    usedIds.add(candidate);
-    return candidate;
-  };
-
   const clone = structuredClone(node);
   const replaceIds = (current) => {
-    current.id = uniqueId(current.id);
+    current.id = createId(usedIds);
     for (const children of Object.values(current.slots ?? {})) {
       children.forEach(replaceIds);
     }
@@ -450,25 +512,29 @@ function isSaveShortcut(event) {
   );
 }
 
+function isInspectorFocusShortcut(event) {
+  return (
+    (
+      event?.code === "KeyF" ||
+      String(event?.key).toLocaleLowerCase() === "f"
+    ) &&
+    Boolean(event?.metaKey) &&
+    Boolean(event?.ctrlKey) &&
+    Boolean(event?.altKey) &&
+    Boolean(event?.shiftKey)
+  );
+}
+
 function referenceItemsForField(items, field) {
   const allowedTypes = field?.allowed_types;
   if (!allowedTypes?.length) return items;
   return items.filter((item) => allowedTypes.includes(item.type));
 }
 
-function createUuid() {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
-    const random = Math.floor(Math.random() * 16);
-    const value = character === "x" ? random : (random & 0x3) | 0x8;
-    return value.toString(16);
-  });
-}
-
-function defaultFieldValue(field, generateUuid = false) {
+function defaultFieldValue(field, generateId = false) {
   let value = field.default;
-  if (value === undefined && field.widget === "uuid") {
-    value = generateUuid ? createUuid() : "";
+  if (value === undefined && isGeneratedIdWidget(field.widget)) {
+    value = generateId ? createId() : "";
   }
   if (value === undefined && field.widget === "boolean") value = false;
   if (value === undefined && field.widget === "select") {
@@ -488,22 +554,29 @@ function defaultProperties(type) {
   );
 }
 
-function refreshUuidFields(node, nodeTypes) {
+function refreshGeneratedIdFields(node, nodeTypes) {
   const type = nodeTypes[node.type];
   for (const field of typeFields(type)) {
-    if (field.widget === "uuid") {
-      node.properties = { ...(node.properties ?? {}), [field.name]: createUuid() };
+    if (isGeneratedIdWidget(field.widget)) {
+      node.properties = { ...(node.properties ?? {}), [field.name]: createId() };
+    } else if (
+      field.widget === "image" &&
+      Object.hasOwn(node.properties ?? {}, field.name)
+    ) {
+      node.properties = {
+        ...(node.properties ?? {}),
+        [field.name]: refreshImageAnnotationIds(node.properties?.[field.name])
+      };
     }
   }
   for (const children of Object.values(node.slots ?? {})) {
-    children.forEach((child) => refreshUuidFields(child, nodeTypes));
+    children.forEach((child) => refreshGeneratedIdFields(child, nodeTypes));
   }
 }
 
-function newNode(typeName, type) {
-  const suffix = globalThis.crypto?.randomUUID?.().slice(0, 6) || Date.now().toString(36);
+function newNode(typeName, type, usedIds) {
   const node = {
-    id: `${typeName}-${suffix}`,
+    id: createId(usedIds),
     type: typeName,
     properties: defaultProperties(type)
   };
@@ -692,7 +765,6 @@ export {
   collectionNameFromHash,
   contentInsertionModes,
   contentPasteTarget,
-  createUuid,
   cx,
   defaultFieldValue,
   defaultProperties,
@@ -702,14 +774,20 @@ export {
   getNode,
   getNodePath,
   iconFor,
+  isInspectorFocusShortcut,
   isSaveShortcut,
   newNode,
   nextTreeSelection,
   optionValue,
   readLayoutPreferences,
   referenceItemsForField,
-  refreshUuidFields,
+  refreshGeneratedIdFields,
   replaceCollectionHash,
+  replaceSelectionHash,
+  selectionIdForRecord,
+  selectionRouteFromHash,
+  selectionRouteForState,
+  selectionRouteHash,
   selectedTopLevelContentNodes,
   slugifyId,
   typeField,

@@ -1,0 +1,51 @@
+name: Publish browser bundle
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: "!contains(github.event.head_commit.message, '[CI SKIP]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:bundle
+
+      - name: Publish gh-pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+
+      - name: Update README bundle pin
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: bash ./ci/update-readme.sh
+
+      - name: Commit README bundle pin
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: README.md
+          message: Update README bundle pin [CI SKIP]
+          committer_name: GitHub Actions
+          committer_email: action@github.com

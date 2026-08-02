@@ -64,6 +64,29 @@ test("validates GitHub backend and repository content paths", () => {
   );
 });
 
+test("accepts the API backend and normalizes the legacy Node name", () => {
+  const apiConfig = fixtureConfig();
+  apiConfig.backend = {
+    name: "api",
+    api_url: "https://content.example.com"
+  };
+  assert.equal(validateConfig(apiConfig).backend.name, "api");
+
+  const legacyConfig = fixtureConfig();
+  legacyConfig.backend = { name: "node", api_url: "" };
+  assert.deepEqual(validateConfig(legacyConfig).backend, {
+    name: "api",
+    api_url: ""
+  });
+
+  const invalidConfig = fixtureConfig();
+  invalidConfig.backend = { name: "api", api_url: 42 };
+  assert.throws(
+    () => validateConfig(invalidConfig, 400),
+    /miniCMS API URL must be a string/
+  );
+});
+
 test("normalizes legacy image accept strings to the array config shape", () => {
   const config = fixtureConfig();
   config.node_types.page.fields.image = {
@@ -75,6 +98,16 @@ test("normalizes legacy image accept strings to the array config shape", () => {
     "image/png",
     "image/svg+xml"
   ]);
+});
+
+test("accepts generated ID fields and normalizes the legacy UUID widget", () => {
+  const config = fixtureConfig();
+  config.node_types.page.fields.content_id = { widget: "id" };
+  config.node_types.page.fields.legacy_id = { widget: "uuid" };
+
+  const validated = validateConfig(config);
+  assert.equal(validated.node_types.page.fields.content_id.widget, "id");
+  assert.equal(validated.node_types.page.fields.legacy_id.widget, "id");
 });
 
 test("validates conditional fields and type-restricted references", () => {
@@ -116,6 +149,99 @@ test("validates conditional fields and type-restricted references", () => {
   assert.throws(
     () => validateConfig(invalidTargetType, 400),
     /outside its target collection/
+  );
+});
+
+test("validates target-published reference selections", () => {
+  const config = fixtureConfig();
+  config.node_types.image = {
+    fields: {
+      uuid: { widget: "uuid" },
+      file: { widget: "image" }
+    }
+  };
+  config.collections.images = {
+    folder: "content/images",
+    extension: "yml",
+    node_type: "image",
+    views: {
+      reference: {
+        value: "uuid",
+        image: "file",
+        selections: {
+          crop: {
+            label: "Crop region",
+            kind: "image_region",
+            options: {
+              field: "file",
+              path: "regions",
+              value: "id",
+              label: "label"
+            }
+          },
+          focus: {
+            label: "Focus point",
+            kind: "image_point",
+            options: {
+              field: "file",
+              path: "points",
+              value: "id",
+              label: "label"
+            }
+          }
+        }
+      }
+    }
+  };
+  config.node_types.page.fields.hero = {
+    widget: "reference",
+    collection: "images",
+    selections: ["crop", "focus"]
+  };
+
+  assert.deepEqual(
+    validateConfig(config).node_types.page.fields.hero.selections,
+    ["crop", "focus"]
+  );
+
+  const unknownSelection = structuredClone(config);
+  unknownSelection.node_types.page.fields.hero.selections.push("missing");
+  assert.throws(
+    () => validateConfig(unknownSelection, 400),
+    /unknown selection "missing"/
+  );
+
+  const invalidSource = structuredClone(config);
+  invalidSource.collections.images.views.reference.selections.crop.options.field =
+    "uuid";
+  assert.throws(
+    () => validateConfig(invalidSource, 400),
+    /must use an image field/
+  );
+
+  const invalidKind = structuredClone(config);
+  invalidKind.collections.images.views.reference.selections.crop.kind =
+    "rectangle";
+  assert.throws(
+    () => validateConfig(invalidKind, 400),
+    /unsupported kind "rectangle"/
+  );
+
+  const labelValue = structuredClone(config);
+  labelValue.collections.images.views.reference.selections.crop.options.value =
+    "label";
+  assert.throws(
+    () => validateConfig(labelValue, 400),
+    /must use annotation IDs/
+  );
+
+  const mixedSources = structuredClone(config);
+  mixedSources.node_types.image.fields.alternate = { widget: "image" };
+  mixedSources.collections.images.views.reference.selections.focus.options.field =
+    "alternate";
+  assert.throws(
+    () => validateConfig(mixedSources, 400),
+    /must use the same source field/
   );
 });
 

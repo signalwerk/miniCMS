@@ -20,6 +20,7 @@ function AuthenticationGate({ children }) {
       await login();
     } catch (loginError) {
       setError(loginError.message);
+    } finally {
       setAuthenticating(false);
     }
   }

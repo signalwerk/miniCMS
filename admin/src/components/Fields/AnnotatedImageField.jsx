@@ -3,6 +3,7 @@ import {
   Image,
   Maximize2,
   Plus,
+  RotateCw,
   Trash2,
   Upload,
   X
@@ -12,14 +13,25 @@ import { createPortal } from "react-dom";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import {
   compactImageValue,
+  createImageAnnotationId,
+  ensureImageAnnotationIds,
+  imageCoordinateSize,
   normalizeImageValue
 } from "../../model/image.js";
+import {
+  boundedImageRegion,
+  imageRegionRotationFromPoint,
+  imageRotationStep,
+  normalizeImageRotation,
+  resizedImageRegion,
+  steppedImageRotation
+} from "../../model/imageGeometry.js";
 import {
   DEFAULT_IMAGE_ACCEPT,
   acceptTokens,
   mediaAcceptErrorMessage,
   mediaFileMatchesAccept
-} from "../../../shared/media.js";
+} from "../../../../core/media.js";
 import { cx } from "../../model/editor.js";
 import { Spinner } from "../Common/Common.jsx";
 import "./AnnotatedImageField.scss";
@@ -47,56 +59,12 @@ function nextLabel(items, prefix) {
   return `${prefix} ${index}`;
 }
 
-function boundedRegion(region, imageSize) {
-  if (!imageSize) return region;
-  const width = clamp(region.width, 1, imageSize.width);
-  const height = clamp(region.height, 1, imageSize.height);
-  return {
-    ...region,
-    width,
-    height,
-    x: clamp(region.x, 0, imageSize.width - width),
-    y: clamp(region.y, 0, imageSize.height - height)
-  };
-}
-
 function boundedPoint(point, imageSize) {
   if (!imageSize) return point;
   return {
     ...point,
     x: clamp(Math.round(point.x), 0, Math.max(0, imageSize.width - 1)),
     y: clamp(Math.round(point.y), 0, Math.max(0, imageSize.height - 1))
-  };
-}
-
-function resizedRegion(region, handle, deltaX, deltaY, imageSize) {
-  const bounded = boundedRegion(region, imageSize);
-  let left = bounded.x;
-  let top = bounded.y;
-  let right = bounded.x + bounded.width;
-  let bottom = bounded.y + bounded.height;
-  const minimumWidth = Math.min(MIN_REGION_SIZE, imageSize.width);
-  const minimumHeight = Math.min(MIN_REGION_SIZE, imageSize.height);
-
-  if (handle.includes("w")) {
-    left = clamp(left + deltaX, 0, right - minimumWidth);
-  }
-  if (handle.includes("e")) {
-    right = clamp(right + deltaX, left + minimumWidth, imageSize.width);
-  }
-  if (handle.includes("n")) {
-    top = clamp(top + deltaY, 0, bottom - minimumHeight);
-  }
-  if (handle.includes("s")) {
-    bottom = clamp(bottom + deltaY, top + minimumHeight, imageSize.height);
-  }
-
-  return {
-    ...bounded,
-    x: Math.round(left),
-    y: Math.round(top),
-    width: Math.round(right - left),
-    height: Math.round(bottom - top)
   };
 }
 
@@ -125,6 +93,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const serializedValue = JSON.stringify(value ?? "");
+  const rotationInstructionsId = `${id}-rotation-instructions`;
 
   useEffect(() => {
     const nextImage = normalizeImageValue(value);
@@ -133,10 +102,10 @@ function AnnotatedImageField({ id, field, value, onChange }) {
   }, [serializedValue]);
 
   useEffect(() => {
-    setImageSize(null);
+    setImageSize(imageCoordinateSize(image));
     setSelection(null);
     interactionRef.current = null;
-  }, [image.src]);
+  }, [image.src, image.width, image.height]);
 
   useEffect(() => {
     if (!editorOpen) return undefined;
@@ -172,13 +141,17 @@ function AnnotatedImageField({ id, field, value, onChange }) {
   }, [editorOpen]);
 
   function commit(change) {
-    const current = imageRef.current;
+    const current = ensureImageAnnotationIds(imageRef.current);
     const next = {
       ...current,
       extra: { ...current.extra },
       regions: current.regions.map((region) => ({ ...region })),
       points: current.points.map((point) => ({ ...point }))
     };
+    if (imageSize) {
+      next.width = imageSize.width;
+      next.height = imageSize.height;
+    }
     change(next);
     imageRef.current = next;
     setImage(next);
@@ -220,7 +193,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
     commit((next) => {
       const current = next.regions[index];
       if (!current) return;
-      next.regions[index] = boundedRegion(change(current), imageSize);
+      next.regions[index] = boundedImageRegion(change(current), imageSize);
     });
   }
 
@@ -252,6 +225,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
     const index = image.regions.length;
     commit((next) => {
       next.regions.push({
+        id: createImageAnnotationId(),
         label: nextLabel(next.regions, "Region"),
         x: Math.round((imageSize.width - width) / 2),
         y: Math.round((imageSize.height - height) / 2),
@@ -267,6 +241,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
     const index = image.points.length;
     commit((next) => {
       next.points.push({
+        id: createImageAnnotationId(),
         label: nextLabel(next.points, "Point"),
         x: Math.floor((imageSize.width - 1) / 2),
         y: Math.floor((imageSize.height - 1) / 2)
@@ -282,29 +257,21 @@ function AnnotatedImageField({ id, field, value, onChange }) {
     setSelection(null);
   }
 
-  function pointerPosition(event) {
+  function pointerPosition(event, clampToImage = true) {
     const bounds = canvasRef.current?.getBoundingClientRect();
     if (!bounds || !imageSize || !bounds.width || !bounds.height) return null;
-    return {
-      x: clamp(
-        Math.round(
-          ((event.clientX - bounds.left) / bounds.width) * imageSize.width
-        ),
-        0,
-        imageSize.width
-      ),
-      y: clamp(
-        Math.round(
-          ((event.clientY - bounds.top) / bounds.height) * imageSize.height
-        ),
-        0,
-        imageSize.height
-      )
-    };
+    const x = ((event.clientX - bounds.left) / bounds.width) * imageSize.width;
+    const y = ((event.clientY - bounds.top) / bounds.height) * imageSize.height;
+    return clampToImage
+      ? {
+          x: clamp(Math.round(x), 0, imageSize.width),
+          y: clamp(Math.round(y), 0, imageSize.height)
+        }
+      : { x, y };
   }
 
   function beginInteraction(event, interaction) {
-    const start = pointerPosition(event);
+    const start = pointerPosition(event, !interaction.rotate);
     if (!start) return;
     event.preventDefault();
     event.stopPropagation();
@@ -320,36 +287,42 @@ function AnnotatedImageField({ id, field, value, onChange }) {
 
   function movePointer(event) {
     const interaction = interactionRef.current;
-    const position = pointerPosition(event);
+    const position = pointerPosition(event, !interaction?.rotate);
     if (!interaction || !position || !imageSize) return;
     const deltaX = position.x - interaction.start.x;
     const deltaY = position.y - interaction.start.y;
 
-    if (interaction.kind === "region" && interaction.handle) {
-      updateRegion(interaction.index, () =>
-        resizedRegion(
+    if (interaction.kind === "region" && interaction.rotate) {
+      updateRegion(interaction.index, (current) => ({
+        ...interaction.original,
+        id: current.id,
+        rotation: imageRegionRotationFromPoint(
+          interaction.original,
+          position,
+          imageRotationStep(event),
+          interaction.start
+        )
+      }));
+    } else if (interaction.kind === "region" && interaction.handle) {
+      updateRegion(interaction.index, (current) => ({
+        ...resizedImageRegion(
           interaction.original,
           interaction.handle,
           deltaX,
           deltaY,
-          imageSize
-        )
-      );
+          imageSize,
+          MIN_REGION_SIZE
+        ),
+        id: current.id
+      }));
     } else if (interaction.kind === "region") {
-      updateRegion(interaction.index, () => {
-        const original = boundedRegion(interaction.original, imageSize);
+      updateRegion(interaction.index, (current) => {
+        const original = boundedImageRegion(interaction.original, imageSize);
         return {
           ...original,
-          x: clamp(
-            Math.round(original.x + deltaX),
-            0,
-            imageSize.width - original.width
-          ),
-          y: clamp(
-            Math.round(original.y + deltaY),
-            0,
-            imageSize.height - original.height
-          )
+          x: Math.round(original.x + deltaX),
+          y: Math.round(original.y + deltaY),
+          id: current.id
         };
       });
     } else {
@@ -389,13 +362,36 @@ function AnnotatedImageField({ id, field, value, onChange }) {
   function resizeRegionByKeyboard(event, index, handle) {
     const delta = arrowDelta(event);
     if (!delta || !imageSize) return;
-    const horizontal = handle.includes("w") || handle.includes("e");
-    const vertical = handle.includes("n") || handle.includes("s");
-    if ((!horizontal && delta.x) || (!vertical && delta.y)) return;
     event.preventDefault();
     updateRegion(index, (region) =>
-      resizedRegion(region, handle, delta.x, delta.y, imageSize)
+      resizedImageRegion(
+        region,
+        handle,
+        delta.x,
+        delta.y,
+        imageSize,
+        MIN_REGION_SIZE
+      )
     );
+  }
+
+  function rotateRegionByKeyboard(event, index) {
+    const direction =
+      event.key === "ArrowLeft" || event.key === "ArrowDown"
+        ? -1
+        : event.key === "ArrowRight" || event.key === "ArrowUp"
+          ? 1
+          : 0;
+    if (!direction) return;
+    event.preventDefault();
+    updateRegion(index, (region) => ({
+      ...region,
+      rotation: steppedImageRotation(
+        region.rotation,
+        direction,
+        imageRotationStep(event)
+      )
+    }));
   }
 
   function movePointByKeyboard(event, index) {
@@ -428,10 +424,13 @@ function AnnotatedImageField({ id, field, value, onChange }) {
         draggable={false}
         onLoad={(event) => {
           setError("");
-          setImageSize({
-            width: event.currentTarget.naturalWidth,
-            height: event.currentTarget.naturalHeight
-          });
+          setImageSize(
+            imageCoordinateSize(
+              imageRef.current,
+              event.currentTarget.naturalWidth,
+              event.currentTarget.naturalHeight
+            )
+          );
         }}
         onError={() => {
           setImageSize(null);
@@ -439,18 +438,20 @@ function AnnotatedImageField({ id, field, value, onChange }) {
         }}
       />
       {imageSize && image.regions.map((region, index) => {
-        const bounded = boundedRegion(region, imageSize);
+        const bounded = boundedImageRegion(region, imageSize);
+        const rotation = normalizeImageRotation(bounded.rotation);
         const selected =
           selection?.kind === "region" && selection.index === index;
         return (
           <div
             className={cx("image-region", selected && "is-selected")}
-            key={`region-${index}`}
+            key={region.id || `region-${index}`}
             style={{
               "--x": `${(bounded.x / imageSize.width) * 100}%`,
               "--y": `${(bounded.y / imageSize.height) * 100}%`,
               "--width": `${(bounded.width / imageSize.width) * 100}%`,
-              "--height": `${(bounded.height / imageSize.height) * 100}%`
+              "--height": `${(bounded.height / imageSize.height) * 100}%`,
+              "--rotation": `${rotation}deg`
             }}
           >
             <button
@@ -469,6 +470,26 @@ function AnnotatedImageField({ id, field, value, onChange }) {
               onKeyDown={(event) => moveRegionByKeyboard(event, index)}
             />
             <span className="image-region__label">{region.label}</span>
+            {selected && (
+              <button
+                type="button"
+                className="image-region__rotate"
+                aria-label={`Rotate ${region.label}, ${rotation} degrees`}
+                aria-describedby={rotationInstructionsId}
+                title={`Rotate ${region.label} (${rotation}°; Option/Alt: 0.1°, Shift: 45° snap)`}
+                onPointerDown={(event) =>
+                  beginInteraction(event, {
+                    kind: "region",
+                    index,
+                    rotate: true,
+                    original: bounded
+                  })
+                }
+                onKeyDown={(event) => rotateRegionByKeyboard(event, index)}
+              >
+                <RotateCw size={12} aria-hidden="true" />
+              </button>
+            )}
             {selected && REGION_HANDLES.map(([handle, handleLabel]) => (
               <button
                 type="button"
@@ -499,7 +520,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
           <button
             type="button"
             className={cx("image-point", selected && "is-selected")}
-            key={`point-${index}`}
+            key={point.id || `point-${index}`}
             style={{
               "--x": `${(bounded.x / imageSize.width) * 100}%`,
               "--y": `${(bounded.y / imageSize.height) * 100}%`
@@ -541,7 +562,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
                   selection.index === index &&
                   "is-selected"
               )}
-              key={`region-row-${index}`}
+              key={region.id || `region-row-${index}`}
               onPointerDown={() => setSelection({ kind: "region", index })}
             >
               <input
@@ -555,7 +576,8 @@ function AnnotatedImageField({ id, field, value, onChange }) {
                 }
               />
               <code>
-                {region.x}, {region.y} · {region.width} × {region.height}
+                {region.x}, {region.y} · {region.width} × {region.height} ·{" "}
+                {normalizeImageRotation(region.rotation)}°
               </code>
               <button
                 type="button"
@@ -583,7 +605,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
                   selection.index === index &&
                   "is-selected"
               )}
-              key={`point-row-${index}`}
+              key={point.id || `point-row-${index}`}
               onPointerDown={() => setSelection({ kind: "point", index })}
             >
               <input
@@ -636,10 +658,13 @@ function AnnotatedImageField({ id, field, value, onChange }) {
               alt=""
               onLoad={(event) => {
                 setError("");
-                setImageSize({
-                  width: event.currentTarget.naturalWidth,
-                  height: event.currentTarget.naturalHeight
-                });
+                setImageSize(
+                  imageCoordinateSize(
+                    imageRef.current,
+                    event.currentTarget.naturalWidth,
+                    event.currentTarget.naturalHeight
+                  )
+                );
               }}
               onError={() => {
                 setImageSize(null);
@@ -720,6 +745,10 @@ function AnnotatedImageField({ id, field, value, onChange }) {
             aria-modal="true"
             aria-labelledby={dialogTitleId}
           >
+            <p id={rotationInstructionsId} className="visually-hidden">
+              Region rotation uses one-degree steps. Hold Option or Alt for
+              0.1-degree precision, or Shift to snap to 45-degree steps.
+            </p>
             <div className="dialog__top">
               <span className="dialog__icon">
                 <Maximize2 size={18} aria-hidden="true" />

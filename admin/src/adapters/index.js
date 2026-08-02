@@ -1,11 +1,5 @@
-import { parseYaml, validateConfig } from "../../shared/content.js";
-import { createNodeAdapter } from "./node.js";
-
-function configuredOverride() {
-  return typeof __MINICMS_ADAPTER_OVERRIDE__ === "undefined"
-    ? ""
-    : __MINICMS_ADAPTER_OVERRIDE__;
-}
+import { parseYaml, validateConfig } from "../../../core/content.js";
+import { createApiAdapter } from "./api.js";
 
 async function loadBootstrapConfig({
   fetchImpl = fetch,
@@ -21,24 +15,30 @@ async function loadBootstrapConfig({
 }
 
 async function createAdapter({
-  adapterOverride = configuredOverride(),
+  adapterOverride = "",
   fetchImpl = fetch,
   bootstrapConfig,
   bootstrapUrl,
+  apiOptions = {},
   githubOptions = {}
 } = {}) {
-  if (adapterOverride === "node") {
-    return createNodeAdapter({ fetchImpl });
+  if (["api", "node"].includes(adapterOverride)) {
+    return createApiAdapter({
+      fetchImpl,
+      ...apiOptions,
+      apiUrl: apiOptions.apiUrl || ""
+    });
   }
 
-  const config =
-    bootstrapConfig ||
-    (await loadBootstrapConfig({ fetchImpl, bootstrapUrl }));
-  const backend = config.backend || { name: "node" };
-  if ((backend.name || "node") === "node") {
-    return createNodeAdapter({
-      apiUrl: backend.api_url || "",
-      fetchImpl
+  const config = bootstrapConfig
+    ? validateConfig(bootstrapConfig)
+    : await loadBootstrapConfig({ fetchImpl, bootstrapUrl });
+  const backend = config.backend || { name: "api" };
+  if ((backend.name || "api") === "api") {
+    return createApiAdapter({
+      fetchImpl,
+      ...apiOptions,
+      apiUrl: apiOptions.apiUrl ?? backend.api_url ?? ""
     });
   }
   if (backend.name === "github") {

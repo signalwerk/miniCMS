@@ -1,8 +1,16 @@
 import { typeField, typeFields } from "./editor.js";
 import { imageSource } from "./image.js";
+import {
+  hasReferenceValue,
+  normalizeReferenceValue
+} from "./reference.js";
 
 function displayValue(value, field) {
   if (value === null || value === undefined || value === "") return "—";
+  if (field.widget === "reference") {
+    const reference = normalizeReferenceValue(value).ref;
+    return hasReferenceValue(reference) ? String(reference) : "—";
+  }
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (field.display === "image" || field.widget === "image") {
     return imageSource(value) || "—";
@@ -160,7 +168,6 @@ function groupsForPanel(
   }
   return groups;
 }
-
 
 export {
   SYSTEM_FIELD_DEFINITIONS,

@@ -13,6 +13,7 @@ import "./CollectionTable.scss";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import { cx, typeField, typeFields } from "../../model/editor.js";
 import { imageSource } from "../../model/image.js";
+import { normalizeReferenceValue } from "../../model/reference.js";
 import {
   SYSTEM_FIELD_DEFINITIONS,
   displayValue
@@ -58,6 +59,18 @@ function formatTableValue(item, column, nodeTypes, collection) {
   );
 }
 
+function sortableTableValue(item, fieldName, nodeTypes, collection) {
+  const value = getTableValue(item, fieldName, collection);
+  const field = configuredTableField(
+    item,
+    { field: fieldName },
+    nodeTypes
+  );
+  return field.widget === "reference"
+    ? normalizeReferenceValue(value).ref
+    : value;
+}
+
 function TableCell({
   item,
   column,
@@ -70,10 +83,15 @@ function TableCell({
   const field = configuredTableField(item, column, nodeTypes);
   const value = getTableValue(item, column.field, collection);
   const formatted = displayValue(value, field);
+  const structuredReference =
+    field.widget === "reference" &&
+    ((Array.isArray(field.selections) && field.selections.length > 0) ||
+      (value && typeof value === "object"));
   const editable =
     column.mode === "edit" &&
     !column.field.startsWith("$") &&
     field.widget !== "image" &&
+    !structuredReference &&
     field.readonly !== true;
   const [draftValue, setDraftValue] = useState(value ?? "");
 
@@ -286,8 +304,18 @@ function CollectionTable({
       : [...items];
 
     return filtered.sort((left, right) => {
-      const leftValue = getTableValue(left, sort.field, collection);
-      const rightValue = getTableValue(right, sort.field, collection);
+      const leftValue = sortableTableValue(
+        left,
+        sort.field,
+        nodeTypes,
+        collection
+      );
+      const rightValue = sortableTableValue(
+        right,
+        sort.field,
+        nodeTypes,
+        collection
+      );
       if (leftValue === rightValue) return left.id.localeCompare(right.id);
       if (leftValue === "" || leftValue === null || leftValue === undefined) return 1;
       if (rightValue === "" || rightValue === null || rightValue === undefined) return -1;

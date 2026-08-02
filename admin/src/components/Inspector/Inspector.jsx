@@ -5,11 +5,13 @@ import {
   ChevronRight,
   Copy,
   Layers3,
+  Maximize2,
+  Minimize2,
   RefreshCw,
   Settings2,
   Trash2
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./Inspector.scss";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import {
@@ -27,6 +29,57 @@ import {
 } from "../../model/views.js";
 import { EmptyState } from "../Common/Common.jsx";
 import { Field } from "../Fields/Fields.jsx";
+
+function focusableElements(root) {
+  if (!root) return [];
+  return Array.from(
+    root.querySelectorAll(
+      "button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [contenteditable='true'], [tabindex]:not([tabindex='-1'])"
+    )
+  ).filter(
+    (element) =>
+      element.getClientRects().length > 0 &&
+      !element.closest("[hidden], [aria-hidden='true']")
+  );
+}
+
+function isolateFocusSurface(surface) {
+  const states = [];
+  let current = surface;
+  while (current?.parentElement) {
+    const parent = current.parentElement;
+    for (const sibling of parent.children) {
+      if (sibling === current || !(sibling instanceof HTMLElement)) continue;
+      if (
+        sibling.matches(
+          "[data-portal], [data-mantine-shared-portal-node], [aria-live], [role='alert'], [role='status'], .toast, .dialog-backdrop"
+        )
+      ) {
+        continue;
+      }
+      states.push({
+        element: sibling,
+        inert: sibling.inert,
+        ariaHidden: sibling.getAttribute("aria-hidden")
+      });
+      sibling.inert = true;
+      sibling.setAttribute("aria-hidden", "true");
+    }
+    current = parent;
+    if (parent === document.body) break;
+  }
+
+  return () => {
+    for (const state of states) {
+      state.element.inert = state.inert;
+      if (state.ariaHidden === null) {
+        state.element.removeAttribute("aria-hidden");
+      } else {
+        state.element.setAttribute("aria-hidden", state.ariaHidden);
+      }
+    }
+  };
+}
 
 function ReadOnlyDetailField({ field, value, action }) {
   const adapter = useAdapter();
@@ -59,27 +112,44 @@ function ReadOnlyDetailField({ field, value, action }) {
   );
 }
 
-function InspectorGroup({ group, children }) {
+function InspectorGroup({ group, children, panelFocused = false }) {
   const [open, setOpen] = useState(true);
   const GroupIcon = iconFor(group.icon, Settings2);
+  const expanded = panelFocused || open;
+
   return (
-    <section className={cx("inspector-group", open && "inspector-group--open")}>
-      <button
-        type="button"
-        className="inspector-group__heading"
-        onClick={() => setOpen((value) => !value)}
-        aria-expanded={open}
-      >
-        <span className="inspector-group__icon">
-          <GroupIcon size={14} />
-        </span>
-        <span className="inspector-group__title">
-          <strong>{group.label}</strong>
-          {group.description && <small>{group.description}</small>}
-        </span>
-        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-      </button>
-      {open && <div className="inspector-group__content">{children}</div>}
+    <section
+      className={cx(
+        "inspector-group",
+        expanded && "inspector-group--open"
+      )}
+    >
+      <div className="inspector-group__header">
+        <button
+          type="button"
+          className="inspector-group__heading"
+          onClick={() => {
+            if (!panelFocused) setOpen((value) => !value);
+          }}
+          aria-expanded={expanded}
+          aria-disabled={panelFocused || undefined}
+          tabIndex={panelFocused ? -1 : undefined}
+        >
+          <span className="inspector-group__icon">
+            <GroupIcon size={14} />
+          </span>
+          <span className="inspector-group__title">
+            <strong>{group.label}</strong>
+            {group.description && <small>{group.description}</small>}
+          </span>
+          {panelFocused ? null : expanded ? (
+            <ChevronDown size={14} />
+          ) : (
+            <ChevronRight size={14} />
+          )}
+        </button>
+      </div>
+      {expanded && <div className="inspector-group__content">{children}</div>}
     </section>
   );
 }
@@ -92,6 +162,9 @@ function Inspector({
   collections,
   items,
   activePanel,
+  focused = false,
+  onFocus,
+  onExitFocus,
   onPropertyChange,
   onMove,
   onDelete,
@@ -101,6 +174,57 @@ function Inspector({
   onRenameFile,
   renameDisabled
 }) {
+  const inspectorRef = useRef(null);
+
+  useEffect(() => {
+    if (!focused) return undefined;
+    const surface = inspectorRef.current;
+    const previousFocus = document.activeElement;
+    const restoreIsolation = isolateFocusSurface(surface);
+    document.body.classList.add("inspector-focus-mode-open");
+    const frame = requestAnimationFrame(() =>
+      surface?.querySelector("[data-inspector-focus-exit]")?.focus()
+    );
+
+    function handleKeyDown(event) {
+      const inNestedSurface = event.target?.closest?.(
+        ".dialog-backdrop, [data-portal], [data-mantine-shared-portal-node]"
+      );
+      if (event.key === "Escape") {
+        if (inNestedSurface) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onExitFocus();
+        return;
+      }
+      if (event.key !== "Tab" || inNestedSurface) return;
+      const focusable = focusableElements(surface);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeElement = document.activeElement;
+      if (!surface?.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.body.classList.remove("inspector-focus-mode-open");
+      restoreIsolation();
+      document.removeEventListener("keydown", handleKeyDown, true);
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
+  }, [focused]);
+
   const node = getNode(record, selectedId);
   if (!node) {
     return <EmptyState title="Nothing selected">Choose an item from the content tree.</EmptyState>;
@@ -120,7 +244,13 @@ function Inspector({
   );
   const currentItem = items.find((item) => item.id === record.id);
   return (
-    <div className="inspector">
+    <div
+      ref={inspectorRef}
+      className={cx("inspector", focused && "inspector--focus")}
+      role={focused ? "dialog" : undefined}
+      aria-modal={focused ? true : undefined}
+      aria-label={focused ? `${currentPanel.label} focus mode` : undefined}
+    >
       <div className="inspector__identity">
         <span className={cx("node-icon", `node-icon--${type.kind || "content"}`)}>
           <TypeIcon size={16} />
@@ -163,6 +293,22 @@ function Inspector({
 
       <div className="inspector__section-label">
         <span>{currentPanel.label}</span>
+        <button
+          type="button"
+          className="inspector__focus-action"
+          data-inspector-focus-exit={focused ? "" : undefined}
+          aria-label={
+            focused
+              ? `Exit focus mode for ${currentPanel.label}`
+              : `Focus ${currentPanel.label}`
+          }
+          aria-pressed={focused}
+          aria-keyshortcuts="Meta+Control+Alt+Shift+F"
+          title={focused ? "Exit focus mode" : "Focus panel"}
+          onClick={focused ? onExitFocus : onFocus}
+        >
+          {focused ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+        </button>
       </div>
 
       <div className="inspector__fields">
@@ -170,6 +316,7 @@ function Inspector({
           <InspectorGroup
             key={`${node.id}-${currentPanel.name}-${group.name}`}
             group={group}
+            panelFocused={focused}
           >
             {group.fields.map((field) => (
               field.system || field.mode === "read" ? (

@@ -26,7 +26,7 @@ import {
   renderSlugTemplate,
   slugTemplateFieldNames,
   uniqueFilenameStem
-} from "../../../shared/slug.js";
+} from "../../../../core/slug.js";
 import { EmptyState, Spinner } from "../Common/Common.jsx";
 import { Field } from "../Fields/Fields.jsx";
 

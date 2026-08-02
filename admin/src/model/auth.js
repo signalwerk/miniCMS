@@ -1,5 +1,7 @@
 function requiresAdapterLogin(adapter, session) {
-  return adapter?.name === "github" && !session?.authenticated;
+  return Boolean(
+    session?.authenticationRequired && !session?.authenticated
+  );
 }
 
 export { requiresAdapterLogin };

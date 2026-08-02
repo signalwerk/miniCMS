@@ -44,9 +44,14 @@ const FIELD_WIDGETS = new Set([
   "file",
   "image",
   "reference",
+  "id",
   "uuid"
 ]);
-const BACKEND_NAMES = new Set(["node", "github"]);
+const REFERENCE_SELECTION_KINDS = new Set([
+  "image_region",
+  "image_point"
+]);
+const BACKEND_NAMES = new Set(["api", "node", "github"]);
 
 function contentError(status, message) {
   const error = new Error(message);
@@ -166,13 +171,17 @@ function validateBackend(backend, status) {
   if (!isMapping(backend)) {
     throw contentError(status, "backend must be a mapping.");
   }
-  const name = backend.name || "node";
+  const configuredName = backend.name || "api";
+  const name = configuredName === "node" ? "api" : configuredName;
   if (!BACKEND_NAMES.has(name)) {
     throw contentError(status, `Unsupported backend "${name}".`);
   }
-  if (name === "node") {
+  if (configuredName === "node" || backend.name === undefined) {
+    backend.name = "api";
+  }
+  if (name === "api") {
     if (backend.api_url !== undefined && typeof backend.api_url !== "string") {
-      throw contentError(status, "The Node backend API URL must be a string.");
+      throw contentError(status, "The miniCMS API URL must be a string.");
     }
     return;
   }
@@ -242,6 +251,12 @@ function validateConfig(config, status = 500) {
       if (!FIELD_WIDGETS.has(field.widget)) {
         fail(
           `Field "${typeName}.${fieldName}" uses unsupported widget "${field.widget ?? ""}".`
+        );
+      }
+      if (field.widget === "uuid") field.widget = "id";
+      if (field.widget !== "reference" && field.selections !== undefined) {
+        fail(
+          `Field "${typeName}.${fieldName}" may define selections only for a reference widget.`
         );
       }
       if (field.widget === "select" && !Array.isArray(field.options)) {
@@ -477,6 +492,84 @@ function validateConfig(config, status = 500) {
           status
         );
       }
+      if (
+        referenceView.selections !== undefined &&
+        !isMapping(referenceView.selections)
+      ) {
+        fail(
+          `Collection "${collectionName}" reference selections must be a mapping.`
+        );
+      }
+      for (const [selectionName, selection] of Object.entries(
+        referenceView.selections ?? {}
+      )) {
+        assertKey(
+          selectionName,
+          `Collection "${collectionName}" reference selection "${selectionName}"`
+        );
+        if (!isMapping(selection)) {
+          fail(
+            `Collection "${collectionName}" reference selection "${selectionName}" must be a mapping.`
+          );
+        }
+        if (!REFERENCE_SELECTION_KINDS.has(selection.kind)) {
+          fail(
+            `Collection "${collectionName}" reference selection "${selectionName}" uses unsupported kind "${selection.kind ?? ""}".`
+          );
+        }
+        if (
+          selection.label !== undefined &&
+          (typeof selection.label !== "string" || !selection.label.trim())
+        ) {
+          fail(
+            `Collection "${collectionName}" reference selection "${selectionName}" label must be a non-empty string.`
+          );
+        }
+        if (!isMapping(selection.options)) {
+          fail(
+            `Collection "${collectionName}" reference selection "${selectionName}" must define options.`
+          );
+        }
+        validateFieldName(
+          selection.options.field,
+          rootFields,
+          `Collection "${collectionName}" reference selection "${selectionName}" options`,
+          status
+        );
+        if (rootFields[selection.options.field]?.widget !== "image") {
+          fail(
+            `Collection "${collectionName}" reference selection "${selectionName}" must use an image field.`
+          );
+        }
+        const expectedPath =
+          selection.kind === "image_region" ? "regions" : "points";
+        if (selection.options.path !== expectedPath) {
+          fail(
+            `Collection "${collectionName}" reference selection "${selectionName}" kind "${selection.kind}" must use options path "${expectedPath}".`
+          );
+        }
+        for (const optionName of ["value", "label"]) {
+          if (
+            selection.options[optionName] !== undefined &&
+            (typeof selection.options[optionName] !== "string" ||
+              !selection.options[optionName].trim())
+          ) {
+            fail(
+              `Collection "${collectionName}" reference selection "${selectionName}" option ${optionName} must be a non-empty field name.`
+            );
+          }
+        }
+        if ((selection.options.value || "id") !== "id") {
+          fail(
+            `Collection "${collectionName}" reference selection "${selectionName}" must use annotation IDs as option values.`
+          );
+        }
+        if ((selection.options.label || "label") !== "label") {
+          fail(
+            `Collection "${collectionName}" reference selection "${selectionName}" must use annotation labels as option labels.`
+          );
+        }
+      }
     }
   }
 
@@ -492,6 +585,41 @@ function validateConfig(config, status = 500) {
         );
       }
       const targetCollection = config.collections[field.collection];
+      if (field.selections !== undefined && !Array.isArray(field.selections)) {
+        fail(
+          `Node type "${typeName}" reference field "${fieldName}" selections must be an array.`
+        );
+      }
+      const publishedSelections =
+        targetCollection.views?.reference?.selections ?? {};
+      const seenSelections = new Set();
+      const selectionSourceFields = new Set();
+      for (const selectionName of field.selections ?? []) {
+        if (typeof selectionName !== "string" || !selectionName) {
+          fail(
+            `Node type "${typeName}" reference field "${fieldName}" selections must contain names.`
+          );
+        }
+        if (seenSelections.has(selectionName)) {
+          fail(
+            `Node type "${typeName}" reference field "${fieldName}" repeats selection "${selectionName}".`
+          );
+        }
+        seenSelections.add(selectionName);
+        if (!publishedSelections[selectionName]) {
+          fail(
+            `Node type "${typeName}" reference field "${fieldName}" uses unknown selection "${selectionName}" from collection "${field.collection}".`
+          );
+        }
+        selectionSourceFields.add(
+          publishedSelections[selectionName].options.field
+        );
+      }
+      if (selectionSourceFields.size > 1) {
+        fail(
+          `Node type "${typeName}" reference field "${fieldName}" selections must use the same source field.`
+        );
+      }
       if (
         field.allowed_types !== undefined &&
         !Array.isArray(field.allowed_types)

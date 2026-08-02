@@ -1,34 +1,72 @@
 # miniCMS
 
 A reusable, configuration-driven content editor with a React/Vite interface
-and interchangeable persistence adapters. It can use its Express API for local
-files or edit a GitHub repository directly from a static deployment. Its field
+and interchangeable persistence adapters. Its static browser bundle can use
+the independent miniCMS API or edit a GitHub repository directly. Its field
 schema is intentionally custom, with a tree-and-inspector editing workspace.
 
-miniCMS deliberately owns no project content. A consuming repository supplies
-`cms.config.yml` and `content/`.
+miniCMS deliberately owns no project content or website build. A consuming
+repository supplies `cms.config.yml`, `content/`, and its own `/admin/` HTML.
 
-## Add it to a project
+## Browser bundle
+
+The published editor is one classic JavaScript file. It contains the editor's
+React runtime, styles, assets, and lazy-loaded modules. It exposes
+`window.miniCMS` and never starts until the host page calls `miniCMS.init()`.
+A project-owned preview is another independent browser bundle; the plain admin
+page loads both, registers its component, and then starts the editor:
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Content editor</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="https://rawcdn.githack.com/signalwerk/miniCMS/0000000/minicms.js"></script>
+    <script src="./preview.js"></script>
+    <script>
+      miniCMS.registerPreview(window.SitePreview.ProjectPreview);
+      miniCMS.init({
+        target: "#root",
+        configUrl: "./cms.config.yml"
+      });
+    </script>
+  </body>
+</html>
+```
+
+`0000000` is the initial publishing placeholder. After every successful
+main-branch deployment, CI replaces every README bundle URL with the current
+seven-character `gh-pages` commit. That `rawcdn.githack.com` URL is immutable.
+The stable URL that always follows the latest published build is
+`https://signalwerk.github.io/miniCMS/minicms.js`.
+
+The HTML page owns deployment and must place `cms.config.yml` beside itself.
+For example, `/admin/index.html` loads `/admin/cms.config.yml`. miniCMS does not
+copy the config, media, or website output.
+
+## Add the local tools to a project
 
 ```sh
 git submodule add git@github.com:signalwerk/miniCMS.git miniCMS
 ```
 
-Add the local package and command aliases:
+Link the local package for the shared read adapter without making miniCMS part
+of the consumer's workspace or website build:
 
 ```json
 {
   "private": true,
-  "workspaces": ["miniCMS"],
   "scripts": {
-    "dev": "minicms dev",
-    "build": "minicms build",
-    "build:pages": "minicms build --static --out-dir dist/admin",
-    "start": "minicms start",
-    "test": "minicms test"
+    "dev:cms": "npm --prefix miniCMS run dev",
+    "test:cms": "minicms test"
   },
   "dependencies": {
-    "@signalwerk/minicms": "*"
+    "@signalwerk/minicms": "file:./miniCMS"
   }
 }
 ```
@@ -37,33 +75,34 @@ Then add `cms.config.yml` and `content/` at the project root:
 
 ```sh
 npm install
-npm run dev
+npm install --prefix miniCMS
+npm run dev:cms
 ```
 
-The command resolves project files from the current working directory. Use
-`minicms dev --project-root <path>` or `MINICMS_PROJECT_ROOT` when invoking it
-elsewhere.
+The editor development server contains no content server. It proxies `/api`
+and `/media` to `MINICMS_API_URL` (by default
+`http://127.0.0.1:8787`). Run the independent `miniCMS-api` package when local
+filesystem persistence is needed.
 
 For an existing checkout:
 
 ```sh
 git submodule update --init --recursive
 npm install
+npm install --prefix miniCMS
 ```
 
 ## Commands
 
 ```sh
-minicms dev       # API :8787 and editor :5173
-minicms build     # build the editor into miniCMS/admin/dist
-minicms build --static --out-dir dist/admin
-                  # static adapter build with config bootstrap
-minicms start     # serve API and built editor on :8787
-minicms test      # API integration and slug tests
+minicms dev       # static editor dev server on :5173
+minicms build     # package-owned standalone dist/minicms.js
+minicms test      # editor, adapter, and shared-core tests
 ```
 
 Node.js 24 or newer is required. The included `.nvmrc` selects that major
-version. `PORT`, `ADMIN_PORT`, and `HOST` control the listening addresses.
+version. `ADMIN_PORT` and `HOST` control the Vite listener;
+`MINICMS_API_URL` controls its content-service proxy.
 
 ## Consumer structure
 
@@ -80,6 +119,20 @@ Collections point to folders inside `content/`. Each YAML record is read and
 saved as a complete object with `id`, `type`, `order`, `properties`, and typed
 `slots`.
 
+The `id` widget, descendant slot nodes, and image annotations use opaque IDs
+matching `^[a-z0-9]{15}$`. A record's top-level `id` is different: it is the
+readable storage key and YAML filename stem. Legacy configurations using the
+`uuid` widget are accepted and normalized to `id` without rewriting stored
+values.
+
+The editor keeps its active selection in the URL hash. `#pages` opens a
+collection, `#pages/<record>` restores a selected record, and
+`#pages/<record>/<content-node>` restores a node in its content structure.
+Segments are URL-encoded. Multi-selection links retain the active item, and a
+stale link falls back to the closest collection or record that still exists.
+Selecting the document root in the content tree repeats its record ID in the
+node segment, preserving which tree owns the active selection.
+
 ## Storage adapters
 
 The browser consumes one storage interface for configuration, collection
@@ -94,103 +147,149 @@ backend:
   branch: main
 ```
 
-`name: node` uses the same-origin `/api` routes and may optionally define
-`api_url`. `name: github` uses the GitHub REST API and the popup protocol at
+`name: api` uses the same-origin `/api` routes and may optionally define
+`api_url`. It discovers whether that API is local or requires a GitHub identity
+login, then sends the API's opaque bearer with every protected request. The
+legacy `name: node` value is normalized to the same adapter. `name: github`
+uses the GitHub REST API and the popup protocol at
 `<base_url>/auth`; the optional advanced `api_root` defaults to
 `https://api.github.com`. Project configuration remains at `cms.config.yml`.
 
-`minicms dev`, the normal `minicms build`, and `minicms start` deliberately use
-the Node adapter even when the deployed backend is GitHub. Static builds use
-the configured adapter and copy `cms.config.yml` beside the built admin as
-bootstrap data:
+The package's development HTML deliberately selects the API adapter even when
+the deployed backend is GitHub. The standalone browser bundle uses the backend
+from the bootstrap config next to the consumer's HTML. `minicms build` is
+project-independent: it does not inspect or copy consumer config, content,
+media, preview code, or site output.
 
-```sh
-minicms build --static --project-root . --out-dir dist/admin
-```
-
-The static build also writes `.nojekyll` and a media snapshot to the parent
-output folder. It creates a root redirect only when no `index.html` exists, so
-an Astro or other site build can own the root while miniCMS adds `/admin/`.
-Serve that folder at a Pages site and open `/admin/`.
-
-The static GitHub editor shows only a centered sign-in action until the OAuth
-session exists; the editor workspace is not mounted or displayed beforehand.
-The returned token stays in session storage. Repository reads, record updates,
+Adapters that require authentication show only a centered sign-in action until
+their session exists; the editor workspace is not mounted or displayed
+beforehand. Direct GitHub's returned token stays in session storage. Repository reads, record updates,
 configuration writes, renames, deletions, and binary uploads then use GitHub
 tree/commit/ref operations so each editor operation advances the configured
-branch atomically. The local Node adapter remains available without login.
+branch atomically. The API service controls its own local/production auth mode.
 
 ## Project previews
 
-A consuming project can bundle its own React renderer into the editor without
-adding project behavior to miniCMS. Point `minicms.preview` in the consumer
-`package.json` to either a workspace/package export or a path relative to that
-manifest:
+A project preview is registered by the host page and is never imported by the
+miniCMS build. It is a normal React component compiled by the website's own
+build system. miniCMS owns the React root, renders the component inside its
+isolated preview document, and passes exactly two props:
 
-```json
-{
-  "workspaces": ["miniCMS", "site"],
-  "minicms": {
-    "preview": "@example/site/preview"
-  }
-}
+```html
+<script src="https://rawcdn.githack.com/signalwerk/miniCMS/0000000/minicms.js"></script>
+<script src="./preview.js"></script>
+<script>
+  miniCMS.registerPreview(window.SitePreview.ProjectPreview);
+  miniCMS.init({ target: "#root", configUrl: "./cms.config.yml" });
+</script>
 ```
 
-The preview entry exports a registration with collection-name renderers and an
-optional compiled stylesheet string. With Vite, a Sass entry can be imported
-using `?inline`:
+Registration must happen before `miniCMS.init()`. There is no mount lifecycle
+or collection registration map: the component can branch on
+`data.collection.name` when different collections need different rendering.
 
-```tsx
-import PagePreview from "./components/PagePreview/PagePreview";
-import stylesheet from "./styles/preview.scss?inline";
-
-export default {
-  collections: {
-    pages: PagePreview
-  },
-  stylesheet
-};
-```
-
-Each renderer receives the current unsaved record plus the active editor
-context:
+The preview payload has only two values:
 
 ```ts
 type PreviewProps = {
-  record: ContentRecord;
-  selectedId: string;
-  config: CmsConfig;
-  collection: CmsCollection & {name: string};
-  items: CollectionSummary[];
-  contentSource: {
-    list(collection: string): Promise<{items: CollectionSummary[]}>;
-    record(collection: string, id: string): Promise<ContentRecord>;
-    resolveMediaUrl(path: string): string;
-  };
+  data: { config: CmsConfig; collection: CmsCollection; item: ContentRecord };
+  focus: (nodeId: string) => React.HTMLAttributes<HTMLElement>;
 };
 ```
 
-`contentSource` intentionally exposes no write methods. The active `record`
-prop is the editor's in-memory draft, and reads of that record or its collection
-overlay the same live data. Other list and record reads come from whichever
-Node or GitHub adapter provides the editor files.
+`data.item` is the complete current unsaved item with configured references,
+reference selections, and media URLs already resolved by miniCMS. Spread
+`focus(node.id)` onto each rendered node root:
 
-The project's shared type dispatcher should put
-`data-minicms-node-id={node.id}` on each rendered node boundary. miniCMS makes
-those boundaries keyboard-focusable and uses click, Enter, or Space to select
-the corresponding content-tree node. Hover, focus, and selected outlines are
-injected after the project stylesheet. The renderer and inline CSS run inside
-a same-origin preview iframe, keeping project styles out of the editor UI.
-Renderer JavaScript still executes in the editor's React realm, so responsive
-preview behavior should use CSS media/container queries rather than reading the
-global `window` width; the iframe widths correctly drive its CSS breakpoints.
+```tsx
+function ProjectPreview({ data, focus }) {
+  return (
+    <section {...focus(data.item.id)}>
+      {data.item.properties.title}
+    </section>
+  );
+}
+```
 
-If `minicms.preview` is omitted, the generic placeholder remains. The preview
-module is a build-time dependency, so restart development after changing its
-package export or manifest location. Source edits inside the registered module
-still use Vite hot reload. Registered table collections keep their table as the
-default surface and expose a **Preview selected** action; returning to the table
-preserves its sort and scroll state.
+It returns React-compatible authoring props: a ref, click and keyboard handlers,
+selection attributes, and `tabIndex`. Those props let miniCMS select a node on
+click, Enter, or Space and scroll a selected boundary into view. There is no
+adapter, configuration, collection list, route builder, or write API in preview
+props. The website adds node type, hidden state, and any other project metadata
+it needs. It owns all rendering and URL behavior. The component runs in an
+isolated preview document so its styles do not leak into the editor. Without a
+registration, miniCMS keeps its generic placeholder.
+
+The standalone editor already contains React. To avoid shipping a second copy,
+miniCMS publishes that exact runtime as `miniCMS.React` and its automatic JSX
+runtime as `miniCMS.jsxRuntime`. A separately built Vite 8 preview can consume
+them as globals:
+
+```ts
+// vite.preview.config.ts
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  publicDir: false,
+  build: {
+    lib: {
+      entry: "src/preview.tsx",
+      formats: ["iife"],
+      name: "SitePreview",
+      fileName: () => "preview.js"
+    },
+    rollupOptions: {
+      external: ["react", "react/jsx-runtime"],
+      output: {
+        exports: "named",
+        globals: {
+          react: "miniCMS.React",
+          "react/jsx-runtime": "miniCMS.jsxRuntime"
+        }
+      }
+    }
+  }
+});
+```
+
+Export `ProjectPreview` from that entry. Do not import `react-dom` or create a
+root in project code; miniCMS owns both. Project styles can be bundled with the
+preview and inserted by the component into the isolated document.
+
+## Shared content adapter
+
+The browser preview and static website use the same resolution engine. miniCMS
+creates the browser adapter over its active persistence source:
+
+```js
+import { createContentAdapter } from "@signalwerk/minicms/content";
+
+const content = createContentAdapter({
+  config,
+  listRaw: (collection) => storage.list(collection),
+  getRaw: (collection, id) => storage.record(collection, id),
+  resolveMediaUrl: (path) => storage.resolveMediaUrl(path)
+});
+```
+
+Node-based site generators use the filesystem entry:
+
+```js
+import { createFilesystemContentAdapter } from "@signalwerk/minicms/content/fs";
+
+const content = await createFilesystemContentAdapter({
+  projectRoot,
+  publicBase: "/project/"
+});
+```
+
+`content.get(collection, idOrUnsavedRecord)` returns
+`{config, collection, item}`. `content.list(collection)` returns
+`{config, collection, items}`. References inside those records are expanded to
+`{ref, record, selections}`, and each selection is `{ref, value}`. These two
+package exports are the complete reusable read contract. miniCMS owns no
+website routes, public URL construction, page hierarchy interpretation, or
+presentation; all of that remains consumer code.
 
 ## Configuration
 
@@ -234,10 +333,14 @@ collections:
 ```
 
 The consuming project’s `cms.config.yml` can combine tree and table
-collections, media uploads, and UUID-backed collection references.
-Inspector groups assign fields, optional custom labels, and order. Fine-grained
-mode, display, appearance, and alignment controls belong to table columns; the
-runtime still reads older detail-field presentation configuration.
+collections, media uploads, and stable-ID-backed collection references.
+Inspector groups assign fields, optional custom labels, and order. The active
+panel always exposes a focus action that shows all of that panel's
+groups in a centered editing surface, including the implicit default Inspector.
+Command+Control+Option+Shift+F focuses the active panel directly. Escape exits
+and restores focus. Fine-grained mode, display, appearance, and alignment
+controls belong to table columns; the runtime still reads older detail-field
+presentation configuration.
 
 Select fields marked `required: false` start empty and retain a `None` option,
 so editors can clear a previously selected value.
@@ -262,28 +365,101 @@ target:
 
 Both options are editable through the field forms in Settings.
 
+The `markdown` widget lazy-loads a controlled BlockNote editor as its default
+visual view. **Code** switches to the exact Markdown source. Focus is supplied
+by its containing Inspector group rather than by the field. Command/Ctrl+S
+still saves the active record in either view. BlockNote's Markdown import/export
+is lossy for constructs it cannot represent, so merely opening the visual view
+never rewrites the value, and Code should be used when unsupported source
+syntax must remain exact.
+
 Image fields keep their compact path-string value until a region or point is
 added. Annotated values expand without losing backwards compatibility:
 
 ```yaml
 file:
   src: /media/example.jpg
+  width: 1200
+  height: 800
   regions:
-    - label: Portrait
+    - id: 3887a356428e7f4
+      label: Portrait
       x: 120
       y: 80
       width: 640
       height: 480
+      rotation: 15.2
   points:
-    - label: Focus
+    - id: adbd1e73b1c54cc
+      label: Focus
       x: 410
       y: 265
 ```
 
-Annotation coordinates are integer pixels in the original image. The editor
-opens these controls in a dedicated modal and supports multiple labeled
-regions with eight resize handles plus multiple labeled points; both can be
-moved with a pointer or keyboard.
+Annotation coordinates are integers in the persisted image coordinate space;
+region rotation may use decimal degrees.
+Those stored dimensions remain authoritative when the image is reopened,
+which avoids browser-dependent geometry for SVGs without explicit intrinsic
+dimensions. IDs are immutable; labels and geometry remain editable. The editor
+opens these controls in a dedicated modal and supports multiple labeled regions
+with eight resize handles, move, and rotation plus multiple labeled points.
+Rotation uses 1-degree steps normally, 0.1-degree steps while Option/Alt is
+held, and snaps to 45-degree steps while Shift is held; Shift takes precedence
+when both modifiers are held. All annotations can also be adjusted with the
+keyboard.
+
+A target collection can publish those annotations as optional selections for
+its references. The source paths are declared once on the collection, and each
+consuming reference field opts into the names it needs:
+
+```yaml
+node_types:
+  image:
+    fields:
+      asset:
+        widget: reference
+        collection: images
+        selections: [crop, focus]
+
+collections:
+  images:
+    node_type: media_image
+    views:
+      reference:
+        value: content_id
+        image: file
+        title: title
+        selections:
+          crop:
+            label: Crop region
+            kind: image_region
+            options: {field: file, path: regions, value: id, label: label}
+          focus:
+            label: Focus point
+            kind: image_point
+            options: {field: file, path: points, value: id, label: label}
+```
+
+Without a selection the stored property stays a scalar. Selecting either
+option expands it without breaking older records:
+
+```yaml
+asset:
+  ref: cff576784113260
+  selections:
+    crop: 3887a356428e7f4
+    focus: adbd1e73b1c54cc
+```
+
+The Inspector chooser provides native `None` controls and focusable visual
+overlays. Selecting a crop renders a magnified draft crop before Apply; a
+selected focus point appears on that result. Unknown
+annotation IDs remain visible as warnings until explicitly cleared. The current
+image selection kinds must resolve from the same source image field. Published
+mapping order controls chooser order; a reference field's `selections` list is
+an opt-in set. When the first selected focus lies outside the first selected
+crop, the chooser warns without discarding either ID; the consuming renderer
+owns deterministic clamping.
 
 Image fields may configure an HTML-style `accept` list. MIME types, filename
 extensions, and wildcards are supported; both persistence adapters enforce the
@@ -355,8 +531,16 @@ name to the shared `ICONS` registry in `admin/src/model/editor.js`. Icons used
 directly by interface controls do not automatically appear in the Settings
 picker.
 
-## Node API
+## Independent API contract
 
+The `@signalwerk/minicms-api` service owns the HTTP implementation, filesystem
+writes, local development mode, and production GitHub identity gate. miniCMS
+contains only the browser adapter for this contract:
+
+- `GET /api/auth/session`
+- `GET /api/auth/github/start`
+- `POST /api/auth/exchange`
+- `POST /api/auth/logout`
 - `GET /api/config`
 - `PUT /api/config`
 - `GET /api/collections`
@@ -368,6 +552,6 @@ picker.
 - `DELETE /api/collections/:collection/:id`
 - `POST /api/media?filename=<name>`
 
-Configuration and records are replaced atomically as complete YAML documents.
-The API validates configured fields, node types, slots, hierarchy
-relationships, and safe paths.
+The browser sends an opaque service bearer on protected API routes. Media URLs
+remain public so they work in ordinary image/download elements. See the API
+package for its OAuth environment, deployment, persistence, and route tests.

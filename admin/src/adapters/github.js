@@ -8,14 +8,14 @@ import {
   summarizeRecord,
   validateConfig,
   validateRecord
-} from "../../shared/content.js";
+} from "../../../core/content.js";
 import {
   configuredMediaAccept,
   mediaAcceptErrorMessage,
   mediaFileMatchesAccept,
   recordMediaStoragePaths
-} from "../../shared/media.js";
-import { sanitizeFilenameStem } from "../../shared/slug.js";
+} from "../../../core/media.js";
+import { sanitizeFilenameStem } from "../../../core/slug.js";
 import { createGitHubAuth } from "./github-auth.js";
 
 const API_VERSION = "2026-03-10";
@@ -85,6 +85,7 @@ function createGitHubAdapter({
   let loginPromise = null;
   let currentSession = {
     authenticated: Boolean(auth.getToken()),
+    authenticationRequired: true,
     label: auth.getToken() ? "GitHub" : "Sign in",
     provider: "github",
     repository: backend.repo,
@@ -109,6 +110,7 @@ function createGitHubAdapter({
       }
       const session = {
         authenticated: true,
+        authenticationRequired: true,
         label: user?.login || "GitHub",
         login: user?.login,
         avatarUrl: user?.avatar_url,
@@ -130,6 +132,7 @@ function createGitHubAdapter({
     auth.logout();
     emitSession({
       authenticated: false,
+      authenticationRequired: true,
       label: "Sign in",
       provider: "github",
       repository: backend.repo,

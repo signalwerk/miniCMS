@@ -1,10 +1,10 @@
-import { Component, useCallback, useEffect, useState } from "react";
+import { Component, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MoreHorizontal, Sparkles } from "lucide-react";
-import projectPreview from "virtual:minicms-project-preview";
 import "./Preview.scss";
 import { getNode } from "../../model/editor.js";
 import { BrandMark } from "../Common/Common.jsx";
+import { focusPropsForNode } from "./preview.js";
 
 const DEVICES = [
   { id: "desktop", label: "Desktop", description: "Responsive" },
@@ -26,47 +26,19 @@ body,
   margin: 0;
 }
 
-[data-minicms-node-id] {
-  cursor: pointer;
-}
-
+[data-minicms-node-id] { cursor: pointer; }
 [data-minicms-node-id]:hover {
   outline: 2px dashed rgb(74 112 255 / 72%);
   outline-offset: 2px;
 }
-
-[data-minicms-node-id]:hover:has([data-minicms-node-id]:hover) {
-  outline: 0;
-}
-
+[data-minicms-node-id]:hover:has([data-minicms-node-id]:hover) { outline: 0; }
 [data-minicms-node-id]:focus-visible {
   outline: 2px dashed #4a70ff;
   outline-offset: 2px;
 }
-
 [data-minicms-node-id][data-minicms-selected="true"] {
   outline: 3px solid #4a70ff;
   outline-offset: 2px;
-}
-
-.minicms-project-preview-error {
-  box-sizing: border-box;
-  width: min(40rem, calc(100% - 2rem));
-  margin: 2rem auto;
-  padding: 1rem;
-  color: #67221f;
-  font: 14px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #fff4f2;
-  border: 1px solid #e6b5b0;
-}
-
-.minicms-project-preview-error strong,
-.minicms-project-preview-error span {
-  display: block;
-}
-
-.minicms-project-preview-error span {
-  margin-top: 0.35rem;
 }
 `;
 
@@ -95,191 +67,134 @@ function PreviewToolbar({ device, onDeviceChange }) {
   );
 }
 
-class ProjectPreviewErrorBoundary extends Component {
-  state = { error: null };
-
-  static getDerivedStateFromError(error) {
-    return { error };
+class PreviewErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
   }
 
-  componentDidUpdate(previousProps) {
-    if (this.state.error && previousProps.resetKey !== this.props.resetKey) {
-      this.setState({ error: null });
-    }
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error) {
+    this.props.onError(error);
   }
 
   render() {
-    if (this.state.error) {
-      return (
-        <div className="minicms-project-preview-error" role="alert">
-          <strong>The project preview could not be rendered.</strong>
-          <span>{this.state.error.message || String(this.state.error)}</span>
-        </div>
-      );
-    }
-    return this.props.children;
+    return this.state.failed ? null : this.props.children;
   }
-}
-
-function eventNodeBoundary(event, root) {
-  const target = event.target;
-  const boundary = target?.closest?.("[data-minicms-node-id]");
-  return boundary && root.contains(boundary) ? boundary : null;
-}
-
-function synchronizeNodeBoundaries(root, selectedId) {
-  for (const boundary of root.querySelectorAll("[data-minicms-node-id]")) {
-    if (!boundary.hasAttribute("tabindex") || boundary.tabIndex < 0) {
-      boundary.tabIndex = 0;
-    }
-    const nativeInteractive = boundary.matches(
-      "a[href], button, input, select, textarea, summary, [contenteditable='true']"
-    );
-    if (!boundary.hasAttribute("role") && !nativeInteractive) {
-      boundary.setAttribute("role", "button");
-      boundary.setAttribute("data-minicms-authoring-role", "");
-    }
-    if (
-      boundary.hasAttribute("data-minicms-authoring-role") &&
-      !boundary.hasAttribute("aria-label")
-    ) {
-      const type = boundary.dataset.minicmsNodeType || "content";
-      boundary.setAttribute(
-        "aria-label",
-        `Select ${type} ${boundary.dataset.minicmsNodeId}`
-      );
-    }
-    const selected = boundary.dataset.minicmsNodeId === selectedId;
-    if (selected) {
-      boundary.setAttribute("data-minicms-selected", "true");
-    } else {
-      boundary.removeAttribute("data-minicms-selected");
-    }
-    if (boundary.hasAttribute("data-minicms-authoring-role")) {
-      boundary.setAttribute("aria-pressed", String(selected));
-    } else if (selected) {
-      if (!boundary.hasAttribute("aria-current")) {
-        boundary.setAttribute("aria-current", "true");
-        boundary.setAttribute("data-minicms-authoring-current", "");
-      }
-    } else if (boundary.hasAttribute("data-minicms-authoring-current")) {
-      boundary.removeAttribute("aria-current");
-      boundary.removeAttribute("data-minicms-authoring-current");
-    }
-  }
-}
-
-function InvalidProjectPreview({ message }) {
-  throw new Error(message);
 }
 
 function ProjectPreviewFrame({
-  Renderer,
-  stylesheet,
-  record,
+  PreviewComponent,
+  data,
   selectedId,
-  config,
-  collection,
-  items,
-  contentSource,
   onSelectNode,
-  registrationError
+  revealRequest,
+  onError
 }) {
   const [mount, setMount] = useState(null);
+  const boundariesRef = useRef(new Map());
+  const revealRequestRef = useRef(revealRequest);
+  revealRequestRef.current = revealRequest;
+
   const frameRef = useCallback((frame) => {
-    if (!frame) return;
+    if (!frame) {
+      setMount(null);
+      return;
+    }
     const connect = () => {
       const document = frame.contentDocument;
       const root = document?.getElementById("minicms-project-preview");
-      if (document && root) setMount({ document, root });
+      if (document && root) {
+        setMount((current) =>
+          current?.root === root ? current : { document, root }
+        );
+      }
     };
     frame.addEventListener("load", connect, { once: true });
     if (frame.contentDocument?.readyState === "complete") connect();
   }, []);
 
+  const scrollBoundary = useCallback(
+    (nodeId) => {
+      const boundary = boundariesRef.current.get(nodeId);
+      if (!boundary || !mount) return false;
+      const view = mount.document.defaultView;
+      const scroll = () =>
+        boundary.scrollIntoView?.({
+          behavior: view?.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+            ? "instant"
+            : "smooth",
+          block: nodeId === data.item.id ? "start" : "center",
+          inline: "nearest"
+        });
+      if (view?.requestAnimationFrame) view.requestAnimationFrame(scroll);
+      else scroll();
+      return true;
+    },
+    [data.item.id, mount]
+  );
+
+  const focus = useCallback(
+    (nodeId) =>
+      focusPropsForNode(nodeId, {
+        selectedId,
+        onSelectNode,
+        onBoundary(id, element) {
+          if (element) {
+            boundariesRef.current.set(id, element);
+            const request = revealRequestRef.current;
+            if (
+              request?.recordId === data.item.id &&
+              request.nodeId === id
+            ) {
+              scrollBoundary(id);
+            }
+          } else {
+            boundariesRef.current.delete(id);
+          }
+        }
+      }),
+    [data.item.id, onSelectNode, scrollBoundary, selectedId]
+  );
+
   useEffect(() => {
     if (!mount) return undefined;
-    mount.document.documentElement.lang = config.site?.locale || "en";
-    const synchronize = () =>
-      synchronizeNodeBoundaries(mount.root, selectedId);
-    synchronize();
-    const Observer = mount.document.defaultView?.MutationObserver;
-    if (!Observer) return undefined;
-    const observer = new Observer(synchronize);
-    observer.observe(mount.root, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [config.site?.locale, mount, record, selectedId]);
+    mount.document.documentElement.lang = data.config?.site?.locale || "en";
+    const style = mount.document.createElement("style");
+    style.setAttribute("data-minicms-preview-foundation", "");
+    style.textContent = FRAME_STYLES;
+    mount.document.head.append(style);
+    return () => style.remove();
+  }, [data.config?.site?.locale, mount]);
 
-  const selectBoundary = (event) => {
-    if (!mount) return;
-    const boundary = eventNodeBoundary(event, mount.root);
-    if (!boundary) return;
-    const nodeId = boundary.dataset.minicmsNodeId;
-    if (!nodeId) return;
+  useEffect(() => {
     if (
-      event.target?.closest?.(
-        "a[href], button[type='submit'], input[type='submit'], [formaction]"
-      )
+      revealRequest?.recordId === data.item.id &&
+      revealRequest?.nodeId === selectedId
     ) {
-      event.preventDefault();
+      scrollBoundary(revealRequest.nodeId);
     }
-    boundary.focus({ preventScroll: true });
-    onSelectNode(nodeId);
-  };
-
-  const selectBoundaryWithKeyboard = (event) => {
-    if (!["Enter", " "].includes(event.key) || event.repeat || !mount) return;
-    const boundary = eventNodeBoundary(event, mount.root);
-    if (!boundary) return;
-    if (event.target !== boundary) return;
-    const nodeId = boundary.dataset.minicmsNodeId;
-    if (!nodeId) return;
-    event.preventDefault();
-    onSelectNode(nodeId);
-  };
+  }, [data.item.id, revealRequest, scrollBoundary, selectedId]);
 
   return (
     <>
       <iframe
         ref={frameRef}
         className="preview__iframe"
-        title={`${record.properties?.title || record.id} preview`}
+        title={`${data.item.properties?.title || data.item.id} preview`}
         srcDoc={FRAME_SOURCE}
       />
-      {mount &&
-        createPortal(
-          <>
-            {stylesheet ? (
-              <style data-minicms-project-styles="">{stylesheet}</style>
-            ) : null}
-            <style data-minicms-preview-foundation="">{FRAME_STYLES}</style>
-          </>,
-          mount.document.head
-        )}
-      {mount &&
-        createPortal(
-          <div
-            className="minicms-project-preview"
-            onClickCapture={selectBoundary}
-            onKeyDownCapture={selectBoundaryWithKeyboard}
-          >
-            <ProjectPreviewErrorBoundary resetKey={record}>
-              {registrationError ? (
-                <InvalidProjectPreview message={registrationError} />
-              ) : (
-                <Renderer
-                  record={record}
-                  selectedId={selectedId}
-                  config={config}
-                  collection={collection}
-                  items={items}
-                  contentSource={contentSource}
-                />
-              )}
-            </ProjectPreviewErrorBoundary>
-          </div>,
-          mount.root
-        )}
+      {mount
+        ? createPortal(
+            <PreviewErrorBoundary onError={onError}>
+              <PreviewComponent data={data} focus={focus} />
+            </PreviewErrorBoundary>,
+            mount.root
+          )
+        : null}
     </>
   );
 }
@@ -293,7 +208,6 @@ function PlaceholderPreview({ record, selectedId, nodeTypes, siteName, device })
     selected?.properties?.title ||
     selected?.properties?.alt ||
     type?.label;
-
   return (
     <div className="preview__stage">
       <div className={`preview__paper preview__paper--${device}`}>
@@ -307,10 +221,7 @@ function PlaceholderPreview({ record, selectedId, nodeTypes, siteName, device })
         <div className="preview__paper-body">
           <span className="preview__eyebrow">Preview surface</span>
           <h1>{title}</h1>
-          <p>
-            The live site preview will be connected here. The editor structure and
-            selection context are already in place.
-          </p>
+          <p>Register the website preview from this page’s admin HTML.</p>
           <div className="preview__placeholder">
             <Sparkles size={18} />
             <div>
@@ -333,50 +244,82 @@ function PlaceholderPreview({ record, selectedId, nodeTypes, siteName, device })
 }
 
 function Preview({
+  PreviewComponent,
   record,
   selectedId,
   nodeTypes,
-  config,
   collection,
-  items,
-  contentSource,
+  content,
   onSelectNode,
+  revealRequest,
   siteName = "miniCMS"
 }) {
   const [device, setDevice] = useState("desktop");
-  const configuredRenderer = projectPreview?.collections?.[collection?.name];
-  const rendererIsValid = typeof configuredRenderer === "function";
-  const rendererIsConfigured = configuredRenderer !== undefined;
-  const stylesheetIsValid =
-    projectPreview?.stylesheet === undefined ||
-    typeof projectPreview.stylesheet === "string";
-  const registrationError = !rendererIsValid && rendererIsConfigured
-    ? `The project preview registered for "${collection.name}" is not a React component.`
-    : !stylesheetIsValid
-      ? "The project preview stylesheet must be a string."
-      : "";
-  const Renderer = rendererIsValid ? configuredRenderer : InvalidProjectPreview;
-  const hasProjectPreview = rendererIsConfigured;
-  const stylesheet = stylesheetIsValid ? projectPreview?.stylesheet || "" : "";
+  const [resolved, setResolved] = useState({ source: null, data: null, error: "" });
+  const [renderError, setRenderError] = useState("");
+  const reportRenderError = useCallback(
+    (error) => setRenderError(error?.message || String(error)),
+    []
+  );
 
+  useEffect(() => {
+    let active = true;
+    setRenderError("");
+    if (!PreviewComponent || !record || !collection || !content) {
+      setResolved({ source: null, data: null, error: "" });
+      return () => {
+        active = false;
+      };
+    }
+    content
+      .get(collection.name, record)
+      .then((data) => {
+        if (!data) {
+          throw new Error(
+            `The content adapter could not resolve ${collection.name}/${record.id}.`
+          );
+        }
+        if (active) setResolved({ source: record, data, error: "" });
+      })
+      .catch((error) => {
+        if (active) {
+          setResolved({
+            source: record,
+            data: null,
+            error: error.message || String(error)
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [PreviewComponent, collection, content, record]);
+
+  const activeResolution = resolved.source === record ? resolved : null;
+  const error = renderError || activeResolution?.error;
   return (
     <div className="preview">
       <PreviewToolbar device={device} onDeviceChange={setDevice} />
-      {hasProjectPreview ? (
+      {PreviewComponent ? (
         <div className="preview__stage preview__stage--live">
           <div className={`preview__viewport preview__viewport--${device}`}>
-            <ProjectPreviewFrame
-              Renderer={Renderer}
-              stylesheet={stylesheet}
-              record={record}
-              selectedId={selectedId}
-              config={config}
-              collection={collection}
-              items={items}
-              contentSource={contentSource}
-              onSelectNode={onSelectNode}
-              registrationError={registrationError}
-            />
+            {error ? (
+              <div className="preview__error" role="alert">
+                <strong>The project preview could not be rendered.</strong>
+                <span>{error}</span>
+              </div>
+            ) : activeResolution?.data ? (
+              <ProjectPreviewFrame
+                PreviewComponent={PreviewComponent}
+                data={activeResolution.data}
+                selectedId={selectedId}
+                onSelectNode={onSelectNode}
+                revealRequest={revealRequest}
+                onError={reportRenderError}
+              />
+            ) : (
+              <div className="preview__loading">Resolving preview data…</div>
+            )}
           </div>
         </div>
       ) : (
@@ -392,14 +335,4 @@ function Preview({
   );
 }
 
-function hasProjectPreview(collectionName) {
-  return Boolean(
-    collectionName &&
-      Object.prototype.hasOwnProperty.call(
-        projectPreview?.collections ?? {},
-        collectionName
-      )
-  );
-}
-
-export { hasProjectPreview, Preview };
+export { Preview };

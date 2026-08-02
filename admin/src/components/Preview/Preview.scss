@@ -75,6 +75,7 @@
 }
 
 .preview__viewport {
+  position: relative;
   height: 100%;
   min-height: 0;
   flex: 0 0 auto;
@@ -104,6 +105,33 @@
   height: 100%;
   background: #fff;
   border: 0;
+}
+
+.preview__loading,
+.preview__error {
+  @extend %type-normal;
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #767970;
+  background: #f8f8f4;
+  text-align: center;
+}
+
+.preview__error {
+  flex-direction: column;
+  gap: 5px;
+  color: #67221f;
+  background: #fff4f2;
+}
+
+.preview__error strong {
+  @extend %type-normal-bold;
 }
 
 .preview__paper {

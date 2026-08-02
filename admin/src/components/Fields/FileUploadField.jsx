@@ -6,7 +6,7 @@ import {
   acceptTokens,
   mediaAcceptErrorMessage,
   mediaFileMatchesAccept
-} from "../../../shared/media.js";
+} from "../../../../core/media.js";
 import { Spinner } from "../Common/Common.jsx";
 import "./FileUploadField.scss";
 

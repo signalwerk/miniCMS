@@ -970,6 +970,7 @@
 
 .configuration-option-list,
 .configuration-accept-list,
+.configuration-reference-selection-list,
 .configuration-panel-list,
 .configuration-group-list,
 .configuration-inspector-field-list {
@@ -1029,6 +1030,48 @@
   background: #191a17;
   border: 1px solid #3a3c36;
   border-radius: 3px;
+}
+
+.configuration-reference-selections__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.configuration-reference-selection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.configuration-reference-selection {
+  padding: 10px 12px;
+  background: #1d1e1b;
+  border: 1px solid #343630;
+  border-radius: 3px;
+}
+
+.configuration-reference-selection__top {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.configuration-reference-selection__top > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.configuration-reference-selection__top strong {
+  @extend %type-normal-bold;
+  color: #dedfd8;
+}
+
+.configuration-reference-selection__top code {
+  @extend %type-consulting;
+  color: #787b72;
 }
 
 .configuration-table-columns {

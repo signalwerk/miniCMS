@@ -4,10 +4,12 @@ import {
   CircleAlert,
   Files as FilesIcon,
   Search,
+  SlidersHorizontal,
   X
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import "./Fields.scss";
+import { isGeneratedIdWidget } from "../../../../core/id.js";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import {
   cx,
@@ -16,21 +18,22 @@ import {
   referenceItemsForField
 } from "../../model/editor.js";
 import { imageSource } from "../../model/image.js";
+import {
+  compactReferenceValue,
+  hasReferenceValue,
+  normalizeReferenceValue,
+  referenceItemValue,
+  referenceSelectionDefinitions,
+  referenceSelectionOptions
+} from "../../model/reference.js";
 import { EmptyState, Spinner } from "../Common/Common.jsx";
 import { AnnotatedImageField } from "./AnnotatedImageField.jsx";
 import { FileUploadField } from "./FileUploadField.jsx";
+import { ReferenceSelectionsDialog } from "./ReferenceSelectionsDialog.jsx";
 
-function referenceItemValue(item, name, collection) {
-  if (!name || name === "id" || name === "$id") return item.id;
-  const extension = String(collection?.extension || "yml").replace(/^\./, "");
-  if (name === "$filename") return `${item.id}.${extension}`;
-  if (name === "$storage_path") {
-    return `${String(collection?.folder || "").replace(/\/$/, "")}/${item.id}.${extension}`;
-  }
-  if (name === "$created_at") return item.created_at;
-  if (name === "$updated_at") return item.updated_at;
-  return item.properties?.[name] ?? item[name] ?? "";
-}
+const MarkdownField = lazy(() =>
+  import("../MarkdownField/MarkdownField.jsx")
+);
 
 function ReferenceCard({ item, view, collection, compact = false }) {
   const adapter = useAdapter();
@@ -72,6 +75,12 @@ function ReferenceField({ field, value, onChange, collections }) {
   );
   const referenceView = targetCollection?.views?.reference ?? {};
   const valueField = field.value_field || referenceView.value || "id";
+  const reference = normalizeReferenceValue(value);
+  const hasReference = hasReferenceValue(reference.ref);
+  const selectionDefinitions = referenceSelectionDefinitions(
+    field,
+    targetCollection
+  );
   const ReferenceIcon = iconFor(targetCollection?.icon, FilesIcon);
   const singularLabel =
     targetCollection?.label_singular?.toLowerCase() || "item";
@@ -80,9 +89,11 @@ function ReferenceField({ field, value, onChange, collections }) {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [selectionsOpen, setSelectionsOpen] = useState(false);
   const allowedItems = referenceItemsForField(items, field);
   const selected = allowedItems.find(
-    (item) => referenceItemValue(item, valueField, targetCollection) === value
+    (item) =>
+      referenceItemValue(item, valueField, targetCollection) === reference.ref
   );
 
   useEffect(() => {
@@ -148,13 +159,33 @@ function ReferenceField({ field, value, onChange, collections }) {
           collection={targetCollection}
           compact
         />
-      ) : value ? (
+      ) : hasReference ? (
         <div className="reference-field__missing">
           <CircleAlert size={15} />
-          Missing reference <code>{value}</code>
+          Missing reference <code>{String(reference.ref)}</code>
         </div>
       ) : (
         <div className="reference-field__empty">No {singularLabel} selected</div>
+      )}
+      {selected && selectionDefinitions.length > 0 && (
+        <div className="reference-field__selections">
+          {selectionDefinitions.map((definition) => {
+            const selectedValue = reference.selections[definition.name];
+            const option = referenceSelectionOptions(
+              selected,
+              definition,
+              targetCollection
+            ).find((candidate) => candidate.value === selectedValue);
+            return (
+              <span key={definition.name}>
+                <strong>{definition.label || definition.name}</strong>
+                <small className={cx(selectedValue && !option && "is-missing")}>
+                  {option?.label || (selectedValue ? "Missing annotation" : "None")}
+                </small>
+              </span>
+            );
+          })}
+        </div>
       )}
       <div className="reference-field__actions">
         <button
@@ -163,9 +194,21 @@ function ReferenceField({ field, value, onChange, collections }) {
           onClick={() => setOpen(true)}
         >
           <Search size={14} />
-          {value ? `Change ${singularLabel}` : `Choose ${singularLabel}`}
+          {hasReference
+            ? `Change ${singularLabel}`
+            : `Choose ${singularLabel}`}
         </button>
-        {value && (
+        {selected && selectionDefinitions.length > 0 && (
+          <button
+            type="button"
+            className="button button--secondary"
+            onClick={() => setSelectionsOpen(true)}
+          >
+            <SlidersHorizontal size={14} />
+            Configure selections
+          </button>
+        )}
+        {hasReference && (
           <button
             type="button"
             className="button button--secondary"
@@ -176,6 +219,21 @@ function ReferenceField({ field, value, onChange, collections }) {
         )}
       </div>
       {error && <small className="field-error">{error}</small>}
+      {selectionsOpen && selected && (
+        <ReferenceSelectionsDialog
+          collection={targetCollection}
+          definitions={selectionDefinitions}
+          item={selected}
+          value={value}
+          onCancel={() => setSelectionsOpen(false)}
+          onApply={(selections) => {
+            onChange(
+              compactReferenceValue({ ref: reference.ref, selections })
+            );
+            setSelectionsOpen(false);
+          }}
+        />
+      )}
       {open && (
         <div className="dialog-backdrop" role="presentation">
           <div
@@ -222,12 +280,19 @@ function ReferenceField({ field, value, onChange, collections }) {
                     key={item.id}
                     className={cx(
                       referenceItemValue(item, valueField, targetCollection) ===
-                        value &&
+                        reference.ref &&
                         "is-selected"
                     )}
                     onClick={() => {
+                      const nextReference = referenceItemValue(
+                        item,
+                        valueField,
+                        targetCollection
+                      );
                       onChange(
-                        referenceItemValue(item, valueField, targetCollection)
+                        nextReference === reference.ref
+                          ? compactReferenceValue(reference)
+                          : nextReference
                       );
                       setOpen(false);
                     }}
@@ -238,7 +303,7 @@ function ReferenceField({ field, value, onChange, collections }) {
                       collection={targetCollection}
                     />
                     {referenceItemValue(item, valueField, targetCollection) ===
-                      value && (
+                      reference.ref && (
                       <Check size={15} />
                     )}
                   </button>
@@ -271,6 +336,7 @@ function Field({
   collections = []
 }) {
   const id = `${idPrefix}-${field.name}`;
+  const headingId = `${id}-label`;
   const resolvedValue = value ?? defaultFieldValue(field);
   const common = {
     id,
@@ -314,25 +380,46 @@ function Field({
         <ChevronDown size={14} />
       </div>
     );
-  } else if (["text", "markdown"].includes(field.widget)) {
+  } else if (field.widget === "text") {
     control = (
       <textarea
         {...common}
-        rows={field.widget === "markdown" ? 7 : 3}
+        rows={3}
         placeholder={field.hint || ""}
       />
     );
-  } else if (field.widget === "uuid") {
+  } else if (field.widget === "markdown") {
     control = (
-      <div className="uuid-field">
+      <Suspense
+        fallback={
+          <textarea
+            {...common}
+            rows={7}
+            placeholder={field.hint || ""}
+          />
+        }
+      >
+        <MarkdownField
+          id={id}
+          label={field.label || field.name}
+          value={resolvedValue}
+          placeholder={field.hint || ""}
+          readOnly={field.readonly === true}
+          onChange={onChange}
+        />
+      </Suspense>
+    );
+  } else if (isGeneratedIdWidget(field.widget)) {
+    control = (
+      <div className="generated-id-field">
         <input
           {...common}
           type="text"
           readOnly={field.readonly !== false}
           spellCheck="false"
-          placeholder="Generated UUID"
+          placeholder="Generated ID"
         />
-        <span>UUID</span>
+        <span>ID</span>
       </div>
     );
   } else if (field.widget === "image") {
@@ -391,7 +478,17 @@ function Field({
   return (
     <div className={cx("field", field.widget === "boolean" && "field--inline")}>
       <div className="field__heading">
-        <label htmlFor={id}>{field.label || field.name}</label>
+        <label
+          id={headingId}
+          htmlFor={id}
+          onClick={
+            field.widget === "markdown"
+              ? () => document.getElementById(id)?.focus()
+              : undefined
+          }
+        >
+          {field.label || field.name}
+        </label>
         {field.required === false && <span>Optional</span>}
       </div>
       {control}

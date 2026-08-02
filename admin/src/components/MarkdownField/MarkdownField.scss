@@ -1,0 +1,119 @@
+@use "../../styles/typography" as *;
+
+.markdown-field {
+  overflow: hidden;
+  background: #191a17;
+  border: 1px solid #3a3c36;
+  border-radius: 3px;
+}
+
+.markdown-field__toolbar {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px;
+  background: #20211e;
+  border-bottom: 1px solid #353730;
+}
+
+.markdown-field__toolbar > div {
+  display: flex;
+  gap: 2px;
+}
+
+.markdown-field__toolbar button {
+  @extend %type-consulting;
+  display: inline-flex;
+  min-height: 25px;
+  gap: 5px;
+  align-items: center;
+  padding: 0 7px;
+  color: #85887e;
+  background: transparent;
+  border-radius: 2px;
+}
+
+.markdown-field__toolbar button:hover,
+.markdown-field__toolbar button.is-active {
+  color: #e2e3dd;
+  background: #30322c;
+}
+
+.markdown-field__toolbar button.is-active {
+  box-shadow: inset 0 -2px var(--lime-strong);
+}
+
+.markdown-field__body {
+  min-height: 220px;
+}
+
+.markdown-field__editor,
+.markdown-field__editor .bn-container,
+.markdown-field__editor .bn-editor {
+  min-height: 220px;
+}
+
+.markdown-field__editor .bn-container {
+  color: #d9dad3;
+  font-family: var(--font-family-regular);
+}
+
+.markdown-field__editor .bn-editor {
+  padding: 18px 22px 42px;
+  background: #191a17;
+}
+
+.markdown-field__editor .bn-editor a {
+  color: inherit;
+  text-decoration-color: var(--lime);
+  text-decoration-line: underline;
+  text-decoration-thickness: 0.1em;
+  text-underline-offset: 0.18em;
+}
+
+.markdown-field__editor .bn-editor :not(pre) > code {
+  padding: 0.12em 0.35em;
+  background: #292b27;
+  border: 1px solid #41443d;
+  border-radius: 3px;
+  color: inherit;
+  font-family: var(--font-family-monospaced-regular);
+}
+
+.field .markdown-field__code {
+  @extend %type-normal;
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  margin: 0;
+  padding: 14px 16px;
+  resize: vertical;
+  background: #151613;
+  border: 0;
+  border-radius: 0;
+  color: #d9dad3;
+  font-family: var(--font-family-monospaced-regular);
+  line-height: 1.65;
+}
+
+.field .markdown-field__code:hover,
+.field .markdown-field__code:focus {
+  border: 0;
+  box-shadow: none;
+}
+
+.inspector--focus .markdown-field__body,
+.inspector--focus .markdown-field__editor,
+.inspector--focus .markdown-field__editor .bn-container,
+.inspector--focus .markdown-field__editor .bn-editor,
+.inspector--focus .field .markdown-field__code {
+  min-height: clamp(320px, 60vh, 720px);
+}
+
+@media (max-width: 720px) {
+  .markdown-field__toolbar button {
+    padding: 0 6px;
+  }
+}

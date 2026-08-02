@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dumpYaml } from "../../shared/content.js";
+import { dumpYaml } from "../../../core/content.js";
 import {
   createGitHubAdapter,
   encodeBase64
@@ -294,15 +294,7 @@ test("clears a rejected stored GitHub session", async () => {
   assert.equal(token, "");
 });
 
-test("adapter factory keeps Node local while static builds use configuration", async () => {
-  const nodeAdapter = await createAdapter({
-    adapterOverride: "node",
-    fetchImpl: async () => {
-      throw new Error("The Node override must not load bootstrap config.");
-    }
-  });
-  assert.equal(nodeAdapter.name, "node");
-
+test("adapter factory uses GitHub configuration", async () => {
   const auth = {
     getToken: () => "token",
     login: async () => ({ token: "token" }),
