@@ -682,6 +682,11 @@ function validateConfig(config, status = 500) {
 
   const mediaFolder = config.site?.media_folder || "content/media";
   assertContentPath(mediaFolder, "site.media_folder", status);
+  const imageCache = config.site?.image_processing?.cache;
+  if (isMapping(imageCache)) {
+    delete imageCache.strategy;
+    delete imageCache.max_age;
+  }
   try {
     validateImageProcessingConfig(config);
   } catch (error) {

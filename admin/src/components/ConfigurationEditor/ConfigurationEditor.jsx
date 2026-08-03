@@ -51,7 +51,6 @@ import {
 import { isGeneratedIdWidget } from "../../../../core/id.js";
 import {
   DEFAULT_IMAGE_PROCESSING,
-  IMAGE_CACHE_STRATEGIES,
   IMAGE_FITS,
   IMAGE_FORMATS
 } from "../../../../core/image-service.js";
@@ -954,8 +953,6 @@ function SiteEditor({ site, backend = {}, update }) {
   const backendName = backend.name || "api";
   const configuredImageProcessing = site.image_processing ?? {};
   const configuredImageCache = configuredImageProcessing.cache ?? {};
-  const imageCacheStrategy =
-    configuredImageCache.strategy ?? DEFAULT_IMAGE_PROCESSING.cache.strategy;
   const imageProcessing = {
     ...DEFAULT_IMAGE_PROCESSING,
     ...configuredImageProcessing,
@@ -964,13 +961,8 @@ function SiteEditor({ site, backend = {}, update }) {
         ? "jpeg"
         : configuredImageProcessing.format ?? DEFAULT_IMAGE_PROCESSING.format,
     cache: {
-      ...DEFAULT_IMAGE_PROCESSING.cache,
-      ...configuredImageCache,
-      max_age: Object.hasOwn(configuredImageCache, "max_age")
-        ? configuredImageCache.max_age
-        : imageCacheStrategy === "immutable"
-          ? 31_536_000
-          : DEFAULT_IMAGE_PROCESSING.cache.max_age
+      schema:
+        configuredImageCache.schema ?? DEFAULT_IMAGE_PROCESSING.cache.schema
     }
   };
   function updateImageProcessing(change) {
@@ -1167,44 +1159,15 @@ function SiteEditor({ site, backend = {}, update }) {
             />
           </FormField>
         </div>
-        <FormField label="Cache strategy">
-          <SelectInput
-            value={imageProcessing.cache.strategy}
+        <FormField label="Cache schema">
+          <TextInput
+            value={imageProcessing.cache.schema}
             onChange={(value) => updateImageProcessing((next) => {
               next.cache ??= {};
-              next.cache.strategy = value;
+              next.cache.schema = value;
             })}
-          >
-            {IMAGE_CACHE_STRATEGIES.map((strategy) => (
-              <option key={strategy} value={strategy}>
-                {labelFromKey(strategy)}
-              </option>
-            ))}
-          </SelectInput>
+          />
         </FormField>
-        <div className="configuration-entry-card__grid">
-          <FormField label="Cache schema">
-            <TextInput
-              value={imageProcessing.cache.schema}
-              onChange={(value) => updateImageProcessing((next) => {
-                next.cache ??= {};
-                next.cache.schema = value;
-              })}
-            />
-          </FormField>
-          <FormField label="Browser cache age (seconds)">
-            <TextInput
-              type="number"
-              min="0"
-              max="31536000"
-              value={imageProcessing.cache.max_age}
-              onChange={(value) => updateImageProcessing((next) => {
-                next.cache ??= {};
-                next.cache.max_age = Number(value);
-              })}
-            />
-          </FormField>
-        </div>
       </AdvancedSection>
     </div>
   );

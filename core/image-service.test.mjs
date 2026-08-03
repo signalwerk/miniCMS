@@ -378,13 +378,17 @@ test("validates and normalizes processing and cache configuration", () => {
     fit: "inside",
     format: "webp",
     quality: 82,
-    cache: { schema: "v1", strategy: "revalidate", max_age: 0 }
+    cache: { schema: "v1" }
   });
   assert.deepEqual(
     normalizeImageProcessingConfig({
-      cache: { schema: "release-2", strategy: "immutable" }
+      cache: {
+        schema: "release-2",
+        strategy: "immutable",
+        max_age: 31_536_000
+      }
     }).cache,
-    { schema: "release-2", strategy: "immutable", max_age: 31_536_000 }
+    { schema: "release-2" }
   );
   assert.throws(
     () => validateImageProcessingConfig({ cache: { schema: "../../bad" } }),
@@ -393,10 +397,6 @@ test("validates and normalizes processing and cache configuration", () => {
   assert.throws(
     () => validateImageProcessingConfig({ width: 100_000 }),
     /width/
-  );
-  assert.throws(
-    () => validateImageProcessingConfig({ cache: { max_age: -1 } }),
-    /max_age/
   );
 });
 

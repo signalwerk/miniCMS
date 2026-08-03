@@ -1,4 +1,3 @@
-export type ImageCacheStrategy = "revalidate" | "immutable" | "disabled";
 export type ImageFit = "cover" | "contain" | "fill" | "inside";
 export type ImageFormat = "avif" | "gif" | "jpeg" | "jpg" | "png" | "tiff" | "webp";
 export type ImageOperationType =
@@ -11,8 +10,6 @@ export type ImageOperationType =
 
 export interface ImageCacheConfig {
   schema?: string;
-  strategy?: ImageCacheStrategy;
-  max_age?: number;
 }
 
 export interface ImageProcessingConfig {
@@ -79,7 +76,6 @@ export interface ImageServiceOptions {
 }
 
 export const DEFAULT_IMAGE_PROCESSING: Readonly<NormalizedImageProcessingConfig>;
-export const IMAGE_CACHE_STRATEGIES: readonly ImageCacheStrategy[];
 export const IMAGE_FITS: readonly ImageFit[];
 export const IMAGE_FORMATS: readonly Exclude<ImageFormat, "jpg">[];
 

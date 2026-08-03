@@ -1,8 +1,3 @@
-const IMAGE_CACHE_STRATEGIES = Object.freeze([
-  "revalidate",
-  "immutable",
-  "disabled"
-]);
 const IMAGE_FITS = Object.freeze([
   "cover",
   "contain",
@@ -33,9 +28,7 @@ const DEFAULT_IMAGE_PROCESSING = Object.freeze({
   format: "webp",
   quality: 82,
   cache: Object.freeze({
-    schema: "v1",
-    strategy: "revalidate",
-    max_age: 0
+    schema: "v1"
   })
 });
 
@@ -140,28 +133,11 @@ function validateImageProcessingConfig(config) {
       "site.image_processing.cache.schema must match [a-z0-9][a-z0-9_-]{0,31}."
     );
   }
-  if (
-    cache.strategy !== undefined &&
-    !IMAGE_CACHE_STRATEGIES.includes(cache.strategy)
-  ) {
-    throw imageServiceError(
-      `site.image_processing.cache.strategy must be one of: ${IMAGE_CACHE_STRATEGIES.join(", ")}.`
-    );
-  }
-  if (cache.max_age !== undefined) {
-    finiteInteger(cache.max_age, "site.image_processing.cache.max_age", {
-      minimum: 0,
-      maximum: 31_536_000
-    });
-  }
   return source;
 }
 
 function normalizeImageProcessingConfig(config) {
   const source = validateImageProcessingConfig(config);
-  const strategy =
-    source.cache?.strategy ?? DEFAULT_IMAGE_PROCESSING.cache.strategy;
-  const defaultMaxAge = strategy === "immutable" ? 31_536_000 : 0;
   return Object.freeze({
     width: source.width ?? DEFAULT_IMAGE_PROCESSING.width,
     height: source.height ?? DEFAULT_IMAGE_PROCESSING.height,
@@ -171,9 +147,7 @@ function normalizeImageProcessingConfig(config) {
     ),
     quality: source.quality ?? DEFAULT_IMAGE_PROCESSING.quality,
     cache: Object.freeze({
-      schema: source.cache?.schema ?? DEFAULT_IMAGE_PROCESSING.cache.schema,
-      strategy,
-      max_age: source.cache?.max_age ?? defaultMaxAge
+      schema: source.cache?.schema ?? DEFAULT_IMAGE_PROCESSING.cache.schema
     })
   });
 }
@@ -854,7 +828,6 @@ function buildImageServiceMediaUrl(value, options = {}) {
 
 export {
   DEFAULT_IMAGE_PROCESSING,
-  IMAGE_CACHE_STRATEGIES,
   IMAGE_FITS,
   IMAGE_FORMATS,
   buildImageServiceMediaUrl,

@@ -120,11 +120,12 @@ changing shared core modules it has imported.
   API accepts an optional HTTPS `api_url`. GitHub requires `repo`, `base_url`,
   and `branch`; Settings exposes all common and advanced options.
 - `site.image_processing` configures only the API image-service capability:
-  default raster dimensions, fit, output format/quality, and cache
-  schema/strategy/age. Project dimensions constrain newly generated URLs;
-  deployment-owned limits are the service's stable enforcement boundary so
-  existing URLs survive later default changes. GitHub image URL behavior must
-  remain unchanged.
+  default raster dimensions, fit, output format/quality, and the derivative
+  schema embedded in generated URLs. Project dimensions constrain newly
+  generated URLs; deployment-owned limits are the service's stable enforcement
+  boundary so existing URLs survive later default changes. Legacy cache
+  `strategy` and `max_age` settings normalize away when project configuration
+  is validated or saved. GitHub image URL behavior must remain unchanged.
 - Non-empty API origins are normalized and validated as credential-free HTTPS
   origins in shared config before browser or static adapters use them.
 - Fields use a compact, intentionally custom declarative schema.

@@ -129,6 +129,9 @@ test("validates the image processing and cache contract", () => {
     validateConfig(config).site.image_processing.cache.schema,
     "images_2"
   );
+  assert.deepEqual(config.site.image_processing.cache, {
+    schema: "images_2"
+  });
 
   const invalid = structuredClone(config);
   invalid.site.image_processing.cache.schema = "../../images";

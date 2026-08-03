@@ -639,17 +639,14 @@ site:
     quality: 82
     cache:
       schema: v1
-      strategy: revalidate
-      max_age: 0
 ```
 
-The schema is embedded in generated image URLs. `revalidate` combines the
-server's derivative cache with browser ETags. `immutable` is intended for
-content-addressed source paths. `disabled` emits uncached responses. Generated URLs clamp
-component-specific requests to the project dimensions. The service applies its
-stable deployment limits to every request, so an existing canonical URL stays
-valid when project defaults change. SVG sources use an exact byte passthrough
-route and never enter the raster processor.
+The schema is embedded in generated image URLs and provides an explicit way to
+start a fresh derivative namespace. Generated URLs clamp component-specific
+requests to the project dimensions. The service applies its stable deployment
+limits to every request, so an existing canonical URL stays valid when project
+defaults change. SVG sources use an exact byte passthrough route and never
+enter the raster processor.
 
 Renderers can call `prependImageServiceOperations(url, operations)` from
 `@signalwerk/minicms/content` to add one source-space crop to an
