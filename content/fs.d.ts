@@ -1,11 +1,34 @@
-import type { ContentAdapter } from "./index.js";
+import type {
+  CmsConfig,
+  ContentAdapter,
+  ContentSource,
+  MediaResolutionContext
+} from "./index.js";
+
+export interface FilesystemConnectorSource extends ContentSource {
+  config(): CmsConfig | Promise<CmsConfig>;
+}
+
+export interface FilesystemConnectorOptions {
+  token?: string;
+  headers?: Record<string, string>;
+}
 
 export interface FilesystemContentAdapterOptions {
   projectRoot: string | URL;
-  resolveMediaUrl?: (path: string) => string | Promise<string>;
-  resolveImageUrl?: (path: string) => string | Promise<string>;
+  resolveMediaUrl?: (
+    path: string,
+    context: MediaResolutionContext
+  ) => string | Promise<string>;
+  resolveImageUrl?: (
+    path: string,
+    context: MediaResolutionContext
+  ) => string | Promise<string>;
   imageServiceBaseUrl?: string;
   publicBase?: string;
+  connectorSources?: Record<string, FilesystemConnectorSource>;
+  connectorOptions?: Record<string, FilesystemConnectorOptions>;
+  fetchImpl?: typeof fetch;
 }
 
 export function createFilesystemContentAdapter(

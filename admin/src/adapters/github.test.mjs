@@ -10,11 +10,13 @@ import { createAdapter } from "./index.js";
 
 function fixtureConfig() {
   return {
-    backend: {
-      name: "github",
-      repo: "signalwerk/example",
-      base_url: "https://auth.example.com",
-      branch: "main"
+    connectors: {
+      default: {
+        name: "github",
+        repo: "signalwerk/example",
+        base_url: "https://auth.example.com",
+        branch: "main"
+      }
     },
     site: {
       media_folder: "content/media",
@@ -160,7 +162,12 @@ function makeGitHubFixture() {
   };
 
   return {
-    adapter: createGitHubAdapter({ config, fetchImpl, auth }),
+    adapter: createGitHubAdapter({
+      config,
+      connector: config.connectors.default,
+      fetchImpl,
+      auth
+    }),
     calls,
     trees
   };
@@ -171,7 +178,7 @@ test("reads repository configuration and collection records", async () => {
   const config = await adapter.config();
   const list = await adapter.list("pages");
 
-  assert.equal(config.backend.repo, "signalwerk/example");
+  assert.equal(config.connectors.default.repo, "signalwerk/example");
   assert.equal(list.items[0].id, "home");
   assert.equal(list.items[0].title, "Home");
   assert.equal(list.items[0].updated_at, "2026-07-31T10:00:00.000Z");
@@ -295,6 +302,7 @@ test("clears a rejected stored GitHub session", async () => {
   };
   const adapter = createGitHubAdapter({
     config: fixtureConfig(),
+    connector: fixtureConfig().connectors.default,
     auth,
     fetchImpl: async () => json({ message: "Bad credentials" }, 401)
   });
@@ -312,8 +320,9 @@ test("adapter factory uses GitHub configuration", async () => {
   };
   const githubAdapter = await createAdapter({
     bootstrapConfig: fixtureConfig(),
-    githubOptions: { auth },
+    connectorOptions: { default: { auth } },
     fetchImpl: async () => json({ message: "unused" }, 500)
   });
-  assert.equal(githubAdapter.name, "github");
+  assert.equal(githubAdapter.name, "connectors");
+  assert.match(githubAdapter.label, /signalwerk\/example/);
 });

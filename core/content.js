@@ -72,7 +72,7 @@ const REFERENCE_SELECTION_KINDS = new Set([
   "image_region",
   "image_point"
 ]);
-const BACKEND_NAMES = new Set(["api", "node", "github"]);
+const CONNECTOR_NAMES = new Set(["api", "github"]);
 
 function contentError(status, message) {
   const error = new Error(message);
@@ -196,73 +196,120 @@ function validateFieldName(reference, fields, context, status = 500) {
   validateFieldReference(reference, fields, context, status);
 }
 
-function validateBackend(backend, status) {
-  if (backend === undefined) return;
-  if (!isMapping(backend)) {
-    throw contentError(status, "backend must be a mapping.");
+function loopbackHostname(hostname) {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (host === "localhost" || host === "::1") return true;
+  const parts = host.split(".").map(Number);
+  return (
+    parts.length === 4 &&
+    parts[0] === 127 &&
+    parts.every(
+      (part) => Number.isInteger(part) && part >= 0 && part <= 255
+    )
+  );
+}
+
+function normalizeConnectorOrigin(
+  value,
+  label,
+  status,
+  { allowEmpty = false, allowLoopbackHttp = false } = {}
+) {
+  if (typeof value !== "string") {
+    throw contentError(status, `${label} must be a string.`);
   }
-  const configuredName = backend.name || "api";
-  const name = configuredName === "node" ? "api" : configuredName;
-  if (!BACKEND_NAMES.has(name)) {
-    throw contentError(status, `Unsupported backend "${name}".`);
+  const source = value.trim();
+  if (!source) {
+    if (allowEmpty) return "";
+    throw contentError(status, `${label} must be defined.`);
   }
-  if (configuredName === "node" || backend.name === undefined) {
-    backend.name = "api";
+  let normalized;
+  try {
+    normalized = normalizeHttpOrigin(source, label);
+  } catch (error) {
+    throw contentError(status, error.message);
   }
-  if (name === "api") {
-    if (backend.api_url !== undefined && typeof backend.api_url !== "string") {
-      throw contentError(status, "The miniCMS API URL must be a string.");
+  const url = new URL(normalized);
+  const secure = url.protocol === "https:";
+  const localDevelopment =
+    allowLoopbackHttp &&
+    url.protocol === "http:" &&
+    loopbackHostname(url.hostname);
+  if (!secure && !localDevelopment) {
+    throw contentError(
+      status,
+      allowLoopbackHttp
+        ? `${label} must use HTTPS or a loopback HTTP origin.`
+        : `${label} must use HTTPS.`
+    );
+  }
+  return normalized;
+}
+
+function validateConnector(connector, connectorName, status) {
+  if (!isMapping(connector)) {
+    throw contentError(
+      status,
+      `Connector "${connectorName}" must be a mapping.`
+    );
+  }
+  if (!CONNECTOR_NAMES.has(connector.name)) {
+    throw contentError(
+      status,
+      `Connector "${connectorName}" uses unsupported adapter "${connector.name ?? ""}".`
+    );
+  }
+  if (connector.name === "api") {
+    const reserved = ["default", "development"].includes(connectorName);
+    if (connector.api_url === undefined && !reserved) {
+      throw contentError(
+        status,
+        `Named API connector "${connectorName}" must define an HTTPS api_url.`
+      );
     }
-    if (backend.api_url !== undefined) {
-      const apiUrl = backend.api_url.trim();
-      if (!apiUrl) {
-        backend.api_url = "";
-        return;
-      }
-      try {
-        backend.api_url = normalizeHttpOrigin(
-          apiUrl,
-          "The miniCMS API URL"
-        );
-      } catch (error) {
-        throw contentError(status, error.message);
-      }
-      if (!backend.api_url.startsWith("https://")) {
-        throw contentError(status, "The miniCMS API URL must use HTTPS.");
-      }
+    if (connector.api_url !== undefined) {
+      connector.api_url = normalizeConnectorOrigin(
+        connector.api_url,
+        `Connector "${connectorName}" miniCMS API URL`,
+        status,
+        {
+          allowEmpty: reserved,
+          allowLoopbackHttp: connectorName === "development"
+        }
+      );
     }
     return;
   }
   if (
-    typeof backend.repo !== "string" ||
-    !/^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(backend.repo)
+    typeof connector.repo !== "string" ||
+    !/^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(connector.repo)
   ) {
     throw contentError(
       status,
-      'The GitHub backend repo must use the form "owner/repository".'
+      `Connector "${connectorName}" GitHub repo must use the form "owner/repository".`
     );
   }
-  if (typeof backend.branch !== "string" || !backend.branch.trim()) {
-    throw contentError(status, "The GitHub backend must define a branch.");
+  if (typeof connector.branch !== "string" || !connector.branch.trim()) {
+    throw contentError(
+      status,
+      `Connector "${connectorName}" GitHub branch must be defined.`
+    );
   }
-  if (typeof backend.base_url !== "string" || !backend.base_url.trim()) {
-    throw contentError(status, "The GitHub backend must define an auth base URL.");
-  }
-  try {
-    new URL(backend.base_url);
-  } catch {
-    throw contentError(status, "The GitHub auth base URL must be a valid URL.");
-  }
-  if (backend.api_root !== undefined) {
-    try {
-      new URL(backend.api_root);
-    } catch {
-      throw contentError(status, "The GitHub API root must be a valid URL.");
-    }
+  connector.base_url = normalizeConnectorOrigin(
+    connector.base_url,
+    `Connector "${connectorName}" GitHub auth base URL`,
+    status
+  );
+  if (connector.api_root !== undefined) {
+    connector.api_root = normalizeConnectorOrigin(
+      connector.api_root,
+      `Connector "${connectorName}" GitHub API root`,
+      status
+    );
   }
 }
 
-function validateConfig(config, status = 500) {
+function validateConfigRoot(config, status, { allowHydratedRemote = false } = {}) {
   const fail = (message) => {
     throw contentError(status, message);
   };
@@ -272,11 +319,24 @@ function validateConfig(config, status = 500) {
     }
   };
 
-  validateBackend(config?.backend, status);
-  if (!isMapping(config?.collections)) {
+  if (!isMapping(config)) fail("cms.config.yml must contain a mapping.");
+  if (Object.hasOwn(config, "backend")) {
+    fail("cms.config.yml uses connectors; the singular backend setting is not supported.");
+  }
+  if (!isMapping(config.connectors)) {
+    fail("cms.config.yml must define connectors as a mapping.");
+  }
+  if (!Object.hasOwn(config.connectors, "default")) {
+    fail('cms.config.yml must define the "default" connector.');
+  }
+  for (const [connectorName, connector] of Object.entries(config.connectors)) {
+    assertKey(connectorName, `Connector "${connectorName}"`);
+    validateConnector(connector, connectorName, status);
+  }
+  if (!isMapping(config.collections)) {
     fail("cms.config.yml must define collections as a mapping.");
   }
-  if (!isMapping(config?.node_types)) {
+  if (!isMapping(config.node_types)) {
     fail("cms.config.yml must define node_types as a mapping.");
   }
   if (!Object.keys(config.collections).length) {
@@ -287,6 +347,138 @@ function validateConfig(config, status = 500) {
   }
 
   for (const [typeName, type] of Object.entries(config.node_types)) {
+    assertKey(typeName, `Node type "${typeName}"`);
+    if (!isMapping(type)) {
+      fail(`Node type "${typeName}" must be a mapping.`);
+    }
+    const remote =
+      Object.hasOwn(type, "connector") || Object.hasOwn(type, "remote_type");
+    if (!remote) {
+      if (!isMapping(type.fields)) {
+        fail(`Node type "${typeName}" must define fields as a mapping.`);
+      }
+      continue;
+    }
+    if (
+      typeof type.connector !== "string" ||
+      !type.connector ||
+      typeof type.remote_type !== "string" ||
+      !type.remote_type
+    ) {
+      fail(
+        `Remote node type "${typeName}" must define connector and remote_type.`
+      );
+    }
+    assertKey(type.connector, `Remote node type "${typeName}" connector`);
+    assertKey(type.remote_type, `Remote node type "${typeName}" remote_type`);
+    if (!config.connectors[type.connector]) {
+      fail(
+        `Remote node type "${typeName}" references unknown connector "${type.connector}".`
+      );
+    }
+    if (["default", "development"].includes(type.connector)) {
+      fail(
+        `Remote node type "${typeName}" must use a named connector, not reserved connector "${type.connector}".`
+      );
+    }
+    if (!allowHydratedRemote) {
+      const extra = Object.keys(type).filter(
+        (name) => !["connector", "remote_type"].includes(name)
+      );
+      if (extra.length) {
+        fail(
+          `Remote node type "${typeName}" may define only connector and remote_type.`
+        );
+      }
+    } else if (!isMapping(type.fields)) {
+      fail(`Remote node type "${typeName}" has not been materialized.`);
+    }
+  }
+
+  for (const [collectionName, collection] of Object.entries(config.collections)) {
+    assertKey(collectionName, `Collection "${collectionName}"`);
+    if (!isMapping(collection)) {
+      fail(`Collection "${collectionName}" must be a mapping.`);
+    }
+    const remote =
+      Object.hasOwn(collection, "connector") ||
+      Object.hasOwn(collection, "remote_collection");
+    if (!remote) {
+      if (typeof collection.folder !== "string" || !collection.folder) {
+        fail(`Collection "${collectionName}" must define a folder.`);
+      }
+      if (typeof collection.node_type !== "string" || !collection.node_type) {
+        fail(`Collection "${collectionName}" must define a node_type.`);
+      }
+      continue;
+    }
+    if (
+      typeof collection.connector !== "string" ||
+      !collection.connector ||
+      typeof collection.remote_collection !== "string" ||
+      !collection.remote_collection
+    ) {
+      fail(
+        `Remote collection "${collectionName}" must define connector and remote_collection.`
+      );
+    }
+    assertKey(
+      collection.connector,
+      `Remote collection "${collectionName}" connector`
+    );
+    assertKey(
+      collection.remote_collection,
+      `Remote collection "${collectionName}" remote_collection`
+    );
+    if (!config.connectors[collection.connector]) {
+      fail(
+        `Remote collection "${collectionName}" references unknown connector "${collection.connector}".`
+      );
+    }
+    if (["default", "development"].includes(collection.connector)) {
+      fail(
+        `Remote collection "${collectionName}" must use a named connector, not reserved connector "${collection.connector}".`
+      );
+    }
+    if (!allowHydratedRemote) {
+      const extra = Object.keys(collection).filter(
+        (name) => !["connector", "remote_collection"].includes(name)
+      );
+      if (extra.length) {
+        fail(
+          `Remote collection "${collectionName}" may define only connector and remote_collection.`
+        );
+      }
+    } else if (
+      typeof collection.folder !== "string" ||
+      !collection.folder ||
+      typeof collection.node_type !== "string" ||
+      !collection.node_type
+    ) {
+      fail(`Remote collection "${collectionName}" has not been materialized.`);
+    }
+  }
+  return config;
+}
+
+function validateSourceConfig(config, status = 500) {
+  return validateConfig(config, status, { source: true });
+}
+
+function validateConfig(config, status = 500, { source = false } = {}) {
+  const fail = (message) => {
+    throw contentError(status, message);
+  };
+  const assertKey = (value, context) => {
+    if (!/^[a-z0-9][a-z0-9_-]*$/i.test(value)) {
+      fail(`${context} must use letters, numbers, underscores, or hyphens.`);
+    }
+  };
+
+  validateConfigRoot(config, status, { allowHydratedRemote: !source });
+
+  for (const [typeName, type] of Object.entries(config.node_types)) {
+    if (source && Object.hasOwn(type, "remote_type")) continue;
     assertKey(typeName, `Node type "${typeName}"`);
     if (!isMapping(type?.fields)) {
       fail(`Node type "${typeName}" must define fields as a mapping.`);
@@ -423,6 +615,14 @@ function validateConfig(config, status = 500) {
             `Node type "${typeName}" slot "${slotName}" references unknown node type "${allowedType}".`
           );
         }
+        if (
+          (type.connector || "default") !==
+          (config.node_types[allowedType].connector || "default")
+        ) {
+          fail(
+            `Node type "${typeName}" slot "${slotName}" cannot contain node type "${allowedType}" from another connector.`
+          );
+        }
       }
     }
     for (const [panelName, panel] of Object.entries(
@@ -454,6 +654,7 @@ function validateConfig(config, status = 500) {
   for (const [collectionName, collection] of Object.entries(
     config.collections
   )) {
+    if (source && Object.hasOwn(collection, "remote_collection")) continue;
     assertKey(collectionName, `Collection "${collectionName}"`);
     if (!isMapping(collection)) {
       fail(`Collection "${collectionName}" must be a mapping.`);
@@ -494,6 +695,14 @@ function validateConfig(config, status = 500) {
       );
     }
     if (
+      (collection.connector || "default") !==
+      (config.node_types[collection.node_type].connector || "default")
+    ) {
+      fail(
+        `Collection "${collectionName}" cannot use node type "${collection.node_type}" from another connector.`
+      );
+    }
+    if (
       collection.allowed_types !== undefined &&
       !Array.isArray(collection.allowed_types)
     ) {
@@ -503,6 +712,14 @@ function validateConfig(config, status = 500) {
       if (!config.node_types[allowedType]) {
         fail(
           `Collection "${collectionName}" references unknown allowed type "${allowedType}".`
+        );
+      }
+      if (
+        (collection.connector || "default") !==
+        (config.node_types[allowedType].connector || "default")
+      ) {
+        fail(
+          `Collection "${collectionName}" cannot allow node type "${allowedType}" from another connector.`
         );
       }
     }
@@ -518,6 +735,14 @@ function validateConfig(config, status = 500) {
       if (!config.node_types[childType]) {
         fail(
           `Collection "${collectionName}" hierarchy references unknown child type "${childType}".`
+        );
+      }
+      if (
+        (collection.connector || "default") !==
+        (config.node_types[childType].connector || "default")
+      ) {
+        fail(
+          `Collection "${collectionName}" hierarchy cannot allow node type "${childType}" from another connector.`
         );
       }
     }
@@ -694,6 +919,7 @@ function validateConfig(config, status = 500) {
   }
 
   for (const [typeName, type] of Object.entries(config.node_types)) {
+    if (source && Object.hasOwn(type, "remote_type")) continue;
     for (const [fieldName, field] of Object.entries(type.fields)) {
       const inlineReference = field.blocknote?.inline_reference;
       if (inlineReference) {
@@ -702,6 +928,9 @@ function validateConfig(config, status = 500) {
           fail(
             `Node type "${typeName}" markdown field "${fieldName}" inline reference uses unknown collection "${inlineReference.collection}".`
           );
+        }
+        if (source && Object.hasOwn(targetCollection, "remote_collection")) {
+          continue;
         }
         const targetFields =
           config.node_types[targetCollection.node_type].fields;
@@ -741,6 +970,49 @@ function validateConfig(config, status = 500) {
         );
       }
       const targetCollection = config.collections[field.collection];
+      if (source && Object.hasOwn(targetCollection, "remote_collection")) {
+        if (
+          field.widget === "tags" &&
+          (field.value_field !== undefined || field.allowed_types !== undefined)
+        ) {
+          fail(
+            `Node type "${typeName}" tags field "${fieldName}" may configure only its collection relation.`
+          );
+        }
+        if (
+          field.widget === "reference" &&
+          field.allowed_types !== undefined &&
+          !Array.isArray(field.allowed_types)
+        ) {
+          fail(
+            `Node type "${typeName}" reference field "${fieldName}" allowed_types must be an array.`
+          );
+        }
+        if (
+          field.widget === "reference" &&
+          field.selections !== undefined &&
+          !Array.isArray(field.selections)
+        ) {
+          fail(
+            `Node type "${typeName}" reference field "${fieldName}" selections must be an array.`
+          );
+        }
+        const seenSelections = new Set();
+        for (const selectionName of field.selections ?? []) {
+          if (typeof selectionName !== "string" || !selectionName) {
+            fail(
+              `Node type "${typeName}" reference field "${fieldName}" selections must contain names.`
+            );
+          }
+          if (seenSelections.has(selectionName)) {
+            fail(
+              `Node type "${typeName}" reference field "${fieldName}" repeats selection "${selectionName}".`
+            );
+          }
+          seenSelections.add(selectionName);
+        }
+        continue;
+      }
       const targetTypes = targetCollection.allowed_types ?? [
         targetCollection.node_type
       ];
@@ -1019,5 +1291,6 @@ export {
   parseYaml,
   summarizeRecord,
   validateConfig,
+  validateSourceConfig,
   validateRecord
 };

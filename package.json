@@ -6,6 +6,10 @@
   "type": "module",
   "exports": {
     "./core/content": "./core/content.js",
+    "./core/connectors": {
+      "types": "./core/connectors.d.ts",
+      "import": "./core/connectors.js"
+    },
     "./core/id": "./core/id.js",
     "./core/inline-reference": {
       "types": "./core/inline-reference.d.ts",

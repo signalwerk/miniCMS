@@ -5,16 +5,19 @@ import {
   parseYaml,
   summarizeRecord,
   validateConfig,
+  validateSourceConfig,
   validateRecord
 } from "./content.js";
 
 function fixtureConfig() {
   return {
-    backend: {
-      name: "github",
-      repo: "signalwerk/example",
-      base_url: "https://auth.example.com",
-      branch: "main"
+    connectors: {
+      default: {
+        name: "github",
+        repo: "signalwerk/example",
+        base_url: "https://auth.example.com",
+        branch: "main"
+      }
     },
     site: {
       media_folder: "content/media",
@@ -47,11 +50,14 @@ test("parses and writes deterministic JSON-schema YAML", () => {
   assert.equal(parseYaml(source).published, "2026-07-31");
 });
 
-test("validates GitHub backend and repository content paths", () => {
-  assert.equal(validateConfig(fixtureConfig()).backend.name, "github");
+test("validates the default GitHub connector and repository content paths", () => {
+  assert.equal(
+    validateConfig(fixtureConfig()).connectors.default.name,
+    "github"
+  );
 
   const invalidRepository = fixtureConfig();
-  invalidRepository.backend.repo = "missing-owner";
+  invalidRepository.connectors.default.repo = "missing-owner";
   assert.throws(
     () => validateConfig(invalidRepository, 400),
     /owner\/repository/
@@ -65,31 +71,31 @@ test("validates GitHub backend and repository content paths", () => {
   );
 });
 
-test("accepts the API backend and normalizes the legacy Node name", () => {
+test("accepts secure API connectors and rejects the removed backend contract", () => {
   const apiConfig = fixtureConfig();
-  apiConfig.backend = {
+  apiConfig.connectors.default = {
     name: "api",
     api_url: "https://content.example.com"
   };
-  assert.equal(validateConfig(apiConfig).backend.name, "api");
+  assert.equal(validateConfig(apiConfig).connectors.default.name, "api");
   assert.equal(
-    validateConfig(apiConfig).backend.api_url,
+    validateConfig(apiConfig).connectors.default.api_url,
     "https://content.example.com"
   );
 
   const legacyConfig = fixtureConfig();
   legacyConfig.backend = { name: "node", api_url: "" };
-  assert.deepEqual(validateConfig(legacyConfig).backend, {
-    name: "api",
-    api_url: ""
-  });
+  assert.throws(() => validateConfig(legacyConfig), /singular backend/);
 
   const whitespaceConfig = fixtureConfig();
-  whitespaceConfig.backend = { name: "api", api_url: "   " };
-  assert.equal(validateConfig(whitespaceConfig).backend.api_url, "");
+  whitespaceConfig.connectors.default = { name: "api", api_url: "   " };
+  assert.equal(
+    validateConfig(whitespaceConfig).connectors.default.api_url,
+    ""
+  );
 
   const invalidConfig = fixtureConfig();
-  invalidConfig.backend = { name: "api", api_url: 42 };
+  invalidConfig.connectors.default = { name: "api", api_url: 42 };
   assert.throws(
     () => validateConfig(invalidConfig, 400),
     /miniCMS API URL must be a string/
@@ -103,12 +109,130 @@ test("accepts the API backend and normalizes the legacy Node name", () => {
     "https://content.example.com?project=other"
   ]) {
     const invalidOrigin = fixtureConfig();
-    invalidOrigin.backend = { name: "api", api_url: apiUrl };
+    invalidOrigin.connectors.default = { name: "api", api_url: apiUrl };
     assert.throws(
       () => validateConfig(invalidOrigin, 400),
       /miniCMS API URL/
     );
   }
+});
+
+test("validates source connectors and remote declaration stubs", () => {
+  const config = fixtureConfig();
+  config.connectors.development = {
+    name: "api",
+    api_url: "http://127.0.0.1:8787"
+  };
+  config.connectors.central = {
+    name: "api",
+    api_url: "https://content.example.com/"
+  };
+  config.node_types.central_image = {
+    connector: "central",
+    remote_type: "image"
+  };
+  config.collections.central_images = {
+    connector: "central",
+    remote_collection: "images"
+  };
+
+  const validated = validateSourceConfig(config);
+  assert.equal(
+    validated.connectors.development.api_url,
+    "http://127.0.0.1:8787"
+  );
+  assert.equal(
+    validated.connectors.central.api_url,
+    "https://content.example.com"
+  );
+
+  const noDefault = structuredClone(config);
+  delete noDefault.connectors.default;
+  assert.throws(() => validateSourceConfig(noDefault), /"default" connector/);
+
+  const namedWithoutOrigin = structuredClone(config);
+  namedWithoutOrigin.connectors.central = { name: "api" };
+  assert.throws(
+    () => validateSourceConfig(namedWithoutOrigin),
+    /must define an HTTPS api_url/
+  );
+
+  const insecureNamed = structuredClone(config);
+  insecureNamed.connectors.central.api_url = "http://127.0.0.1:8787";
+  assert.throws(
+    () => validateSourceConfig(insecureNamed),
+    /must use HTTPS/
+  );
+
+  const insecureDevelopment = structuredClone(config);
+  insecureDevelopment.connectors.development.api_url =
+    "http://content.example.com";
+  assert.throws(
+    () => validateSourceConfig(insecureDevelopment),
+    /loopback HTTP origin/
+  );
+
+  const reservedAlias = structuredClone(config);
+  reservedAlias.node_types.central_image.connector = "development";
+  assert.throws(
+    () => validateSourceConfig(reservedAlias),
+    /named connector.*reserved connector/
+  );
+
+  const expandedStub = structuredClone(config);
+  expandedStub.collections.central_images.label = "Copied schema";
+  assert.throws(
+    () => validateSourceConfig(expandedStub),
+    /may define only connector and remote_collection/
+  );
+});
+
+test("source validation remains strict for local definitions beside aliases", () => {
+  const config = fixtureConfig();
+  config.connectors.central = {
+    name: "api",
+    api_url: "https://content.example.com"
+  };
+  config.node_types.central_image = {
+    connector: "central",
+    remote_type: "image"
+  };
+  config.collections.central_images = {
+    connector: "central",
+    remote_collection: "images"
+  };
+
+  const unsupportedWidget = structuredClone(config);
+  unsupportedWidget.node_types.page.fields.title.widget = "mystery";
+  assert.throws(
+    () => validateSourceConfig(unsupportedWidget, 400),
+    /unsupported widget/
+  );
+
+  const unknownSearchField = structuredClone(config);
+  unknownSearchField.collections.pages.views = {
+    list: { type: "table", search: { fields: ["missing"] } }
+  };
+  assert.throws(
+    () => validateSourceConfig(unknownSearchField, 400),
+    /references unknown field "missing"/
+  );
+
+  const invalidImageConfig = structuredClone(config);
+  invalidImageConfig.site.image_processing = { width: -1 };
+  assert.throws(
+    () => validateSourceConfig(invalidImageConfig, 400),
+    /width/
+  );
+
+  const crossConnectorSlot = structuredClone(config);
+  crossConnectorSlot.node_types.page.slots = {
+    content: { allowed_types: ["central_image"] }
+  };
+  assert.throws(
+    () => validateSourceConfig(crossConnectorSlot, 400),
+    /from another connector/
+  );
 });
 
 test("validates the image processing and cache contract", () => {

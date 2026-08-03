@@ -15,14 +15,15 @@ import {
 } from "../../model/views.js";
 import { EmptyState } from "../Common/Common.jsx";
 
-function ReadOnlyDetailField({ field, value, action }) {
+function ReadOnlyDetailField({ field, value, action, collectionName }) {
   const adapter = useAdapter();
   const formatted = displayValue(value, field);
   const image = field.display === "image"
     ? adapter.resolveImageUrl(imageSource(value), {
         width: 640,
         height: 640,
-        fit: "inside"
+        fit: "inside",
+        collection: collectionName
       })
     : "";
   const content =
@@ -127,6 +128,7 @@ function InspectorPanelFields({
               {field.system || field.mode === "read" ? (
                 <ReadOnlyDetailField
                   field={field}
+                  collectionName={collection.name}
                   value={
                     field.system
                       ? systemFieldValue(field.name, record, collection, item)

@@ -192,7 +192,8 @@ function TableCell({
     const source = adapter.resolveImageUrl(imageSource(value), {
       width: 320,
       height: 320,
-      fit: "inside"
+      fit: "inside",
+      collection: collection.name
     });
     content = source ? (
       <img className="table-cell__image" src={source} alt="" />

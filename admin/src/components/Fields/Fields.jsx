@@ -64,10 +64,11 @@ function ReferenceCard({ item, view, collection, compact = false }) {
   const source = referenceImageSource(item, view, collection);
   const image = source
     ? adapter.resolveImageUrl(source, {
-        width: 320,
-        height: 320,
-        fit: "inside"
-      })
+      width: 320,
+      height: 320,
+      fit: "inside",
+      collection: collection.name
+    })
     : "";
   const title = referenceItemLabel(item, view, collection);
   const descriptions = (Array.isArray(view.description)

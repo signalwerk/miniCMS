@@ -505,18 +505,19 @@ function createContentAdapter({
     };
   }
 
-  async function resolvedMedia(value, widget) {
+  async function resolvedMedia(value, widget, collectionName) {
     const resolveUrl =
       widget === "image"
         ? sourceApi.resolveImageUrl
         : sourceApi.resolveMediaUrl;
+    const context = { collection: collectionName };
     if (typeof value === "string") {
-      return value ? await resolveUrl(value) : value;
+      return value ? await resolveUrl(value, context) : value;
     }
     if (widget === "image" && isMapping(value)) {
       const image = cloneValue(value);
       if (typeof image.src === "string" && image.src) {
-        image.src = await resolveUrl(image.src);
+        image.src = await resolveUrl(image.src, context);
       }
       return image;
     }
@@ -550,7 +551,11 @@ function createContentAdapter({
           ancestors
         );
       } else if (field?.widget === "file" || field?.widget === "image") {
-        resolvedProperties[name] = await resolvedMedia(value, field.widget);
+        resolvedProperties[name] = await resolvedMedia(
+          value,
+          field.widget,
+          collectionName
+        );
       } else {
         resolvedProperties[name] = cloneValue(value);
       }

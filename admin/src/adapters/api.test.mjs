@@ -186,11 +186,13 @@ test("uses the direct local API origin for requests and media", async () => {
 test("uses the active API capability and its latest config for images and info", async () => {
   const browser = browserFixture("http://127.0.0.1:4321");
   const config = {
-    backend: {
-      name: "github",
-      repo: "signalwerk/example",
-      branch: "main",
-      base_url: "https://auth.example.com"
+    connectors: {
+      default: {
+        name: "github",
+        repo: "signalwerk/example",
+        branch: "main",
+        base_url: "https://auth.example.com"
+      }
     },
     site: {
       public_folder: "/media",
@@ -552,11 +554,34 @@ test("exchanges only an exact popup message for an opaque API bearer", async () 
   assert.equal((await secondLogin).authenticated, true);
 });
 
-test("normalizes the legacy Node adapter override to the API adapter", async () => {
+test("uses the reserved development connector when requested", async () => {
   const browser = browserFixture("http://127.0.0.1:4321");
   const adapter = await createAdapter({
-    adapterOverride: "node",
-    apiOptions: { windowObject: browser.windowObject },
+    environment: "development",
+    bootstrapConfig: {
+      connectors: {
+        default: {
+          name: "github",
+          repo: "signalwerk/example",
+          branch: "main",
+          base_url: "https://auth.example.com"
+        },
+        development: { name: "api", api_url: "" }
+      },
+      site: {},
+      node_types: {
+        page: { fields: { title: { widget: "string" } } }
+      },
+      collections: {
+        pages: {
+          folder: "content/pages",
+          node_type: "page"
+        }
+      }
+    },
+    connectorOptions: {
+      development: { windowObject: browser.windowObject }
+    },
     fetchImpl: async () =>
       json({
         authenticated: true,
@@ -566,5 +591,6 @@ test("normalizes the legacy Node adapter override to the API adapter", async () 
       })
   });
 
-  assert.equal(adapter.name, "api");
+  assert.equal(adapter.name, "connectors");
+  assert.match(adapter.label, /127\.0\.0\.1:4321/);
 });

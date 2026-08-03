@@ -12,7 +12,10 @@ Preserve useful guidance and remove stale information.
 - `admin/src/adapters/`: browser persistence boundary. `api.js` consumes the
   independent miniCMS API and discovers whether its session needs GitHub
   identity authentication; `github.js` reads and atomically commits repository
-  files directly. `AdapterContext.jsx` is the only UI access path to either.
+  files directly. `connectors.js` exposes them as one composite adapter, routes
+  collection operations through hydrated local aliases, translates remote
+  record/type names, and aggregates only the connector sessions the project
+  uses. `AdapterContext.jsx` is the only UI access path to that composite.
 - `admin/src/components/<Feature>/`: cohesive feature components with a
   colocated `<Feature>.scss`. Keep related small components together instead
   of creating a folder for every button or row.
@@ -37,6 +40,14 @@ Preserve useful guidance and remove stale information.
   generated-ID format and collision-aware generator. These helpers are
   exported as `@signalwerk/minicms/core/*` for infrastructure packages and the
   independent API service; miniCMS contains no HTTP server.
+- `core/connectors.js` owns the pure multi-connector contract. Source configs
+  contain exact remote stubs, while materialized configs retain those source
+  keys beside hydrated definitions. `materializeConfig` returns the effective
+  config, its normalized collapsible source form, and bidirectional plain-object
+  collection/type route maps. `translateRecord` uses one connector route to
+  clone and recursively translate node types and canonical Markdown inline
+  references. Service, browser, and static adapters must share these helpers
+  instead of duplicating remote-stub tests or name translation.
 - Consumer renderers may prepend a validated source-space crop to an existing
   canonical raster derivative with `prependImageServiceOperations`. Crop
   coordinates may be decimal or negative, dimensions are decimal values of at
@@ -47,12 +58,14 @@ Preserve useful guidance and remove stale information.
   return `null`.
 - `content/`: the complete project-facing read contract. `index.js` resolves
   references, configured Markdown inline references, and media over an
-  abstract raw source; `fs.js` loads validated YAML
-  for static Node builds. An explicit API backend gets shared service-media
-  defaults; GitHub/backend-less builds retain public static URLs unless the
-  website explicitly supplies `imageServiceBaseUrl`. Supplied resolvers take
-  precedence. Both return the same `{config, collection, item}` or
-  `{config, collection, items}` envelopes.
+  abstract raw source; `fs.js` loads validated local YAML, materializes remote
+  aliases, and routes named collection reads through connector sources for
+  static Node builds. Named API sources are created from their configured
+  HTTPS origin; other connector kinds require an explicit source. A default
+  API connector gets shared service-media defaults, while default GitHub
+  storage retains public static URLs unless the website supplies
+  `imageServiceBaseUrl`. Supplied resolvers take precedence. Both return the
+  same `{config, collection, item}` or `{config, collection, items}` envelopes.
 - The editor recreates its browser content adapter after collection summaries
   change so reference-target caches cannot outlive an editor-owned write.
   Unsaved source-record drafts remain safe to resolve repeatedly.
@@ -62,8 +75,9 @@ Preserve useful guidance and remove stale information.
   scaffolding, not a deployment template.
 - `bin/minicms.mjs`: package CLI. `build` is project-independent and `dev`
   starts only the Vite editor. Its development bootstrap sends API and media
-  requests directly to `MINICMS_API_URL`; the API has its own package and
-  process.
+  requests directly to `MINICMS_API_URL` and reads its trusted bootstrap
+  configuration from that local service's `/api/config`; the API has its own
+  package and process.
 - The shared media helper can scope accepted upload types to one collection by
   traversing its allowed record types and nested slot types cycle-safely. The
   filesystem API uses that scope; the GitHub adapter retains its established
@@ -116,9 +130,19 @@ changing shared core modules it has imported.
 ## Model and persistence
 
 - Root config contains keyed `node_types` and `collections` mappings.
-- Root `backend` selects `api` or `github`; legacy `node` normalizes to `api`.
-  API accepts an optional HTTPS `api_url`. GitHub requires `repo`, `base_url`,
-  and `branch`; Settings exposes all common and advanced options.
+- Root `connectors` contains mandatory `default`, optional reserved
+  `development`, and named remote adapters. Browser initialization explicitly
+  selects development with `environment: "development"`; only that reserved
+  connector may receive an `apiUrl` override through
+  `connectorOptions.development`. Production connector origins always come
+  from the consumer-owned bootstrap config.
+- Remote node types are exact `{connector, remote_type}` source declarations;
+  remote collections are exact `{connector, remote_collection}` declarations.
+  They may reference named connectors only. Imported definitions stay owned by
+  the remote project and collapse back to those stubs before the active default
+  connector saves configuration. Because records are complete atomic units,
+  connector persistence boundaries are collections; remote node-type aliases
+  import and translate schema identity but do not create partial-node writes.
 - `site.image_processing` configures only the API image-service capability:
   default raster dimensions, fit, output format/quality, and the derivative
   schema embedded in generated URLs. Project dimensions constrain newly
@@ -128,8 +152,10 @@ changing shared core modules it has imported.
   is validated or saved. GitHub image URL behavior must remain unchanged.
   JPEG output accepts distinct `jpg` and `jpeg` format values and preserves
   the selected extension in canonical derivative URLs.
-- Non-empty API origins are normalized and validated as credential-free HTTPS
-  origins in shared config before browser or static adapters use them.
+- Named API connectors require a credential-free HTTPS `api_url`. The reserved
+  default and development connectors may omit it for same-origin/runtime
+  selection; development alone may configure a loopback HTTP origin. GitHub
+  auth and API roots are credential-free HTTPS origins too.
 - Fields use a compact, intentionally custom declarative schema.
 - Fields are optional by default. Omit `required` for optional fields and
   persist only `required: true`; legacy `required: false` input normalizes away
@@ -146,9 +172,11 @@ changing shared core modules it has imported.
 - GitHub writes use one Git tree/commit/ref transaction per editor operation;
   preserve non-force branch conflict detection and never expose tokens in
   config, URLs, logs, or persistent local storage.
-- The deployed browser bootstrap's GitHub repository and auth settings are the trust
-  boundary; live repository config cannot redirect an already deployed editor
-  to another backend.
+- The deployed browser bootstrap's connector definitions are the trust
+  boundary; configuration returned by an active connector cannot redirect an
+  already deployed editor to another origin.
+- Composite authentication advances one pending connector per login action;
+  never open a second OAuth popup after awaiting the first user gesture.
 - GitHub supplies the latest path commit for `$updated_at`, but not file birth
   time; existing GitHub records expose `$created_at` as empty after reload.
 - Deletion must not orphan hierarchy children.
@@ -412,16 +440,21 @@ grip, and delete action visible while collapsed.
 
 ## Adapters, API, and testing
 
-Every adapter implements config read/write, collection list, record
+Every storage adapter implements config read/write, collection list, record
 read/create/save/rename/delete, media upload, media URL resolution, and session
-methods. `resolveMediaUrl` remains the raw file/download path;
+methods. The composite routes CRUD and uploads by local collection, while
+configuration writes always go to the active default connector and collapse
+hydrated remote definitions back to their two-key source stubs.
+`resolveMediaUrl` remains the raw file/download path;
 `resolveImageUrl` is a separate capability. The API implementation builds
 transformed routes from the latest loaded config and exposes public curated
 `getImageInfo`; GitHub delegates image resolution exactly to its existing raw
-resolver and does no info fetch. UI code must use `AdapterContext`, never call `/api` or GitHub
+resolver and does no info fetch. Media/image/info resolution always carries
+the owning local collection so identical relative paths can be dispatched to
+different connector origins. UI code must use `AdapterContext`, never call `/api` or GitHub
 directly. The independent service's content contract remains under `/api`.
 Upload widgets pass the active collection name to `uploadMedia`; storage
-adapters may ignore it only when their established backend layout does not use
+adapters may ignore it only when their established storage layout does not use
 collection-scoped media (currently GitHub).
 Deployed browser bundles load
 `cms.config.yml` relative to the consumer-owned admin document and then use the

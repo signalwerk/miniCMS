@@ -166,9 +166,10 @@ export default function App({ PreviewComponent = null }) {
             config,
             listRaw: (collectionName) => api.list(collectionName),
             getRaw: (collectionName, id) => api.record(collectionName, id),
-            resolveMediaUrl: (path) => api.resolveMediaUrl(path),
-            resolveImageUrl: (path) =>
-              api.resolveImageUrl(path, { fit: "inside" })
+            resolveMediaUrl: (path, options) =>
+              api.resolveMediaUrl(path, options),
+            resolveImageUrl: (path, options) =>
+              api.resolveImageUrl(path, { ...options, fit: "inside" })
           })
         : null,
     // Collection summaries change after editor-owned writes. Recreate the

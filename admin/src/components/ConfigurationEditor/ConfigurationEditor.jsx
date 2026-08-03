@@ -949,8 +949,128 @@ function AddEntryDialog({
   );
 }
 
-function SiteEditor({ site, backend = {}, update }) {
-  const backendName = backend.name || "api";
+function ConnectorEditor({ connectorKey, connector = {}, used, updateConnector, onDelete }) {
+  const connectorName = connector.name || "api";
+  const reserved = ["default", "development"].includes(connectorKey);
+  const heading = connectorKey === "default"
+    ? "Default connector"
+    : connectorKey === "development"
+      ? "Development connector"
+      : labelFromKey(connectorKey);
+
+  return (
+    <section className="configuration-card configuration-card--form">
+      <div className="configuration-subheading">
+        <div>
+          <strong>{heading}</strong>
+          {!reserved && <small><code>{connectorKey}</code></small>}
+        </div>
+        {connectorKey !== "default" && (
+          <button
+            type="button"
+            className="configuration-small-button danger"
+            disabled={used}
+            title={used ? "This connector is used by an imported definition" : "Delete connector"}
+            onClick={onDelete}
+          >
+            <Trash2 size={13} /> Delete
+          </button>
+        )}
+      </div>
+      <FormField label="Adapter">
+        <SelectInput
+          value={connectorName}
+          onChange={(value) => updateConnector((next) => {
+            const previous = { ...next };
+            for (const key of Object.keys(next)) delete next[key];
+            Object.assign(
+              next,
+              value === "github"
+                ? {
+                    name: "github",
+                    repo: previous.repo || "",
+                    branch: previous.branch || "main",
+                    base_url: previous.base_url || ""
+                  }
+                : {
+                    name: "api",
+                    ...(previous.api_url ? { api_url: previous.api_url } : {})
+                  }
+            );
+          })}
+        >
+          <option value="api">miniCMS API</option>
+          <option value="github">GitHub repository</option>
+        </SelectInput>
+      </FormField>
+      {connectorName === "api" ? (
+        <FormField label="API URL" optional={reserved}>
+          <TextInput
+            value={connector.api_url}
+            placeholder={
+              connectorKey === "development"
+                ? "Local API origin"
+                : connectorKey === "default"
+                  ? "Same origin"
+                  : "https://content.example.com"
+            }
+            onChange={(value) => updateConnector((next) => {
+              setOptional(next, "api_url", value);
+            })}
+          />
+        </FormField>
+      ) : (
+        <>
+          <div className="configuration-entry-card__grid">
+            <FormField label="GitHub repository">
+              <TextInput
+                value={connector.repo}
+                placeholder="owner/repository"
+                onChange={(value) => updateConnector((next) => {
+                  next.repo = value;
+                })}
+              />
+            </FormField>
+            <FormField label="Branch">
+              <TextInput
+                value={connector.branch}
+                placeholder="main"
+                onChange={(value) => updateConnector((next) => {
+                  next.branch = value;
+                })}
+              />
+            </FormField>
+          </div>
+          <FormField label="Authentication URL">
+            <TextInput
+              value={connector.base_url}
+              placeholder="https://auth.example.com"
+              onChange={(value) => updateConnector((next) => {
+                next.base_url = value;
+              })}
+            />
+          </FormField>
+          <FormField label="GitHub API URL" optional>
+            <TextInput
+              value={connector.api_root}
+              placeholder="https://api.github.com"
+              onChange={(value) => updateConnector((next) => {
+                setOptional(next, "api_root", value);
+              })}
+            />
+          </FormField>
+        </>
+      )}
+    </section>
+  );
+}
+
+function SiteEditor({ site, connectors = {}, connectorUse = [], update }) {
+  const [newConnectorKey, setNewConnectorKey] = useState("");
+  const normalizedConnectorKey = slugifyKey(newConnectorKey, "");
+  const connectorKeyTaken = Boolean(
+    normalizedConnectorKey && Object.hasOwn(connectors, normalizedConnectorKey)
+  );
   const configuredImageProcessing = site.image_processing ?? {};
   const configuredImageCache = configuredImageProcessing.cache ?? {};
   const imageProcessing = {
@@ -993,88 +1113,86 @@ function SiteEditor({ site, backend = {}, update }) {
             placeholder="en"
           />
         </FormField>
-        <FormField label="Storage adapter">
-          <SelectInput
-            value={backendName}
-            onChange={(value) => update((next) => {
-              if (value === "github") {
-                next.backend = {
-                  name: "github",
-                  repo: backend.repo || "",
-                  branch: backend.branch || "main",
-                  base_url: backend.base_url || ""
-                };
-              } else {
-                next.backend = {
-                  name: "api",
-                  ...(backend.api_url ? { api_url: backend.api_url } : {})
-                };
-              }
-            })}
-          >
-            <option value="api">miniCMS API</option>
-            <option value="github">GitHub repository</option>
-          </SelectInput>
-        </FormField>
       </section>
-      {backendName === "github" && (
-        <>
-          <section className="configuration-card configuration-card--form">
-            <FormField label="GitHub repository">
-              <TextInput
-                value={backend.repo}
-                placeholder="owner/repository"
-                onChange={(value) => update((next) => {
-                  next.backend.repo = value;
-                })}
-              />
-            </FormField>
-            <FormField label="Branch">
-              <TextInput
-                value={backend.branch}
-                placeholder="main"
-                onChange={(value) => update((next) => {
-                  next.backend.branch = value;
-                })}
-              />
-            </FormField>
-            <FormField label="Authentication URL">
-              <TextInput
-                value={backend.base_url}
-                placeholder="https://auth.example.com"
-                onChange={(value) => update((next) => {
-                  next.backend.base_url = value;
-                })}
-              />
-            </FormField>
-          </section>
-          <AdvancedSection title="GitHub API">
-            <FormField label="GitHub API URL">
-              <TextInput
-                value={backend.api_root}
-                placeholder="https://api.github.com"
-                onChange={(value) => update((next) => {
-                  setOptional(next.backend, "api_root", value);
-                })}
-              />
-            </FormField>
-          </AdvancedSection>
-        </>
-      )}
-      {backendName === "api" && (
-        <AdvancedSection title="miniCMS API">
-          <FormField label="API URL">
-            <TextInput
-              value={backend.api_url}
-              placeholder="Same origin"
-              onChange={(value) => update((next) => {
-                next.backend ??= { name: "api" };
-                setOptional(next.backend, "api_url", value);
+      <div className="configuration-subheading configuration-subheading--major">
+        <div><strong>Connectors</strong></div>
+      </div>
+      {Object.entries(connectors).map(([key, connector]) => (
+        <ConnectorEditor
+          key={key}
+          connectorKey={key}
+          connector={connector}
+          used={connectorUse.includes(key)}
+          updateConnector={(change) => update((next) => {
+            next.connectors ??= {};
+            next.connectors[key] ??= { name: "api" };
+            change(next.connectors[key]);
+          })}
+          onDelete={() => update((next) => {
+            delete next.connectors[key];
+          })}
+        />
+      ))}
+      {!connectors.development && (
+        <section className="configuration-card configuration-card--form">
+          <div className="configuration-subheading">
+            <div>
+              <strong>Development connector</strong>
+              <small>Optional storage used only by an explicitly development-mode host.</small>
+            </div>
+            <button
+              type="button"
+              className="configuration-small-button"
+              onClick={() => update((next) => {
+                next.connectors ??= {};
+                next.connectors.development = { name: "api" };
               })}
+            >
+              <Plus size={13} /> Add
+            </button>
+          </div>
+        </section>
+      )}
+      <section className="configuration-card configuration-card--form">
+        <div className="configuration-subheading">
+          <div><strong>Add named connector</strong></div>
+        </div>
+        <div className="configuration-entry-card__grid">
+          <FormField label="Connector key">
+            <TextInput
+              value={newConnectorKey}
+              placeholder="central_media"
+              onChange={setNewConnectorKey}
             />
           </FormField>
-        </AdvancedSection>
-      )}
+          <button
+            type="button"
+            className="button button--secondary"
+            disabled={
+              !normalizedConnectorKey ||
+              connectorKeyTaken ||
+              ["default", "development"].includes(normalizedConnectorKey)
+            }
+            onClick={() => {
+              update((next) => {
+                next.connectors ??= {};
+                next.connectors[normalizedConnectorKey] = {
+                  name: "api",
+                  api_url: ""
+                };
+              });
+              setNewConnectorKey("");
+            }}
+          >
+            <Plus size={14} /> Add connector
+          </button>
+        </div>
+        {connectorKeyTaken && (
+          <p className="configuration-inline-error">
+            <CircleAlert size={14} /> “{normalizedConnectorKey}” already exists.
+          </p>
+        )}
+      </section>
       <AdvancedSection
         title="Media paths"
       >
@@ -2310,6 +2428,7 @@ function TypeEditor({
   type,
   nodeTypes,
   collections,
+  connectors,
   updateType,
   onMoveType,
   onDeleteType,
@@ -2317,6 +2436,82 @@ function TypeEditor({
 }) {
   const fields = type.fields ?? {};
   const slots = type.slots ?? {};
+  const imported = Boolean(type.connector && type.remote_type);
+  const namedConnectors = Object.keys(connectors ?? {}).filter(
+    (key) => !["default", "development"].includes(key)
+  );
+
+  if (imported) {
+    return (
+      <div className="configuration-editor-pane">
+        <SectionHeading
+          icon={Layers3}
+          title={type.label || labelFromKey(typeKey)}
+          meta={typeKey}
+          action={
+            <div className="configuration-heading-actions">
+              <button type="button" title="Move type up" aria-label="Move content type up" onClick={() => onMoveType(-1)}>
+                <ArrowUp size={14} />
+              </button>
+              <button type="button" title="Move type down" aria-label="Move content type down" onClick={() => onMoveType(1)}>
+                <ArrowDown size={14} />
+              </button>
+              <button type="button" className="danger" title="Delete type" aria-label="Delete content type" onClick={onDeleteType}>
+                <Trash2 size={14} />
+              </button>
+            </div>
+          }
+        />
+        <section className="configuration-card configuration-card--form">
+          <div className="configuration-subheading">
+            <div>
+              <strong>Remote content type</strong>
+              <small>The field and slot schema is owned by the connected project.</small>
+            </div>
+          </div>
+          <div className="configuration-entry-card__grid">
+            <FormField label="Connector">
+              <SelectInput
+                value={type.connector}
+                onChange={(value) => updateType((nextType) => {
+                  nextType.connector = value;
+                })}
+              >
+                {namedConnectors.map((key) => (
+                  <option key={key} value={key}>{labelFromKey(key)}</option>
+                ))}
+              </SelectInput>
+            </FormField>
+            <FormField label="Remote type">
+              <TextInput
+                value={type.remote_type}
+                onChange={(value) => updateType((nextType) => {
+                  nextType.remote_type = value;
+                })}
+              />
+            </FormField>
+          </div>
+          <div className="configuration-inline-setting">
+            <span>
+              <strong>{Object.keys(fields).length} remote fields</strong>
+              <small>Open the remote project’s admin to change its schema.</small>
+            </span>
+            <button
+              type="button"
+              className="button button--secondary"
+              onClick={() => updateType((nextType) => {
+                delete nextType.connector;
+                delete nextType.remote_type;
+              })}
+            >
+              Make local
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="configuration-editor-pane">
       <SectionHeading
@@ -2354,6 +2549,23 @@ function TypeEditor({
         }
       />
       <section className="configuration-card configuration-card--form">
+        {namedConnectors.length > 0 && (
+          <FormField label="Definition source">
+            <SelectInput
+              value=""
+              onChange={(value) => updateType((nextType) => {
+                if (!value) return;
+                nextType.connector = value;
+                nextType.remote_type = typeKey;
+              })}
+            >
+              <option value="">This project</option>
+              {namedConnectors.map((key) => (
+                <option key={key} value={key}>{labelFromKey(key)}</option>
+              ))}
+            </SelectInput>
+          </FormField>
+        )}
         <div className="configuration-entry-card__grid">
           <FormField label="Type label">
             <TextInput
@@ -2960,6 +3172,7 @@ function CollectionEditor({
   collectionKey,
   collection,
   nodeTypes,
+  connectors,
   updateConfig,
   updateCollection,
   onMove,
@@ -2973,6 +3186,82 @@ function CollectionEditor({
   const viewFields = [...fields, ...SYSTEM_FIELD_OPTIONS];
   const listType = collection.views?.list?.type || "tree";
   const hierarchyEnabled = Boolean(collection.hierarchy?.enabled);
+  const imported = Boolean(collection.connector && collection.remote_collection);
+  const namedConnectors = Object.keys(connectors ?? {}).filter(
+    (key) => !["default", "development"].includes(key)
+  );
+
+  if (imported) {
+    return (
+      <div className="configuration-editor-pane">
+        <SectionHeading
+          icon={Database}
+          title={collection.label || labelFromKey(collectionKey)}
+          meta={collectionKey}
+          action={
+            <div className="configuration-heading-actions">
+              <button type="button" title="Move collection up" aria-label="Move collection up" onClick={() => onMove(-1)}>
+                <ArrowUp size={14} />
+              </button>
+              <button type="button" title="Move collection down" aria-label="Move collection down" onClick={() => onMove(1)}>
+                <ArrowDown size={14} />
+              </button>
+              <button type="button" className="danger" title="Delete collection" aria-label="Delete collection" onClick={onDelete}>
+                <Trash2 size={14} />
+              </button>
+            </div>
+          }
+        />
+        <section className="configuration-card configuration-card--form">
+          <div className="configuration-subheading">
+            <div>
+              <strong>Remote collection</strong>
+              <small>Records, uploads, media, and schema are owned by the connected project.</small>
+            </div>
+          </div>
+          <div className="configuration-entry-card__grid">
+            <FormField label="Connector">
+              <SelectInput
+                value={collection.connector}
+                onChange={(value) => updateCollection((nextCollection) => {
+                  nextCollection.connector = value;
+                })}
+              >
+                {namedConnectors.map((key) => (
+                  <option key={key} value={key}>{labelFromKey(key)}</option>
+                ))}
+              </SelectInput>
+            </FormField>
+            <FormField label="Remote collection">
+              <TextInput
+                value={collection.remote_collection}
+                onChange={(value) => updateCollection((nextCollection) => {
+                  nextCollection.remote_collection = value;
+                })}
+              />
+            </FormField>
+          </div>
+          <div className="configuration-inline-setting">
+            <span>
+              <strong>{collection.label || labelFromKey(collectionKey)}</strong>
+              <small>Open the remote project’s admin to change collection settings.</small>
+            </span>
+            <button
+              type="button"
+              className="button button--secondary"
+              onClick={() => updateCollection((nextCollection) => {
+                delete nextCollection.connector;
+                delete nextCollection.remote_collection;
+              })}
+            >
+              Make local
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="configuration-editor-pane">
       <SectionHeading
@@ -3010,6 +3299,23 @@ function CollectionEditor({
         }
       />
       <section className="configuration-card configuration-card--form">
+        {namedConnectors.length > 0 && (
+          <FormField label="Storage source">
+            <SelectInput
+              value=""
+              onChange={(value) => updateCollection((nextCollection) => {
+                if (!value) return;
+                nextCollection.connector = value;
+                nextCollection.remote_collection = collectionKey;
+              })}
+            >
+              <option value="">This project</option>
+              {namedConnectors.map((key) => (
+                <option key={key} value={key}>{labelFromKey(key)}</option>
+              ))}
+            </SelectInput>
+          </FormField>
+        )}
         <div className="configuration-entry-card__grid">
           <FormField label="Collection name">
             <TextInput
@@ -3966,7 +4272,15 @@ export default function ConfigurationEditor({
           {selection.section === "site" && (
             <SiteEditor
               site={draft.site ?? {}}
-              backend={draft.backend ?? {}}
+              connectors={draft.connectors ?? {}}
+              connectorUse={[
+                ...Object.values(draft.collections ?? {}),
+                ...Object.values(draft.node_types ?? {})
+              ].flatMap((definition) =>
+                typeof definition.connector === "string"
+                  ? [definition.connector]
+                  : []
+              )}
               update={update}
             />
           )}
@@ -3975,6 +4289,7 @@ export default function ConfigurationEditor({
               collectionKey={selection.key}
               collection={selectedCollection}
               nodeTypes={draft.node_types}
+              connectors={draft.connectors}
               updateConfig={update}
               updateCollection={(change) => updateCollection(selection.key, change)}
               onMove={(direction) => update((next) => {
@@ -3989,6 +4304,7 @@ export default function ConfigurationEditor({
               type={selectedType}
               nodeTypes={draft.node_types}
               collections={draft.collections}
+              connectors={draft.connectors}
               updateType={(change) => updateType(selection.key, change)}
               onMoveType={(direction) => update((next) => {
                 next.node_types = moveMappingEntry(next.node_types, selection.key, direction);

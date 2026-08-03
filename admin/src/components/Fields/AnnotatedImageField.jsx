@@ -143,7 +143,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
 
     setSourceInfo({ source: image.src, status: "loading", value: null });
     api
-      .getImageInfo(image.src)
+      .getImageInfo(image.src, { collection: collectionName })
       .then((information) => {
         if (!active) return;
         if (information === null) {
@@ -175,7 +175,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
     return () => {
       active = false;
     };
-  }, [api, image.src, needsServiceInfo]);
+  }, [api, collectionName, image.src, needsServiceInfo]);
 
   useEffect(() => {
     if (!editorOpen) return undefined;
@@ -492,7 +492,8 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
         src={api.resolveImageUrl(image.src, {
           width: 2048,
           height: 2048,
-          fit: "inside"
+          fit: "inside",
+          collection: collectionName
         })}
         alt=""
         draggable={false}
@@ -728,7 +729,8 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
               src={api.resolveImageUrl(image.src, {
                 width: 640,
                 height: 480,
-                fit: "inside"
+                fit: "inside",
+                collection: collectionName
               })}
               alt=""
               onLoad={(event) => {

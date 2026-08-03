@@ -113,7 +113,8 @@ function ReferenceSelectionsDialog({
   const source = adapter.resolveImageUrl(sourcePath, {
     width: 1600,
     height: 1600,
-    fit: "inside"
+    fit: "inside",
+    collection: collection.name
   });
   const storedWidth = positiveNumber(sourceValue?.width);
   const storedHeight = positiveNumber(sourceValue?.height);
@@ -223,7 +224,7 @@ function ReferenceSelectionsDialog({
 
     setSourceInfo({ source: sourcePath, status: "loading", value: null });
     adapter
-      .getImageInfo(sourcePath)
+      .getImageInfo(sourcePath, { collection: collection.name })
       .then((information) => {
         if (!active) return;
         if (information === null) {
@@ -255,7 +256,7 @@ function ReferenceSelectionsDialog({
     return () => {
       active = false;
     };
-  }, [adapter, needsServiceInfo, sourcePath]);
+  }, [adapter, collection.name, needsServiceInfo, sourcePath]);
 
   function setSelection(name, selectedValue) {
     const next = { ...draft };

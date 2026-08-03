@@ -53,7 +53,7 @@ function FileUploadField({ id, field, value, collectionName, onChange }) {
       {value ? (
         <a
           className="file-upload-field__file"
-          href={adapter.resolveMediaUrl(value)}
+          href={adapter.resolveMediaUrl(value, { collection: collectionName })}
           target="_blank"
           rel="noreferrer"
         >

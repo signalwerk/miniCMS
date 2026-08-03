@@ -134,50 +134,84 @@ stale link falls back to the closest collection or record that still exists.
 Selecting the document root in the content tree repeats its record ID in the
 node segment, preserving which tree owns the active selection.
 
-## Storage adapters
+## Storage connectors
 
-The browser consumes one storage interface for configuration, collection
-lists, records, renames, deletion, media uploads, authentication, and media URL
-resolution. Configure the deployed adapter at the root of `cms.config.yml`:
+The browser exposes one storage interface while a project may use several
+connectors. `default` owns the local configuration and every ordinary local
+collection. The optional reserved `development` connector replaces it only
+when the host explicitly starts miniCMS in development mode. Any other key is
+a named remote connector:
 
 ```yaml
-backend:
-  name: github
-  repo: owner/repository
-  base_url: https://auth.example.com
-  branch: main
+connectors:
+  default:
+    name: github
+    repo: owner/website
+    base_url: https://auth.example.com
+    branch: main
+  development:
+    name: api
+  central_media:
+    name: api
+    api_url: https://media.example.com
+
+node_types:
+  shared_image:
+    connector: central_media
+    remote_type: image
+
+collections:
+  shared_images:
+    connector: central_media
+    remote_collection: images
 ```
 
-`name: api` uses the configured API origin, or the page origin when omitted,
-and may optionally define an HTTPS `api_url`. It discovers whether that API is local or requires a GitHub
-identity login, then sends the API's opaque bearer with every protected
-request. The legacy `name: node` value is normalized to the same adapter. `name: github`
-uses the GitHub REST API and the popup protocol at
-`<base_url>/auth`; the optional advanced `api_root` defaults to
-`https://api.github.com`. Project configuration remains at `cms.config.yml`.
-Raw files use `resolveMediaUrl`. Images use the separate `resolveImageUrl`
-capability: API mode builds a downsampled image-service URL, while GitHub mode
-delegates exactly to its existing raw-media URL behavior.
-API uploads include the active collection. The service streams the file,
-computes its SHA-256, and returns a path shaped as
-`/media/<collection>/<sha256>/<filename>`. GitHub keeps its established flat
-repository-media layout and ignores that additional collection context.
-The filesystem service scopes accepted types to upload fields reachable from
-that collection and its nested slot types; an unrelated collection's `*/*`
-file field cannot widen an image collection.
+Remote declarations are deliberately exact two-key aliases. miniCMS loads the
+named connector's configuration, hydrates the local type and collection for
+editing, and translates their names at the connector boundary. Listing,
+reading, creating, saving, renaming, deleting, and uploading through
+`shared_images` therefore happen in the remote `images` collection. Imported
+schema remains owned by the remote project; saving Settings writes only the
+two-key aliases back through the active default connector.
 
-The package's development HTML deliberately selects the API adapter even when
-the deployed backend is GitHub. The standalone browser bundle uses the backend
-from the bootstrap config next to the consumer's HTML. `minicms build` is
-project-independent: it does not inspect or copy consumer config, content,
-media, preview code, or site output.
+`name: api` uses `api_url`, or the page origin when it is omitted on a reserved
+connector. Named API connectors require HTTPS. An API connector discovers
+whether it is local or requires GitHub identity, then sends its opaque bearer
+on protected requests. `name: github` uses the GitHub REST API and the popup
+protocol at `<base_url>/auth`; the optional `api_root` defaults to
+`https://api.github.com`. The legacy root `backend` and connector name `node`
+are not accepted.
 
-Adapters that require authentication show only a centered sign-in action until
-their session exists; the editor workspace is not mounted or displayed
-beforehand. Direct GitHub's returned token stays in session storage. Repository reads, record updates,
-configuration writes, renames, deletions, and binary uploads then use GitHub
-tree/commit/ref operations so each editor operation advances the configured
-branch atomically. The API service controls its own local/production auth mode.
+The host selects the development connector explicitly:
+
+```js
+miniCMS.init({
+  configUrl: "./cms.config.yml",
+  environment: "development",
+  connectorOptions: {
+    development: { apiUrl: "http://127.0.0.1:8787" }
+  }
+});
+```
+
+Only `connectorOptions.development.apiUrl` may replace a configured origin;
+production and named connector origins always come from the consumer-owned
+bootstrap configuration. miniCMS instantiates the active default plus only the
+named connectors referenced by aliases. If any of them requires
+authentication, the editor remains behind the sign-in gate until every used
+connector has a session. Each click authenticates one pending connector so
+browser popup blocking cannot interrupt a multi-service sign-in.
+
+Raw files use `resolveMediaUrl`; images use the separate `resolveImageUrl`
+capability. The owning local collection accompanies every media request so the
+composite can choose the right connector. API mode builds image-service URLs
+and uploads to `/media/<collection>/<sha256>/<filename>`. GitHub preserves its
+flat repository-media layout and raw-media URL behavior. The filesystem
+service scopes accepted upload types to fields reachable from the receiving
+collection and its nested slot types.
+
+`minicms build` is project-independent: it does not inspect or copy consumer
+configuration, content, media, preview code, or site output.
 
 ## Project previews
 
@@ -279,8 +313,8 @@ const content = createContentAdapter({
   config,
   listRaw: (collection) => storage.list(collection),
   getRaw: (collection, id) => storage.record(collection, id),
-  resolveMediaUrl: (path) => storage.resolveMediaUrl(path),
-  resolveImageUrl: (path) => storage.resolveImageUrl(path)
+  resolveMediaUrl: (path, context) => storage.resolveMediaUrl(path, context),
+  resolveImageUrl: (path, context) => storage.resolveImageUrl(path, context)
 });
 ```
 
@@ -292,16 +326,28 @@ import { createFilesystemContentAdapter } from "@signalwerk/minicms/content/fs";
 const content = await createFilesystemContentAdapter({
   projectRoot,
   publicBase: "/project/",
-  imageServiceBaseUrl: "https://images.example.com"
+  imageServiceBaseUrl: "https://images.example.com",
+  connectorOptions: {
+    central_media: { token: process.env.MINICMS_CENTRAL_MEDIA_READ_TOKEN }
+  }
 });
 ```
 
-When the validated project config explicitly selects `backend.name: api`, the
-filesystem adapter uses the same raw and derivative service URLs as the browser
-adapter. A website may set `imageServiceBaseUrl` to use the service for images
-independently of its persistence backend; an empty string selects same-origin
-routes. Files/downloads retain their normal raw-media resolver. Explicit
-resolver functions always override these defaults.
+The filesystem adapter reads default collections from the local `content/`
+tree and materializes the same aliases as the browser. Named API connectors are
+loaded from their configured `api_url`; another connector kind can be supplied
+through `connectorSources`. Requests for a remote collection, including media
+resolution, are routed to that source and translated back to local names.
+`connectorOptions.<name>.token` is sent only by this server-side adapter as a
+Bearer credential for protected static-build reads; never expose it to the
+browser bundle.
+
+When `connectors.default.name` is `api`, raw and derivative URLs use its image
+service settings. A website may set `imageServiceBaseUrl` to use that service
+for default images independently of their storage connector; an empty string
+selects same-origin routes. GitHub defaults to public static URLs.
+Files/downloads retain their raw-media resolver, and explicit resolver
+functions always override these defaults.
 
 `content.get(collection, idOrUnsavedRecord)` returns
 `{config, collection, item}`. `content.list(collection)` returns

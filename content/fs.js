@@ -5,12 +5,19 @@ import {
   assertContentPath,
   assertSafeName,
   parseYaml,
-  validateConfig,
+  validateSourceConfig,
   validateRecord
 } from "../core/content.js";
 import {
+  isRemoteCollection,
+  isRemoteNodeType,
+  materializeConfig,
+  translateRecord
+} from "../core/connectors.js";
+import {
   buildImageServiceMediaUrl,
-  buildImageServiceUrl
+  buildImageServiceUrl,
+  normalizeHttpOrigin
 } from "../core/image-service.js";
 import { createContentAdapter } from "./index.js";
 
@@ -68,12 +75,104 @@ function publicUrl(value, base) {
   return normalized ? `${normalized}/${suffix}` : `/${suffix}`;
 }
 
+function connectorError(message, status) {
+  const error = new Error(message);
+  if (status !== undefined) error.status = status;
+  return error;
+}
+
+function connectorAuthorization(options = {}) {
+  if (typeof options.token === "string" && options.token) {
+    return { authorization: `Bearer ${options.token}` };
+  }
+  return {};
+}
+
+function createApiContentSource({
+  connectorName,
+  connector,
+  fetchImpl,
+  options = {}
+}) {
+  if (!connector.api_url) {
+    throw connectorError(
+      `Connector "${connectorName}" must define api_url for a filesystem build.`
+    );
+  }
+  const apiOrigin = normalizeHttpOrigin(
+    connector.api_url,
+    `Connector "${connectorName}" API URL`
+  );
+  const configuredHeaders = {
+    ...connectorAuthorization(options),
+    ...(options.headers ?? {})
+  };
+  let configPromise;
+
+  async function request(pathname) {
+    const response = await fetchImpl(new URL(pathname, `${apiOrigin}/`), {
+      headers: configuredHeaders
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw connectorError(
+        body?.message ||
+          `Connector "${connectorName}" request failed with status ${response.status}.`,
+        response.status
+      );
+    }
+    return body;
+  }
+
+  function config() {
+    configPromise ??= request("/api/config");
+    return configPromise;
+  }
+
+  return {
+    config,
+    list: (collectionName) =>
+      request(`/api/collections/${encodeURIComponent(collectionName)}`),
+    record: (collectionName, id) =>
+      request(
+        `/api/collections/${encodeURIComponent(collectionName)}/${encodeURIComponent(id)}`
+      ),
+    async resolveMediaUrl(value) {
+      return buildImageServiceMediaUrl(value, {
+        baseUrl: apiOrigin,
+        config: await config()
+      });
+    },
+    async resolveImageUrl(value) {
+      return buildImageServiceUrl(value, {
+        baseUrl: apiOrigin,
+        config: await config(),
+        fit: "inside"
+      });
+    }
+  };
+}
+
+function remoteConnectorNames(config) {
+  const names = new Set();
+  for (const type of Object.values(config.node_types ?? {})) {
+    if (isRemoteNodeType(type)) names.add(type.connector);
+  }
+  for (const collection of Object.values(config.collections ?? {})) {
+    if (isRemoteCollection(collection)) names.add(collection.connector);
+  }
+  return names;
+}
+
 async function createFilesystemContentAdapter({
   projectRoot,
   resolveMediaUrl,
   resolveImageUrl,
   imageServiceBaseUrl,
-  publicBase = "/"
+  publicBase = "/",
+  connectorSources = {},
+  connectorOptions = {},
+  fetchImpl = fetch
 } = {}) {
   if (
     resolveMediaUrl !== undefined &&
@@ -93,6 +192,15 @@ async function createFilesystemContentAdapter({
   ) {
     throw new TypeError("imageServiceBaseUrl must be a string.");
   }
+  if (!connectorSources || typeof connectorSources !== "object") {
+    throw new TypeError("connectorSources must be a mapping.");
+  }
+  if (!connectorOptions || typeof connectorOptions !== "object") {
+    throw new TypeError("connectorOptions must be a mapping.");
+  }
+  if (typeof fetchImpl !== "function") {
+    throw new TypeError("fetchImpl must be a function.");
+  }
 
   const root = await fs.realpath(rootPath(projectRoot));
   if (!(await fs.stat(root)).isDirectory()) {
@@ -104,9 +212,34 @@ async function createFilesystemContentAdapter({
   if (configMetadata.isSymbolicLink() || !configMetadata.isFile()) {
     throw new Error("cms.config.yml must be a regular file in projectRoot.");
   }
-  const config = validateConfig(
+  const sourceConfig = validateSourceConfig(
     parseYaml(await fs.readFile(configPath, "utf8"))
   );
+  const sources = {};
+  const remoteConfigs = {};
+  for (const connectorName of remoteConnectorNames(sourceConfig)) {
+    const connector = sourceConfig.connectors[connectorName];
+    const supplied = connectorSources[connectorName];
+    const source = supplied ?? (
+      connector?.name === "api"
+        ? createApiContentSource({
+            connectorName,
+            connector,
+            fetchImpl,
+            options: connectorOptions[connectorName]
+          })
+        : null
+    );
+    if (!source || typeof source.config !== "function") {
+      throw connectorError(
+        `Connector "${connectorName}" needs a content source for filesystem builds.`
+      );
+    }
+    sources[connectorName] = source;
+    remoteConfigs[connectorName] = await source.config();
+  }
+  const materialized = materializeConfig({ sourceConfig, remoteConfigs });
+  const { config, routes } = materialized;
   const declaredContentRoot = path.join(root, "content");
   let contentRootPromise;
 
@@ -125,6 +258,10 @@ async function createFilesystemContentAdapter({
 
   function collectionFor(name) {
     assertSafeName(name, "collection name");
+    const route = routes.collections[name];
+    if (route?.connector && route.connector !== "default") {
+      throw new Error(`Collection "${name}" is owned by connector "${route.connector}".`);
+    }
     const definition = config.collections?.[name];
     if (!definition) throw new Error(`Collection "${name}" does not exist.`);
     const collection = { name, ...definition };
@@ -222,9 +359,48 @@ async function createFilesystemContentAdapter({
     );
   }
 
-  const backendName = config.backend?.name;
-  const apiBackend = backendName === "api" || backendName === "node";
-  const apiUrl = apiBackend ? String(config.backend?.api_url || "") : "";
+  function routeFor(collectionName) {
+    assertSafeName(collectionName, "collection name");
+    const route = routes.collections[collectionName];
+    if (!route) throw new Error(`Collection "${collectionName}" does not exist.`);
+    return route;
+  }
+
+  async function readRoutedRecord(collectionName, id) {
+    const route = routeFor(collectionName);
+    if (route.connector === "default") return readRecord(collectionName, id);
+    const source = sources[route.connector];
+    const record = await source.record(route.remote_collection, id);
+    return record
+      ? translateRecord(
+          record,
+          routes.connectors[route.connector],
+          "remote_to_local"
+        )
+      : null;
+  }
+
+  async function listRoutedRecords(collectionName) {
+    const route = routeFor(collectionName);
+    if (route.connector === "default") return listRecords(collectionName);
+    const result = await sources[route.connector].list(route.remote_collection);
+    const items = Array.isArray(result) ? result : result?.items ?? [];
+    return {
+      ...(Array.isArray(result) ? {} : result),
+      collection: collectionName,
+      items: items.map((item) =>
+        translateRecord(
+          item,
+          routes.connectors[route.connector],
+          "remote_to_local"
+        )
+      )
+    };
+  }
+
+  const defaultConnector = config.connectors.default;
+  const apiBackend = defaultConnector.name === "api";
+  const apiUrl = apiBackend ? String(defaultConnector.api_url || "") : "";
   const defaultMediaResolver = apiBackend
     ? (value) =>
         buildImageServiceMediaUrl(value, {
@@ -232,23 +408,58 @@ async function createFilesystemContentAdapter({
           config
         })
     : (value) => publicUrl(value, publicBase);
-  const mediaResolver = resolveMediaUrl ?? defaultMediaResolver;
-  const imageResolver =
-    resolveImageUrl ??
-    (imageServiceBaseUrl !== undefined || (resolveMediaUrl === undefined && apiBackend)
-      ? (value) =>
-          buildImageServiceUrl(value, {
-            baseUrl: imageServiceBaseUrl ?? apiUrl,
-            config,
-            fit: "inside"
-          })
-      : mediaResolver);
+  async function connectorMediaResolver(value, context = {}) {
+    if (resolveMediaUrl) return resolveMediaUrl(value, context);
+    const route = context.collection
+      ? routeFor(context.collection)
+      : { connector: "default" };
+    if (route.connector === "default") return defaultMediaResolver(value);
+    const source = sources[route.connector];
+    if (typeof source.resolveMediaUrl !== "function") {
+      throw connectorError(
+        `Connector "${route.connector}" does not provide media URL resolution.`
+      );
+    }
+    return source.resolveMediaUrl(value, {
+      ...context,
+      collection: route.remote_collection
+    });
+  }
+  async function connectorImageResolver(value, context = {}) {
+    if (resolveImageUrl) return resolveImageUrl(value, context);
+    const route = context.collection
+      ? routeFor(context.collection)
+      : { connector: "default" };
+    if (route.connector !== "default") {
+      const source = sources[route.connector];
+      if (typeof source.resolveImageUrl !== "function") {
+        throw connectorError(
+          `Connector "${route.connector}" does not provide image URL resolution.`
+        );
+      }
+      return source.resolveImageUrl(value, {
+        ...context,
+        collection: route.remote_collection
+      });
+    }
+    if (
+      imageServiceBaseUrl !== undefined ||
+      (resolveMediaUrl === undefined && apiBackend)
+    ) {
+      return buildImageServiceUrl(value, {
+        baseUrl: imageServiceBaseUrl ?? apiUrl,
+        config,
+        fit: "inside"
+      });
+    }
+    return connectorMediaResolver(value, context);
+  }
   return createContentAdapter({
     config,
-    listRaw: listRecords,
-    getRaw: readRecord,
-    resolveMediaUrl: mediaResolver,
-    resolveImageUrl: imageResolver
+    listRaw: listRoutedRecords,
+    getRaw: readRoutedRecord,
+    resolveMediaUrl: connectorMediaResolver,
+    resolveImageUrl: connectorImageResolver
   });
 }
 

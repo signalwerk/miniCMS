@@ -13,6 +13,11 @@ export type { InlineReference } from "../core/inline-reference.js";
 export type UnknownMapping = Record<string, unknown>;
 export type ReferenceScalar = string | number | boolean;
 
+export interface CmsConnector extends UnknownMapping {
+  name: "api" | "github";
+  api_url?: string;
+}
+
 export interface ContentNode {
   id: string;
   type: string;
@@ -54,10 +59,9 @@ export type ResolvedTags<T extends ContentRecord = ContentRecord> =
   ResolvedReference<T>[];
 
 export interface CmsConfig extends UnknownMapping {
-  backend?: {
-    name?: string;
-    api_url?: string;
-    [key: string]: unknown;
+  connectors: Record<string, CmsConnector> & {
+    default: CmsConnector;
+    development?: CmsConnector;
   };
   site?: {
     name?: string;
@@ -89,6 +93,10 @@ export interface ContentListData<T extends ContentRecord = ContentRecord> {
 
 export type MaybePromise<T> = T | Promise<T>;
 
+export interface MediaResolutionContext {
+  collection: string;
+}
+
 export type ContentSourceListResult =
   | ContentRecord[]
   | { items: UnknownMapping[]; [key: string]: unknown };
@@ -108,8 +116,14 @@ export interface ContentSource {
     collection: string,
     id: string
   ) => MaybePromise<ContentSourceRecordResult>;
-  resolveMediaUrl?: (value: string) => MaybePromise<string>;
-  resolveImageUrl?: (value: string) => MaybePromise<string>;
+  resolveMediaUrl?: (
+    value: string,
+    context: MediaResolutionContext
+  ) => MaybePromise<string>;
+  resolveImageUrl?: (
+    value: string,
+    context: MediaResolutionContext
+  ) => MaybePromise<string>;
 }
 
 export interface ContentAdapterOptions {
@@ -120,8 +134,14 @@ export interface ContentAdapterOptions {
     collection: string,
     id: string
   ) => MaybePromise<ContentSourceRecordResult>;
-  resolveMediaUrl?: (value: string) => MaybePromise<string>;
-  resolveImageUrl?: (value: string) => MaybePromise<string>;
+  resolveMediaUrl?: (
+    value: string,
+    context: MediaResolutionContext
+  ) => MaybePromise<string>;
+  resolveImageUrl?: (
+    value: string,
+    context: MediaResolutionContext
+  ) => MaybePromise<string>;
 }
 
 export interface ContentAdapter {

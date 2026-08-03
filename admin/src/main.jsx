@@ -50,14 +50,11 @@ function init(options = {}) {
       const adapter =
         suppliedAdapter ||
         (await createAdapter({
-          adapterOverride:
-            options.adapterOverride ??
-            (typeof options.adapter === "string" ? options.adapter : undefined),
           bootstrapConfig: options.config,
           bootstrapUrl: bootstrapUrl(options.configUrl),
           fetchImpl: options.fetchImpl,
-          apiOptions: options.apiOptions,
-          githubOptions: options.githubOptions
+          environment: options.environment,
+          connectorOptions: options.connectorOptions
         }));
       const application = (
         <AdapterProvider adapter={adapter}>

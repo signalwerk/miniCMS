@@ -18,11 +18,13 @@ const adminPort = Number(process.env.ADMIN_PORT || 5173);
 async function runTests() {
   const testFiles = [
     path.join(packageRoot, "core", "content.test.mjs"),
+    path.join(packageRoot, "core", "connectors.test.mjs"),
     path.join(packageRoot, "core", "inline-reference.test.mjs"),
     path.join(packageRoot, "core", "image-service.test.mjs"),
     path.join(packageRoot, "core", "media.test.mjs"),
     path.join(packageRoot, "core", "slug.test.mjs"),
     path.join(packageRoot, "admin", "src", "adapters", "api.test.mjs"),
+    path.join(packageRoot, "admin", "src", "adapters", "connectors.test.mjs"),
     path.join(packageRoot, "admin", "src", "adapters", "github.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "auth.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "editor.test.mjs"),

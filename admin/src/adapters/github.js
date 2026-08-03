@@ -6,7 +6,7 @@ import {
   normalizeRepositoryPath,
   parseYaml,
   summarizeRecord,
-  validateConfig,
+  validateSourceConfig,
   validateRecord
 } from "../../../core/content.js";
 import {
@@ -56,25 +56,25 @@ function recordTimestamp(commit) {
 
 function createGitHubAdapter({
   config: bootstrapConfig,
+  connector,
   fetchImpl = fetch,
   auth: suppliedAuth,
   windowObject,
   storage
 }) {
-  validateConfig(bootstrapConfig);
-  const backend = bootstrapConfig.backend;
-  const [owner, repository] = backend.repo.split("/");
-  const branch = backend.branch || "main";
+  validateSourceConfig(bootstrapConfig);
+  const [owner, repository] = connector.repo.split("/");
+  const branch = connector.branch || "main";
   const configPath = "cms.config.yml";
   const apiRoot = String(
-    backend.api_root || "https://api.github.com"
+    connector.api_root || "https://api.github.com"
   ).replace(/\/+$/, "");
   const repositoryApi = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`;
   const auth =
     suppliedAuth ||
     createGitHubAuth({
-      baseUrl: backend.base_url,
-      repository: backend.repo,
+      baseUrl: connector.base_url,
+      repository: connector.repo,
       ...(windowObject ? { windowObject } : {}),
       ...(storage ? { storage } : {})
     });
@@ -88,7 +88,7 @@ function createGitHubAdapter({
     authenticationRequired: true,
     label: auth.getToken() ? "GitHub" : "Sign in",
     provider: "github",
-    repository: backend.repo,
+    repository: connector.repo,
     branch
   };
 
@@ -115,7 +115,7 @@ function createGitHubAdapter({
         login: user?.login,
         avatarUrl: user?.avatar_url,
         provider: "github",
-        repository: backend.repo,
+        repository: connector.repo,
         branch
       };
       emitSession(session);
@@ -135,7 +135,7 @@ function createGitHubAdapter({
       authenticationRequired: true,
       label: "Sign in",
       provider: "github",
-      repository: backend.repo,
+      repository: connector.repo,
       branch
     });
   }
@@ -327,13 +327,10 @@ function createGitHubAdapter({
   async function loadConfig() {
     try {
       const source = await readRepositoryFile(configPath);
-      currentConfig = validateConfig({
-        ...parseYaml(source.text),
-        backend: bootstrapConfig.backend
-      });
+      currentConfig = validateSourceConfig(parseYaml(source.text));
     } catch (error) {
       if (error.status !== 404 || auth.getToken()) throw error;
-      currentConfig = validateConfig(bootstrapConfig);
+      currentConfig = validateSourceConfig(bootstrapConfig);
     }
     return currentConfig;
   }
@@ -568,7 +565,7 @@ function createGitHubAdapter({
 
   async function saveConfig(config) {
     await ensureAuthenticated();
-    const validated = validateConfig(config, 400);
+    const validated = validateSourceConfig(config, 400);
     await commitChanges(
       [{ path: configPath, text: dumpYaml(validated) }],
       "Update miniCMS configuration"
@@ -666,7 +663,7 @@ function createGitHubAdapter({
 
   return {
     name: "github",
-    label: `${backend.repo} · ${branch}`,
+    label: `${connector.repo} · ${branch}`,
     session: () => currentSession,
     subscribeSession(listener) {
       listeners.add(listener);

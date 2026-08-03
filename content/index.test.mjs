@@ -278,6 +278,56 @@ test("resolves images independently while files keep the raw media resolver", as
   );
 });
 
+test("passes the owning collection to file and image resolvers", async () => {
+  const calls = [];
+  const adapter = createContentAdapter({
+    config,
+    listRaw(collectionName) {
+      return collectionName === "pages" ? [home] : [image];
+    },
+    getRaw(collectionName, id) {
+      if (collectionName === "pages" && id === home.id) return home;
+      if (collectionName === "images" && id === image.id) return image;
+      return null;
+    },
+    resolveMediaUrl(value, context) {
+      calls.push({ kind: "file", value, ...context });
+      return value;
+    },
+    resolveImageUrl(value, context) {
+      calls.push({ kind: "image", value, ...context });
+      return value;
+    }
+  });
+
+  await adapter.get("pages", "home");
+
+  assert.ok(
+    calls.some(
+      (call) =>
+        call.kind === "file" &&
+        call.value === "/media/research.pdf" &&
+        call.collection === "pages"
+    )
+  );
+  assert.ok(
+    calls.some(
+      (call) =>
+        call.kind === "image" &&
+        call.value === "/media/poster.png" &&
+        call.collection === "pages"
+    )
+  );
+  assert.ok(
+    calls.some(
+      (call) =>
+        call.kind === "image" &&
+        call.value === "/media/hero.jpg" &&
+        call.collection === "images"
+    )
+  );
+});
+
 test("list returns resolved records in the same envelope shape as get", async () => {
   const { adapter, counters } = sourceAdapter();
   const listed = await adapter.list("pages");

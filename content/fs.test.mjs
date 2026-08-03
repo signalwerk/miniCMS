@@ -21,7 +21,13 @@ const FILE_SHA = "b".repeat(64);
 const IMAGE_SOURCE = `/media/images/${IMAGE_SHA}/picture.jpg`;
 const FILE_SOURCE = `/media/files/${FILE_SHA}/research.pdf`;
 
-const configuration = `site:
+const configuration = `connectors:
+  default:
+    name: github
+    repo: signalwerk/example
+    base_url: https://auth.example.test
+    branch: main
+site:
   name: Filesystem fixture
 node_types:
   page:
@@ -166,6 +172,160 @@ test("accepts a dedicated image resolver without changing file resolution", asyn
   );
 });
 
+test("hydrates and resolves a remote collection through its named connector", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "minicms-connectors-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, "content", "pages"), { recursive: true });
+  await writeFile(
+    path.join(root, "cms.config.yml"),
+    `connectors:
+  default:
+    name: github
+    repo: signalwerk/project
+    base_url: https://auth.example.test
+    branch: main
+  central_media:
+    name: api
+    api_url: https://media.example.test
+site: {}
+node_types:
+  page:
+    fields:
+      hero: {widget: reference, collection: shared_images}
+  shared_image:
+    connector: central_media
+    remote_type: media_image
+collections:
+  pages:
+    folder: content/pages
+    node_type: page
+  shared_images:
+    connector: central_media
+    remote_collection: images
+`,
+    "utf8"
+  );
+  await writeFile(
+    path.join(root, "content", "pages", "home.yml"),
+    `id: home
+type: page
+order: 0
+properties:
+  hero: aaaaaaaaaaaaaaa
+slots: {}
+`,
+    "utf8"
+  );
+  const remoteConfig = {
+    connectors: {
+      default: { name: "api", api_url: "https://media.example.test" }
+    },
+    site: {},
+    node_types: {
+      media_image: {
+        fields: {
+          content_id: { widget: "id" },
+          title: { widget: "string" },
+          file: { widget: "image" }
+        }
+      }
+    },
+    collections: {
+      images: {
+        folder: "content/images",
+        node_type: "media_image",
+        views: {
+          reference: { value: "content_id", title: "title", image: "file" }
+        }
+      }
+    }
+  };
+  const remoteImage = {
+    id: "hero",
+    type: "media_image",
+    order: 0,
+    properties: {
+      content_id: "aaaaaaaaaaaaaaa",
+      title: "Central hero",
+      file: `/media/images/${IMAGE_SHA}/hero.jpg`
+    },
+    slots: {}
+  };
+  const mediaCalls = [];
+  const adapter = await createFilesystemContentAdapter({
+    projectRoot: root,
+    connectorSources: {
+      central_media: {
+        config: () => remoteConfig,
+        list: (collectionName) => ({
+          collection: collectionName,
+          items: [remoteImage]
+        }),
+        record: (_collectionName, id) =>
+          id === remoteImage.id ? remoteImage : null,
+        resolveMediaUrl: (value, context) => {
+          mediaCalls.push({ kind: "file", value, context });
+          return `https://media.example.test${value}`;
+        },
+        resolveImageUrl: (value, context) => {
+          mediaCalls.push({ kind: "image", value, context });
+          return `https://media.example.test/derived${value}`;
+        }
+      }
+    }
+  });
+
+  const page = await adapter.get("pages", "home");
+  const resolved = page.item.properties.hero.record;
+  assert.equal(adapter.config().collections.shared_images.node_type, "shared_image");
+  assert.equal(resolved.type, "shared_image");
+  assert.equal(resolved.properties.title, "Central hero");
+  assert.equal(
+    resolved.properties.file,
+    `https://media.example.test/derived/media/images/${IMAGE_SHA}/hero.jpg`
+  );
+  assert.deepEqual(mediaCalls.at(-1).context, { collection: "images" });
+
+  const requests = [];
+  const automatic = await createFilesystemContentAdapter({
+    projectRoot: root,
+    connectorOptions: {
+      central_media: { token: "static-build-token" }
+    },
+    fetchImpl: async (input, options = {}) => {
+      const url = new URL(input);
+      requests.push({
+        pathname: url.pathname,
+        authorization: new Headers(options.headers).get("authorization")
+      });
+      const body = url.pathname === "/api/config"
+        ? remoteConfig
+        : url.pathname === "/api/collections/images"
+          ? { collection: "images", items: [remoteImage] }
+          : null;
+      return new Response(JSON.stringify(body), {
+        status: body ? 200 : 404,
+        headers: { "content-type": "application/json" }
+      });
+    }
+  });
+  const automaticallyResolved = (await automatic.get("pages", "home"))
+    .item.properties.hero.record;
+  assert.equal(
+    new URL(automaticallyResolved.properties.file).origin,
+    "https://media.example.test"
+  );
+  assert.deepEqual(
+    requests.map((request) => request.pathname),
+    ["/api/config", "/api/collections/images"]
+  );
+  assert.ok(
+    requests.every(
+      (request) => request.authorization === "Bearer static-build-token"
+    )
+  );
+});
+
 test("can use the image service independently from content persistence", async (t) => {
   const root = await fixture(t);
   const adapter = await createFilesystemContentAdapter({
@@ -188,13 +348,6 @@ test("can use the image service independently from content persistence", async (
 
 test("keeps GitHub-backed images and files on public media URLs", async (t) => {
   const root = await fixture(t);
-  const githubConfig = `backend:
-  name: github
-  repo: signalwerk/example
-  base_url: https://auth.example.test
-  branch: main
-${configuration}`;
-  await writeFile(path.join(root, "cms.config.yml"), githubConfig, "utf8");
   const adapter = await createFilesystemContentAdapter({
     projectRoot: root,
     publicBase: "/project/"
@@ -212,15 +365,21 @@ ${configuration}`;
   );
 });
 
-test("uses the shared media service defaults for an explicit API backend", async (t) => {
+test("uses the shared media service defaults for an API default connector", async (t) => {
   const root = await fixture(t);
-  const apiConfig = `backend:
-  name: api
-  api_url: https://content.example.test
-${configuration.replace(
+  const apiConfig = configuration.replace(
+  `default:
+    name: github
+    repo: signalwerk/example
+    base_url: https://auth.example.test
+    branch: main`,
+  `default:
+    name: api
+    api_url: https://content.example.test`
+).replace(
   "site:\n  name: Filesystem fixture",
   "site:\n  name: Filesystem fixture\n  image_processing:\n    fit: cover"
-)}`;
+);
   await writeFile(path.join(root, "cms.config.yml"), apiConfig, "utf8");
   const adapter = await createFilesystemContentAdapter({ projectRoot: root });
   const imageRecord = (await adapter.get("pages", "home"))
