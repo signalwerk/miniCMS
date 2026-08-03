@@ -165,11 +165,39 @@ function imageSource(value) {
   return normalizeImageValue(value).src;
 }
 
-function imageCoordinateSize(value, naturalWidth, naturalHeight) {
+function imageInfoCoordinateSize(value) {
+  const candidates = [value, value?.meta, value?.info, value?.metadata];
+  for (const candidate of candidates) {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate)
+    ) {
+      continue;
+    }
+    const width = positiveInteger(
+      candidate.normalizedWidth ?? candidate.width
+    );
+    const height = positiveInteger(
+      candidate.normalizedHeight ?? candidate.height
+    );
+    if (width && height) return { width, height };
+  }
+  return null;
+}
+
+function imageCoordinateSize(
+  value,
+  naturalWidth,
+  naturalHeight,
+  imageInfo = null
+) {
   const image = normalizeImageValue(value);
   if (image.width && image.height) {
     return { width: image.width, height: image.height };
   }
+  const informationSize = imageInfoCoordinateSize(imageInfo);
+  if (informationSize) return informationSize;
   const width = positiveInteger(naturalWidth);
   const height = positiveInteger(naturalHeight);
   return width && height ? { width, height } : null;
@@ -180,6 +208,7 @@ export {
   createImageAnnotationId,
   ensureImageAnnotationIds,
   imageCoordinateSize,
+  imageInfoCoordinateSize,
   imageSource,
   normalizeImageValue,
   refreshImageAnnotationIds

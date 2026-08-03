@@ -1,0 +1,171 @@
+import { isInlineReferenceUrl } from "../../../core/inline-reference.js";
+import {
+  createOrReuseReferencedRecord,
+  createReferencedRecord,
+  matchingReferenceOption,
+  normalizedReferenceLabel,
+  referenceCreationConfig,
+  referenceItemValue
+} from "./reference.js";
+
+function scalarText(value) {
+  return ["string", "number", "boolean"].includes(typeof value)
+    ? String(value)
+    : "";
+}
+
+function inlineReferenceOption(item, collection, previewField) {
+  const referenceView = collection?.views?.reference ?? {};
+  const referenceValue = referenceItemValue(
+    item,
+    referenceView.value || "id",
+    collection
+  );
+  if (typeof referenceValue !== "string" || !referenceValue) return null;
+
+  const configuredLabel = previewField
+    ? scalarText(referenceItemValue(item, previewField, collection))
+    : "";
+  const collectionLabel = referenceView.title
+    ? scalarText(referenceItemValue(item, referenceView.title, collection))
+    : "";
+  const label =
+    configuredLabel ||
+    collectionLabel ||
+    scalarText(item?.title) ||
+    scalarText(item?.id) ||
+    referenceValue;
+  const propertyText = Object.values(item?.properties ?? {})
+    .map(scalarText)
+    .filter(Boolean)
+    .join(" ");
+
+  return {
+    item,
+    label,
+    recordId: scalarText(item?.id) || referenceValue,
+    searchText: `${label} ${item?.id ?? ""} ${propertyText}`
+      .toLocaleLowerCase(),
+    value: referenceValue
+  };
+}
+
+function inlineReferenceOptions(items, collection, previewField) {
+  return (Array.isArray(items) ? items : []).flatMap((item) => {
+    const option = inlineReferenceOption(item, collection, previewField);
+    return option ? [option] : [];
+  });
+}
+
+function normalizedInlineReferenceLabel(value) {
+  return normalizedReferenceLabel(value);
+}
+
+function inlineReferenceCreationConfig(collection, nodeTypes, previewField) {
+  return referenceCreationConfig(collection, nodeTypes, {
+    labelField: previewField
+  });
+}
+
+function matchingInlineReference(items, collection, previewField, label) {
+  return matchingReferenceOption(
+    items,
+    (item) => inlineReferenceOption(item, collection, previewField),
+    label
+  );
+}
+
+function createInlineReferenceRecord({
+  label,
+  collection,
+  nodeTypes,
+  previewField,
+  items = [],
+  date = new Date()
+}) {
+  return createReferencedRecord({
+    label,
+    collection,
+    nodeTypes,
+    labelField: previewField,
+    items,
+    date,
+    optionForItem: (item) =>
+      inlineReferenceOption(item, collection, previewField)
+  });
+}
+
+async function createOrReuseInlineReference({
+  adapter,
+  label,
+  collection,
+  nodeTypes,
+  previewField,
+  items = [],
+  date = new Date()
+}) {
+  return createOrReuseReferencedRecord({
+    adapter,
+    label,
+    collection,
+    nodeTypes,
+    labelField: previewField,
+    items,
+    date,
+    optionForItem: (item) =>
+      inlineReferenceOption(item, collection, previewField)
+  });
+}
+
+function isMapping(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function escapeInlineReferenceLabelText(text) {
+  return text.replace(/[\\[\]]/g, "\\$&");
+}
+
+function markdownSafeInlineReferences(value, insideReference = false) {
+  if (Array.isArray(value)) {
+    return value.map((entry) =>
+      markdownSafeInlineReferences(entry, insideReference)
+    );
+  }
+  if (!isMapping(value)) return value;
+
+  const nextInsideReference =
+    insideReference ||
+    (value.type === "link" && isInlineReferenceUrl(value.href));
+  const result = Object.fromEntries(
+    Object.entries(value).map(([name, entry]) => [
+      name,
+      markdownSafeInlineReferences(entry, nextInsideReference)
+    ])
+  );
+  if (
+    insideReference &&
+    value.type === "text" &&
+    typeof value.text === "string" &&
+    value.styles?.code !== true
+  ) {
+    result.text = escapeInlineReferenceLabelText(value.text);
+  }
+  return result;
+}
+
+function blocksToMarkdownWithSafeReferences(editor, blocks) {
+  return editor.blocksToMarkdownLossy(markdownSafeInlineReferences(blocks));
+}
+
+export {
+  blocksToMarkdownWithSafeReferences,
+  createInlineReferenceRecord,
+  createOrReuseInlineReference,
+  escapeInlineReferenceLabelText,
+  inlineReferenceCreationConfig,
+  inlineReferenceOption,
+  inlineReferenceOptions,
+  markdownSafeInlineReferences,
+  matchingInlineReference,
+  normalizedInlineReferenceLabel
+};

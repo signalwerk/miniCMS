@@ -7,6 +7,9 @@ import {
 
 function displayValue(value, field) {
   if (value === null || value === undefined || value === "") return "—";
+  if (field.widget === "tags" && Array.isArray(value)) {
+    return value.length ? value.map(String).join(", ") : "—";
+  }
   if (field.widget === "reference") {
     const reference = normalizeReferenceValue(value).ref;
     return hasReferenceValue(reference) ? String(reference) : "—";

@@ -14,6 +14,7 @@ const MIME_EXTENSIONS = new Map([
   ["image/gif", new Set([".gif"])],
   ["image/webp", new Set([".webp"])],
   ["image/avif", new Set([".avif"])],
+  ["image/tiff", new Set([".tif", ".tiff"])],
   ["image/svg+xml", new Set([".svg"])]
 ]);
 
@@ -70,6 +71,54 @@ function configuredMediaAccept(config) {
   return hasUploadField
     ? [...new Set(configured)]
     : acceptTokens(DEFAULT_IMAGE_ACCEPT);
+}
+
+function configuredCollectionMediaAccept(
+  config,
+  collection,
+  widgets = ["image", "file"]
+) {
+  const acceptedWidgets = new Set(
+    (Array.isArray(widgets) ? widgets : [widgets]).filter((widget) =>
+      ["image", "file"].includes(widget)
+    )
+  );
+  const rootTypes = Array.isArray(collection?.allowed_types)
+    ? collection.allowed_types
+    : [collection?.node_type].filter(Boolean);
+  const hierarchyTypes = collection?.hierarchy?.enabled
+    ? Array.isArray(collection.hierarchy.allowed_child_types)
+      ? collection.hierarchy.allowed_child_types
+      : rootTypes
+    : [];
+  const pendingTypes = [...rootTypes, ...hierarchyTypes];
+  const visitedTypes = new Set();
+  const configured = [];
+
+  while (pendingTypes.length) {
+    const typeName = pendingTypes.shift();
+    if (visitedTypes.has(typeName)) continue;
+    visitedTypes.add(typeName);
+    const type = config?.node_types?.[typeName];
+    if (!type) continue;
+
+    for (const field of Object.values(type.fields ?? {})) {
+      if (!acceptedWidgets.has(field?.widget)) continue;
+      configured.push(
+        ...acceptTokens(
+          field.accept ??
+            (field.widget === "file" ? DEFAULT_FILE_ACCEPT : DEFAULT_IMAGE_ACCEPT)
+        )
+      );
+    }
+    for (const slot of Object.values(type.slots ?? {})) {
+      if (Array.isArray(slot?.allowed_types)) {
+        pendingTypes.push(...slot.allowed_types);
+      }
+    }
+  }
+
+  return [...new Set(configured)];
 }
 
 const configuredImageAccept = configuredMediaAccept;
@@ -197,6 +246,7 @@ export {
   DEFAULT_FILE_ACCEPT,
   DEFAULT_IMAGE_ACCEPT,
   acceptTokens,
+  configuredCollectionMediaAccept,
   configuredImageAccept,
   configuredMediaAccept,
   mediaAcceptErrorMessage,

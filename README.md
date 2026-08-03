@@ -147,13 +147,23 @@ backend:
   branch: main
 ```
 
-`name: api` uses the same-origin `/api` routes and may optionally define
-`api_url`. It discovers whether that API is local or requires a GitHub identity
-login, then sends the API's opaque bearer with every protected request. The
-legacy `name: node` value is normalized to the same adapter. `name: github`
+`name: api` uses the same-origin `/api` routes and may optionally define an
+HTTPS `api_url`. It discovers whether that API is local or requires a GitHub
+identity login, then sends the API's opaque bearer with every protected
+request. The legacy `name: node` value is normalized to the same adapter. `name: github`
 uses the GitHub REST API and the popup protocol at
 `<base_url>/auth`; the optional advanced `api_root` defaults to
 `https://api.github.com`. Project configuration remains at `cms.config.yml`.
+Raw files use `resolveMediaUrl`. Images use the separate `resolveImageUrl`
+capability: API mode builds a downsampled image-service URL, while GitHub mode
+delegates exactly to its existing raw-media URL behavior.
+API uploads include the active collection. The service streams the file,
+computes its SHA-256, and returns a path shaped as
+`/media/<collection>/<sha256>/<filename>`. GitHub keeps its established flat
+repository-media layout and ignores that additional collection context.
+The filesystem service scopes accepted types to upload fields reachable from
+that collection and its nested slot types; an unrelated collection's `*/*`
+file field cannot widen an image collection.
 
 The package's development HTML deliberately selects the API adapter even when
 the deployed backend is GitHub. The standalone browser bundle uses the backend
@@ -268,7 +278,8 @@ const content = createContentAdapter({
   config,
   listRaw: (collection) => storage.list(collection),
   getRaw: (collection, id) => storage.record(collection, id),
-  resolveMediaUrl: (path) => storage.resolveMediaUrl(path)
+  resolveMediaUrl: (path) => storage.resolveMediaUrl(path),
+  resolveImageUrl: (path) => storage.resolveImageUrl(path)
 });
 ```
 
@@ -279,9 +290,17 @@ import { createFilesystemContentAdapter } from "@signalwerk/minicms/content/fs";
 
 const content = await createFilesystemContentAdapter({
   projectRoot,
-  publicBase: "/project/"
+  publicBase: "/project/",
+  imageServiceBaseUrl: "https://images.example.com"
 });
 ```
+
+When the validated project config explicitly selects `backend.name: api`, the
+filesystem adapter uses the same raw and derivative service URLs as the browser
+adapter. A website may set `imageServiceBaseUrl` to use the service for images
+independently of its persistence backend; an empty string selects same-origin
+routes. Files/downloads retain their normal raw-media resolver. Explicit
+resolver functions always override these defaults.
 
 `content.get(collection, idOrUnsavedRecord)` returns
 `{config, collection, item}`. `content.list(collection)` returns
@@ -342,8 +361,9 @@ and restores focus. Fine-grained mode, display, appearance, and alignment
 controls belong to table columns; the runtime still reads older detail-field
 presentation configuration.
 
-Select fields marked `required: false` start empty and retain a `None` option,
-so editors can clear a previously selected value.
+Fields are optional by default. Omit `required` for optional fields and persist
+only `required: true` when a value is mandatory. Optional select fields start
+empty and retain a `None` option so editors can clear a previous selection.
 
 Fields can be shown only for a matching sibling value. References can also
 limit a mixed collection to specific record types:
@@ -365,13 +385,125 @@ target:
 
 Both options are editable through the field forms in Settings.
 
+The reference chooser separates **Select** and **Create** into two tabs. Create
+shows a complete inspector for the target collection's permitted primary type,
+using its normal fields, defaults, generated IDs, uploads, relations, slug
+template, root order, and empty slots. **Create and select** writes that complete
+record through the active adapter and immediately selects its published
+reference value. Re-selecting the current target preserves crop/focus
+selections; creating or choosing another target clears those target-specific
+selections. This target write is immediate and survives discarding the record
+that contains the reference.
+
+The `url` widget stores an empty string or an absolute HTTP(S) URL and renders a
+semantic browser URL input; shared validation enforces the same rule. The
+`tags` widget is a multi-relation to a collection. Its YAML value is
+an ordered array of stable generated IDs; the target collection publishes the
+ID and visible label once through its normal reference view:
+
+```yaml
+node_types:
+  article:
+    fields:
+      website: {label: Website, widget: url}
+      tags:
+        label: Tags
+        widget: tags
+        collection: tags
+  tag:
+    fields:
+      content_id: {label: ID, widget: id, readonly: true, required: true}
+      name: {label: Name, widget: string, required: true}
+
+collections:
+  tags:
+    folder: content/tags
+    extension: yml
+    node_type: tag
+    allowed_types: [tag]
+    slug: "{{name}}-{{year}}-{{month}}"
+    identifier_field: name
+    views:
+      list: {type: tree}
+      reference: {value: content_id, title: name}
+```
+
+The Inspector uses a creatable multi-select. Selecting writes only the tag ID
+array into the edited record. Creating an option first writes a complete tag
+record through the active API or GitHub adapter, then selects its generated ID;
+that tag remains if the source draft is later discarded. Project-facing
+content adapters resolve each stored ID to the same `{ref, record, selections}`
+shape used by ordinary references, so `ref` retains the persisted ID while the
+website receives the full tag record. A newly created tag also resolves in the
+live preview immediately when an earlier tag lookup populated its relation
+cache. Inline creation uses the target collection's `node_type`; if the
+collection defines `allowed_types`, that primary type must be included.
+Tags do not support defaults or per-type filters. Publish a generated-ID
+property such as `content_id`; `id` and `$id` refer to the readable top-level
+record ID and are not valid tag identities.
+
 The `markdown` widget lazy-loads a controlled BlockNote editor as its default
 visual view. **Code** switches to the exact Markdown source. Focus is supplied
-by its containing Inspector group rather than by the field. Command/Ctrl+S
+by the active Inspector panel rather than by the field. Command/Ctrl+S
 still saves the active record in either view. BlockNote's Markdown import/export
 is lossy for constructs it cannot represent, so merely opening the visual view
 never rewrites the value, and Code should be used when unsupported source
 syntax must remain exact.
+
+BlockNote can add an inline picker for records from one collection:
+
+```yaml
+body:
+  label: Body
+  widget: markdown
+  blocknote:
+    inline_reference:
+      collection: sources
+      preview_field: title
+```
+
+The target collection publishes its identity through `views.reference.value`.
+`preview_field` selects the initial flowing link text; when omitted, the
+collection's published reference title is used. The inserted text remains an
+editable snapshot, while the link destination keeps the stable identity. The
+identity must come from a text-backed field (or the record ID), and Settings
+offers only scalar fields for the displayed snapshot:
+
+```markdown
+[Research source](minicms://reference/sources/abc123def456ghi)
+```
+
+The picker uses the same **Select** and **Create** tabs as an ordinary reference
+field. Create shows every applicable field in the target inspector. After
+**Create and insert** stores the complete target record, miniCMS inserts its
+published reference identity and configured preview text into the paragraph.
+Like uploads and inline-created tags, this target-record write is immediate and
+survives discarding the record that contains the Markdown draft.
+
+Only canonical miniCMS destinations are accepted in the visual editor. The
+reference toolbar replaces or removes them without trying to open the custom
+scheme, including when the field is read-only. Square brackets and backslashes
+in the visible label are escaped only in stored Markdown, so they survive the
+next visual import unchanged. The project-facing adapter leaves storage
+untouched and resolves actual link destinations—not plain text, code, or image
+destinations—in a configured Markdown property to:
+
+```js
+{
+  markdown: "Read [the source](minicms://reference/sources/abc123def456ghi).",
+  references: {
+    "minicms://reference/sources/abc123def456ghi": {
+      collection: "sources",
+      ref: "abc123def456ghi",
+      record: {/* the resolved record, or null */}
+    }
+  }
+}
+```
+
+The website decides how each resolved record becomes a public link or another
+inline presentation. Markdown fields without this configuration remain plain
+strings in the read contract.
 
 Image fields keep their compact path-string value until a region or point is
 added. Annotated values expand without losing backwards compatibility:
@@ -400,7 +532,10 @@ Annotation coordinates are integers in the persisted image coordinate space;
 region rotation may use decimal degrees.
 Those stored dimensions remain authoritative when the image is reopened,
 which avoids browser-dependent geometry for SVGs without explicit intrinsic
-dimensions. IDs are immutable; labels and geometry remain editable. The editor
+dimensions. When the API displays a raster derivative and no dimensions have
+yet been stored, it reads the public curated info route and uses the original,
+orientation-aware dimensions instead of the derivative's browser dimensions.
+IDs are immutable; labels and geometry remain editable. The editor
 opens these controls in a dedicated modal and supports multiple labeled regions
 with eight resize handles, move, and rotation plus multiple labeled points.
 Rotation uses 1-degree steps normally, 0.1-degree steps while Option/Alt is
@@ -463,7 +598,9 @@ owns deterministic clamping.
 
 Image fields may configure an HTML-style `accept` list. MIME types, filename
 extensions, and wildcards are supported; both persistence adapters enforce the
-configured types in addition to the browser picker. SVG is part of the default:
+configured types in addition to the browser picker. SVG is part of the
+default. TIFF can be enabled with `image/tiff`; extension inference covers both
+`.tif` and `.tiff`:
 
 ```yaml
 file:
@@ -472,6 +609,9 @@ file:
     - image/jpeg
     - image/png
     - image/webp
+    - image/tiff
+    - .tif
+    - .tiff
     - image/svg+xml
 ```
 
@@ -484,6 +624,53 @@ download:
   accept:
     - "*/*"
 ```
+
+API image processing is project-configured and editable under the advanced
+Project settings:
+
+```yaml
+site:
+  image_processing:
+    width: 2400
+    height: 2400
+    fit: inside
+    format: webp
+    quality: 82
+    cache:
+      schema: v1
+      strategy: revalidate
+      max_age: 0
+```
+
+The schema is embedded in generated image URLs. `revalidate` combines the
+server's derivative cache with browser ETags. `immutable` is intended for
+content-addressed source paths. `disabled` emits uncached responses. Generated URLs clamp
+component-specific requests to the project dimensions. The service applies its
+stable deployment limits to every request, so an existing canonical URL stays
+valid when project defaults change. SVG sources use an exact byte passthrough
+route and never enter the raster processor.
+
+Renderers can call `prependImageServiceOperations(url, operations)` from
+`@signalwerk/minicms/content` to add one source-space crop to an
+already resolved canonical raster derivative. Crop geometry may use decimal
+coordinates; `left` and `top` may be negative when all four corners remain
+inside the source. Dimensions must cover at least one source pixel, and an
+optional `rotation` is clockwise. Crop must be first and cannot be combined
+with whole-image `rotate`. The helper keeps the derivative's origin/source and
+existing resize/quality suffix. It returns `null` for GitHub/raw URLs,
+metadata/noop routes, and byte-preserved SVGs so renderers can retain their
+non-service fallback.
+
+New API uploads use a readable, content-addressed route. For example:
+
+```text
+/media/_image/v1/images/<sha256>/photo.png/resize@width:1600,height:900,fit:inside;quality@82/photo.webp
+```
+
+The API route builder accepts only
+`/media/<collection>/<sha256>/<filename>` sources. Encoded identifiers and flat
+service paths are rejected, so generated URLs always expose the same readable
+source hierarchy used by storage.
 
 A collection can own those uploaded files. When enabled, record deletion names
 the affected files in its confirmation and removes upload values from `file`
@@ -550,8 +737,11 @@ contains only the browser adapter for this contract:
 - `PUT /api/collections/:collection/:id`
 - `POST /api/collections/:collection/:id/rename`
 - `DELETE /api/collections/:collection/:id`
-- `POST /api/media?filename=<name>`
+- `POST /api/media/:collection?filename=<name>`
+- `GET|HEAD /media/:collection/:sha256/:filename`
+- `GET|HEAD /media/_image/:schema/:collection/:sha256/:filename/:operations/:slug.:format`
 
 The browser sends an opaque service bearer on protected API routes. Media URLs
-remain public so they work in ordinary image/download elements. See the API
+and the safe `.json` info variant remain public so they work in ordinary image
+elements and cross-origin project previews. See the API
 package for its OAuth environment, deployment, persistence, and route tests.

@@ -50,6 +50,12 @@ import {
 } from "../../model/editor.js";
 import { isGeneratedIdWidget } from "../../../../core/id.js";
 import {
+  DEFAULT_IMAGE_PROCESSING,
+  IMAGE_CACHE_STRATEGIES,
+  IMAGE_FITS,
+  IMAGE_FORMATS
+} from "../../../../core/image-service.js";
+import {
   DEFAULT_FILE_ACCEPT,
   DEFAULT_IMAGE_ACCEPT,
   acceptTokens,
@@ -61,6 +67,7 @@ import "./ConfigurationEditor.scss";
 
 const WIDGET_OPTIONS = [
   ["string", "Single-line text"],
+  ["url", "URL"],
   ["text", "Long text"],
   ["markdown", "Rich text / Markdown"],
   ["select", "Dropdown"],
@@ -70,6 +77,7 @@ const WIDGET_OPTIONS = [
   ["file", "File upload"],
   ["image", "Image upload"],
   ["reference", "Collection reference"],
+  ["tags", "Tags"],
   ["id", "Generated ID"]
 ];
 
@@ -86,6 +94,19 @@ const SYSTEM_FIELD_OPTIONS = [
   ["$created_at", "Created"],
   ["$updated_at", "Updated"]
 ];
+
+const INLINE_REFERENCE_PREVIEW_WIDGETS = new Set([
+  "string",
+  "text",
+  "url",
+  "markdown",
+  "select",
+  "boolean",
+  "datetime",
+  "number",
+  "id",
+  "uuid"
+]);
 
 const FIELD_DISPLAY_OPTIONS = [
   ["", "Automatic"],
@@ -252,10 +273,32 @@ function reconcileReferenceFieldsForCollection(config, collectionKey) {
 
   for (const type of Object.values(config.node_types ?? {})) {
     for (const field of Object.values(type.fields ?? {})) {
+      const inlineReference = field.blocknote?.inline_reference;
       if (
-        field.widget !== "reference" ||
+        field.widget === "markdown" &&
+        inlineReference?.collection === collectionKey
+      ) {
+        if (
+          inlineReference.preview_field &&
+          !systemFields.has(inlineReference.preview_field) &&
+          !INLINE_REFERENCE_PREVIEW_WIDGETS.has(
+            targetFields[inlineReference.preview_field]?.widget
+          )
+        ) {
+          delete inlineReference.preview_field;
+        }
+        continue;
+      }
+      if (
+        !["reference", "tags"].includes(field.widget) ||
         field.collection !== collectionKey
       ) {
+        continue;
+      }
+      if (field.widget === "tags") {
+        delete field.value_field;
+        delete field.allowed_types;
+        delete field.selections;
         continue;
       }
       if (Array.isArray(field.allowed_types)) {
@@ -909,6 +952,33 @@ function AddEntryDialog({
 
 function SiteEditor({ site, backend = {}, update }) {
   const backendName = backend.name || "api";
+  const configuredImageProcessing = site.image_processing ?? {};
+  const configuredImageCache = configuredImageProcessing.cache ?? {};
+  const imageCacheStrategy =
+    configuredImageCache.strategy ?? DEFAULT_IMAGE_PROCESSING.cache.strategy;
+  const imageProcessing = {
+    ...DEFAULT_IMAGE_PROCESSING,
+    ...configuredImageProcessing,
+    format:
+      configuredImageProcessing.format === "jpg"
+        ? "jpeg"
+        : configuredImageProcessing.format ?? DEFAULT_IMAGE_PROCESSING.format,
+    cache: {
+      ...DEFAULT_IMAGE_PROCESSING.cache,
+      ...configuredImageCache,
+      max_age: Object.hasOwn(configuredImageCache, "max_age")
+        ? configuredImageCache.max_age
+        : imageCacheStrategy === "immutable"
+          ? 31_536_000
+          : DEFAULT_IMAGE_PROCESSING.cache.max_age
+    }
+  };
+  function updateImageProcessing(change) {
+    update((next) => {
+      next.site.image_processing ??= {};
+      change(next.site.image_processing);
+    });
+  }
   return (
     <div className="configuration-editor-pane">
       <SectionHeading
@@ -1034,6 +1104,107 @@ function SiteEditor({ site, backend = {}, update }) {
             })}
           />
         </FormField>
+      </AdvancedSection>
+      <AdvancedSection title="Image processing">
+        <div className="configuration-entry-card__grid">
+          <FormField label="Maximum width">
+            <TextInput
+              type="number"
+              min="1"
+              max="8192"
+              value={imageProcessing.width}
+              onChange={(value) => updateImageProcessing((next) => {
+                next.width = Number(value);
+              })}
+            />
+          </FormField>
+          <FormField label="Maximum height">
+            <TextInput
+              type="number"
+              min="1"
+              max="8192"
+              value={imageProcessing.height}
+              onChange={(value) => updateImageProcessing((next) => {
+                next.height = Number(value);
+              })}
+            />
+          </FormField>
+        </div>
+        <FormField label="Resize fit">
+          <SelectInput
+            value={imageProcessing.fit}
+            onChange={(value) => updateImageProcessing((next) => {
+              next.fit = value;
+            })}
+          >
+            {IMAGE_FITS.map((fit) => (
+              <option key={fit} value={fit}>{labelFromKey(fit)}</option>
+            ))}
+          </SelectInput>
+        </FormField>
+        <div className="configuration-entry-card__grid">
+          <FormField label="Output format">
+            <SelectInput
+              value={imageProcessing.format}
+              onChange={(value) => updateImageProcessing((next) => {
+                next.format = value;
+              })}
+            >
+              {IMAGE_FORMATS.map((format) => (
+                <option key={format} value={format}>{format.toUpperCase()}</option>
+              ))}
+            </SelectInput>
+          </FormField>
+          <FormField label="Output quality">
+            <TextInput
+              type="number"
+              min="1"
+              max="100"
+              value={imageProcessing.quality}
+              onChange={(value) => updateImageProcessing((next) => {
+                next.quality = Number(value);
+              })}
+            />
+          </FormField>
+        </div>
+        <FormField label="Cache strategy">
+          <SelectInput
+            value={imageProcessing.cache.strategy}
+            onChange={(value) => updateImageProcessing((next) => {
+              next.cache ??= {};
+              next.cache.strategy = value;
+            })}
+          >
+            {IMAGE_CACHE_STRATEGIES.map((strategy) => (
+              <option key={strategy} value={strategy}>
+                {labelFromKey(strategy)}
+              </option>
+            ))}
+          </SelectInput>
+        </FormField>
+        <div className="configuration-entry-card__grid">
+          <FormField label="Cache schema">
+            <TextInput
+              value={imageProcessing.cache.schema}
+              onChange={(value) => updateImageProcessing((next) => {
+                next.cache ??= {};
+                next.cache.schema = value;
+              })}
+            />
+          </FormField>
+          <FormField label="Browser cache age (seconds)">
+            <TextInput
+              type="number"
+              min="0"
+              max="31536000"
+              value={imageProcessing.cache.max_age}
+              onChange={(value) => updateImageProcessing((next) => {
+                next.cache ??= {};
+                next.cache.max_age = Number(value);
+              })}
+            />
+          </FormField>
+        </div>
       </AdvancedSection>
     </div>
   );
@@ -1259,6 +1430,15 @@ function FieldEditor({
     ([key]) => key !== fieldKey
   );
   const conditionField = fields[field.visible_when?.field];
+  const inlineReference = field.blocknote?.inline_reference;
+  const inlineReferenceCollection = collections[inlineReference?.collection];
+  const inlineReferenceFields = Object.entries(
+    nodeTypes[inlineReferenceCollection?.node_type]?.fields ?? {}
+  )
+    .filter(([, targetField]) =>
+      INLINE_REFERENCE_PREVIEW_WIDGETS.has(targetField.widget)
+    )
+    .map(([key, targetField]) => [key, targetField.label || key]);
 
   function defaultConditionValue(sourceField) {
     if (sourceField?.default !== undefined) return sourceField.default;
@@ -1284,7 +1464,7 @@ function FieldEditor({
           aria-expanded={open}
           aria-controls={bodyId}
           aria-label={`${field.label || labelFromKey(fieldKey)}, ${widgetLabel}${
-            field.required === false ? ", optional" : ""
+            field.required !== true ? ", optional" : ""
           }`}
           onClick={() => setOpen((value) => !value)}
         >
@@ -1297,7 +1477,7 @@ function FieldEditor({
           </span>
           <span className="configuration-entry-card__badges" aria-hidden="true">
             <i>{widgetLabel}</i>
-            {field.required === false && <i>Optional</i>}
+            {field.required !== true && <i>Optional</i>}
           </span>
           <ChevronDown size={15} aria-hidden="true" />
         </button>
@@ -1330,14 +1510,22 @@ function FieldEditor({
               } else if (value !== "select") {
                 delete nextField.options;
               }
-              if (value !== "reference") {
+              if (!["reference", "tags"].includes(value)) {
                 delete nextField.collection;
+              }
+              if (value !== "reference") {
                 delete nextField.value_field;
                 delete nextField.allowed_types;
                 delete nextField.selections;
               }
+              if (value === "tags" || Array.isArray(nextField.default)) {
+                delete nextField.default;
+              }
               if (!["image", "file"].includes(value)) {
                 delete nextField.accept;
+              }
+              if (value !== "markdown") {
+                delete nextField.blocknote;
               }
             })}
           >
@@ -1352,10 +1540,11 @@ function FieldEditor({
           <strong>Required</strong>
         </span>
         <Switch
-          checked={field.required !== false}
+          checked={field.required === true}
           label={`${field.label || fieldKey} required`}
           onChange={(checked) => onChange((nextField) => {
-            nextField.required = checked;
+            if (checked) nextField.required = true;
+            else delete nextField.required;
           })}
         />
       </div>
@@ -1373,9 +1562,79 @@ function FieldEditor({
           })}
         />
       )}
-      {widget === "reference" && (
+      {widget === "markdown" && (
+        <div className="configuration-options">
+          <div className="configuration-inline-setting">
+            <span>
+              <strong>Inline collection references</strong>
+            </span>
+            <Switch
+              checked={Boolean(inlineReference)}
+              label={`${field.label || fieldKey} inline collection references`}
+              onChange={(checked) => onChange((nextField) => {
+                if (!checked) {
+                  delete nextField.blocknote?.inline_reference;
+                  if (!Object.keys(nextField.blocknote ?? {}).length) {
+                    delete nextField.blocknote;
+                  }
+                  return;
+                }
+                nextField.blocknote ??= {};
+                nextField.blocknote.inline_reference = {
+                  collection: Object.keys(collections)[0] || ""
+                };
+              })}
+            />
+          </div>
+          {inlineReference && (
+            <div className="configuration-entry-card__grid">
+              <FormField label="Referenced collection">
+                <SelectInput
+                  value={inlineReference.collection}
+                  onChange={(value) => onChange((nextField) => {
+                    nextField.blocknote.inline_reference = {
+                      collection: value
+                    };
+                  })}
+                >
+                  {Object.entries(collections).map(([key, collection]) => (
+                    <option key={key} value={key}>
+                      {collection.label || key}
+                    </option>
+                  ))}
+                </SelectInput>
+              </FormField>
+              {inlineReferenceCollection && (
+                <FormField label="Displayed text field" optional>
+                  <SelectInput
+                    value={inlineReference.preview_field ?? ""}
+                    onChange={(value) => onChange((nextField) => {
+                      setOptional(
+                        nextField.blocknote.inline_reference,
+                        "preview_field",
+                        value
+                      );
+                    })}
+                  >
+                    <option value="">Use the collection title</option>
+                    {inlineReferenceFields.map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                    {SYSTEM_FIELD_OPTIONS.map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </SelectInput>
+                </FormField>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {["reference", "tags"].includes(widget) && (
         <div className="configuration-entry-card__grid">
-          <FormField label="Referenced collection">
+          <FormField
+            label={widget === "tags" ? "Tag collection" : "Referenced collection"}
+          >
             <SelectInput
               value={field.collection}
               onChange={(value) => onChange((nextField) => {
@@ -1391,7 +1650,7 @@ function FieldEditor({
               ))}
             </SelectInput>
           </FormField>
-          {targetCollection && (
+          {widget === "reference" && targetCollection && (
             <FormField label="Allowed record types" optional>
               <MultiChoice
                 options={targetTypeOptions}
@@ -1403,7 +1662,7 @@ function FieldEditor({
               />
             </FormField>
           )}
-          {targetReferenceSelections.length > 0 && (
+          {widget === "reference" && targetReferenceSelections.length > 0 && (
             <FormField label="Reference selections" optional>
               <MultiChoice
                 options={targetReferenceSelections}
@@ -1549,7 +1808,7 @@ function FieldEditor({
               })}
             </SelectInput>
           </FormField>
-        ) : !isGeneratedIdWidget(widget) ? (
+        ) : widget === "tags" ? null : !isGeneratedIdWidget(widget) ? (
           <FormField
             label={
               ["image", "file"].includes(widget)
@@ -1561,7 +1820,13 @@ function FieldEditor({
             optional
           >
             <TextInput
-              type={widget === "number" ? "number" : "text"}
+              type={
+                widget === "number"
+                  ? "number"
+                  : widget === "url"
+                    ? "url"
+                    : "text"
+              }
               value={field.default}
               placeholder={
                 ["image", "file"].includes(widget)
@@ -1570,6 +1835,8 @@ function FieldEditor({
                     : "/media/example.pdf"
                   : widget === "reference"
                     ? "Stored reference value"
+                    : widget === "url"
+                      ? "https://example.com"
                     : undefined
               }
               onChange={(value) => onChange((nextField) => {
@@ -3332,8 +3599,7 @@ export default function ConfigurationEditor({
         if (dialog.kind === "field") {
           type.fields[key] = {
             label,
-            widget: "string",
-            required: false
+            widget: "string"
           };
           type.views ??= {};
           type.views.detail ??= {};
@@ -3437,12 +3703,15 @@ export default function ConfigurationEditor({
     const referenceUse = typeEntries.find(([, type]) =>
       Object.values(type.fields ?? {}).some(
         (field) =>
-          field.widget === "reference" && field.collection === collectionKey
+          (["reference", "tags"].includes(field.widget) &&
+            field.collection === collectionKey) ||
+          (field.widget === "markdown" &&
+            field.blocknote?.inline_reference?.collection === collectionKey)
       )
     );
     if (referenceUse) {
       setError(
-        `This collection is referenced by ${referenceUse[1].label || referenceUse[0]}. Remove that reference field first.`
+        `This collection is used by ${referenceUse[1].label || referenceUse[0]}. Remove that relation field first.`
       );
       return;
     }
@@ -3545,6 +3814,15 @@ export default function ConfigurationEditor({
               candidateField.value_field === fieldKey
             ) {
               delete candidateField.value_field;
+            }
+            if (
+              candidateField.widget === "markdown" &&
+              next.collections[
+                candidateField.blocknote?.inline_reference?.collection
+              ]?.node_type === typeKey &&
+              candidateField.blocknote.inline_reference.preview_field === fieldKey
+            ) {
+              delete candidateField.blocknote.inline_reference.preview_field;
             }
           }
         }

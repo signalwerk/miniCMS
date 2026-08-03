@@ -3,7 +3,10 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import { cx } from "../../model/editor.js";
-import { imageSource } from "../../model/image.js";
+import {
+  imageInfoCoordinateSize,
+  imageSource
+} from "../../model/image.js";
 import {
   boundedImageRegion,
   imageCropViewport,
@@ -84,6 +87,7 @@ function ReferenceSelectionsDialog({
   definitions,
   item,
   value,
+  onPreviewChange,
   onCancel,
   onApply
 }) {
@@ -91,21 +95,45 @@ function ReferenceSelectionsDialog({
   const titleId = useId();
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
+  const onCancelRef = useRef(onCancel);
   const normalized = useMemo(() => normalizeReferenceValue(value), [value]);
   const [draft, setDraft] = useState(() => ({ ...normalized.selections }));
   const [naturalSize, setNaturalSize] = useState(null);
+  const [sourceInfo, setSourceInfo] = useState({
+    source: "",
+    status: "idle",
+    value: null
+  });
   const referenceView = collection.views?.reference ?? {};
   const sourceField =
     definitions.find((definition) => definition.options?.field)?.options.field ||
     referenceView.image;
   const sourceValue = referenceItemValue(item, sourceField, collection);
-  const source = adapter.resolveMediaUrl(imageSource(sourceValue));
+  const sourcePath = imageSource(sourceValue);
+  const source = adapter.resolveImageUrl(sourcePath, {
+    width: 1600,
+    height: 1600,
+    fit: "inside"
+  });
   const storedWidth = positiveNumber(sourceValue?.width);
   const storedHeight = positiveNumber(sourceValue?.height);
+  const needsServiceInfo = Boolean(
+    sourcePath &&
+      !(storedWidth && storedHeight) &&
+      typeof adapter.getImageInfo === "function"
+  );
+  const activeSourceInfo =
+    sourceInfo.source === sourcePath ? sourceInfo : null;
+  const informationSize =
+    activeSourceInfo?.status === "ready"
+      ? imageInfoCoordinateSize(activeSourceInfo.value)
+      : null;
+  const mayUseNaturalSize =
+    !needsServiceInfo || activeSourceInfo?.status === "bypass";
   const imageSize =
     storedWidth && storedHeight
       ? { width: storedWidth, height: storedHeight }
-      : naturalSize;
+      : informationSize ?? (mayUseNaturalSize ? naturalSize : null);
   const optionsByName = Object.fromEntries(
     definitions.map((definition) => [
       definition.name,
@@ -147,12 +175,16 @@ function ReferenceSelectionsDialog({
   );
 
   useEffect(() => {
+    onCancelRef.current = onCancel;
+  }, [onCancel]);
+
+  useEffect(() => {
     const previousFocus = document.activeElement;
     closeButtonRef.current?.focus();
     function handleKeyDown(event) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onCancel();
+        onCancelRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -177,21 +209,66 @@ function ReferenceSelectionsDialog({
       document.removeEventListener("keydown", handleKeyDown);
       if (previousFocus instanceof HTMLElement) previousFocus.focus();
     };
-  }, [onCancel]);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    setNaturalSize(null);
+    if (!needsServiceInfo) {
+      setSourceInfo({ source: sourcePath, status: "idle", value: null });
+      return () => {
+        active = false;
+      };
+    }
+
+    setSourceInfo({ source: sourcePath, status: "loading", value: null });
+    adapter
+      .getImageInfo(sourcePath)
+      .then((information) => {
+        if (!active) return;
+        if (information === null) {
+          setSourceInfo({
+            source: sourcePath,
+            status: "bypass",
+            value: null
+          });
+          return;
+        }
+        if (!imageInfoCoordinateSize(information)) {
+          throw new Error("The image information contains no dimensions.");
+        }
+        setSourceInfo({
+          source: sourcePath,
+          status: "ready",
+          value: information
+        });
+      })
+      .catch(() => {
+        if (active) {
+          setSourceInfo({
+            source: sourcePath,
+            status: "error",
+            value: null
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [adapter, needsServiceInfo, sourcePath]);
 
   function setSelection(name, selectedValue) {
-    setDraft((current) => {
-      const next = { ...current };
-      if (selectedValue) next[name] = selectedValue;
-      else delete next[name];
-      return next;
-    });
+    const next = { ...draft };
+    if (selectedValue) next[name] = selectedValue;
+    else delete next[name];
+    setDraft(next);
+    onPreviewChange?.(validSelections(next));
   }
 
-  function apply() {
+  function validSelections(value) {
     const selections = {};
     for (const definition of definitions) {
-      const selectedValue = draft[definition.name];
+      const selectedValue = value[definition.name];
       if (
         selectedValue &&
         (
@@ -204,7 +281,11 @@ function ReferenceSelectionsDialog({
         selections[definition.name] = selectedValue;
       }
     }
-    onApply(selections);
+    return selections;
+  }
+
+  function apply() {
+    onApply(validSelections(draft));
   }
 
   const content = (
@@ -377,6 +458,12 @@ function ReferenceSelectionsDialog({
             )}
           </div>
           <div className="reference-selections-dialog__controls">
+            {activeSourceInfo?.status === "error" && (
+              <p className="reference-selections-dialog__pair-warning">
+                <CircleAlert size={14} /> The original image dimensions could
+                not be read, so its annotations cannot be positioned safely.
+              </p>
+            )}
             {focusOutsideCrop && (
               <p className="reference-selections-dialog__pair-warning">
                 <CircleAlert size={14} /> The focus point is outside the crop

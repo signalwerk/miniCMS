@@ -1,0 +1,188 @@
+@use "../../styles/typography" as *;
+
+.tags-field,
+.tags-select {
+  min-width: 0;
+}
+
+.tags-field__configuration-error {
+  @extend %type-consulting;
+  padding: 8px;
+  color: #ffaaa4;
+  background: #3b2624;
+  border-radius: 3px;
+}
+
+.tags-field__status:empty {
+  display: none;
+}
+
+.tags-field__status .field-error {
+  color: #ffaaa4;
+}
+
+.tags-select {
+  @extend %type-normal;
+  color: #d9dad3;
+}
+
+.tags-select__control {
+  min-height: 30px;
+  color: #d9dad3;
+  background: #191a17;
+  border: 1px solid #3a3c36;
+  border-radius: 3px;
+  cursor: text;
+}
+
+.tags-select__control:hover {
+  border-color: #51534b;
+}
+
+.tags-select__control--is-focused {
+  border-color: #73786a;
+  box-shadow: 0 0 0 2px rgb(215 255 67 / 6%);
+}
+
+.tags-select__control--is-disabled {
+  color: #777970;
+  background: #20211e;
+  cursor: default;
+  opacity: 0.72;
+}
+
+.tags-select__value-container {
+  min-width: 0;
+  gap: 3px;
+  padding: 3px 5px;
+}
+
+.tags-select__placeholder {
+  color: #696b64;
+}
+
+.tags-select__multi-value {
+  max-width: 100%;
+  color: #dfe0d9;
+  background: #303328;
+  border: 1px solid #4a4d3c;
+  border-radius: 2px;
+}
+
+.tags-select__multi-value--missing {
+  color: #ffaaa4;
+  background: #3b2927;
+  border-color: #6a3e3a;
+}
+
+.tags-select__multi-value__label {
+  overflow: hidden;
+  padding: 2px 5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tags-select__multi-value__remove {
+  padding: 0 3px;
+  color: #92958a;
+  cursor: pointer;
+}
+
+.tags-select__multi-value__remove:hover,
+.tags-select__multi-value__remove:focus-visible {
+  color: #fff;
+  background: #58602f;
+  outline: 0;
+}
+
+.tags-select__indicators {
+  color: #777970;
+}
+
+.tags-select__clear-indicator,
+.tags-select__dropdown-indicator {
+  padding: 4px;
+  cursor: pointer;
+}
+
+.tags-select__clear-indicator:hover,
+.tags-select__dropdown-indicator:hover {
+  color: #c6c8c0;
+}
+
+.tags-select__clear-indicator svg,
+.tags-select__dropdown-indicator svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tags-select__indicator-separator {
+  width: 1px;
+  margin: 5px 0;
+  background: #3a3c36;
+}
+
+.tags-select__loading-indicator {
+  margin-right: 6px;
+  color: #92958a;
+}
+
+.tags-select__menu {
+  z-index: 20;
+  margin: 4px 0;
+  overflow: hidden;
+  color: #d9dad3;
+  background: #242521;
+  border: 1px solid #45473f;
+  border-radius: 3px;
+  box-shadow: 0 8px 22px rgb(0 0 0 / 35%);
+}
+
+.tags-select__menu-portal {
+  z-index: 90;
+}
+
+.tags-select__menu-list {
+  padding: 3px;
+  scrollbar-color: #55584e transparent;
+  scrollbar-width: thin;
+}
+
+.tags-select__option {
+  padding: 6px 7px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.tags-select__option--is-focused {
+  background: #30312c;
+}
+
+.tags-select__option--is-selected {
+  color: #f1f2eb;
+  background: #42472e;
+}
+
+.tags-select__no-options-message,
+.tags-select__loading-message {
+  @extend %type-consulting;
+  padding: 10px 7px;
+  color: #85877f;
+}
+
+// React Select renders a search input inside its control. Keep the general
+// field input skin from turning it into a second box.
+.field input.tags-select__input,
+.field input.tags-select__input:hover,
+.field input.tags-select__input:focus {
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  box-shadow: none;
+}

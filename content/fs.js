@@ -8,6 +8,10 @@ import {
   validateConfig,
   validateRecord
 } from "../core/content.js";
+import {
+  buildImageServiceMediaUrl,
+  buildImageServiceUrl
+} from "../core/image-service.js";
 import { createContentAdapter } from "./index.js";
 
 function rootPath(value) {
@@ -67,6 +71,8 @@ function publicUrl(value, base) {
 async function createFilesystemContentAdapter({
   projectRoot,
   resolveMediaUrl,
+  resolveImageUrl,
+  imageServiceBaseUrl,
   publicBase = "/"
 } = {}) {
   if (
@@ -74,6 +80,18 @@ async function createFilesystemContentAdapter({
     typeof resolveMediaUrl !== "function"
   ) {
     throw new TypeError("resolveMediaUrl must be a function.");
+  }
+  if (
+    resolveImageUrl !== undefined &&
+    typeof resolveImageUrl !== "function"
+  ) {
+    throw new TypeError("resolveImageUrl must be a function.");
+  }
+  if (
+    imageServiceBaseUrl !== undefined &&
+    typeof imageServiceBaseUrl !== "string"
+  ) {
+    throw new TypeError("imageServiceBaseUrl must be a string.");
   }
 
   const root = await fs.realpath(rootPath(projectRoot));
@@ -204,12 +222,33 @@ async function createFilesystemContentAdapter({
     );
   }
 
+  const backendName = config.backend?.name;
+  const apiBackend = backendName === "api" || backendName === "node";
+  const apiUrl = apiBackend ? String(config.backend?.api_url || "") : "";
+  const defaultMediaResolver = apiBackend
+    ? (value) =>
+        buildImageServiceMediaUrl(value, {
+          baseUrl: apiUrl,
+          config
+        })
+    : (value) => publicUrl(value, publicBase);
+  const mediaResolver = resolveMediaUrl ?? defaultMediaResolver;
+  const imageResolver =
+    resolveImageUrl ??
+    (imageServiceBaseUrl !== undefined || (resolveMediaUrl === undefined && apiBackend)
+      ? (value) =>
+          buildImageServiceUrl(value, {
+            baseUrl: imageServiceBaseUrl ?? apiUrl,
+            config,
+            fit: "inside"
+          })
+      : mediaResolver);
   return createContentAdapter({
     config,
     listRaw: listRecords,
     getRaw: readRecord,
-    resolveMediaUrl:
-      resolveMediaUrl ?? ((value) => publicUrl(value, publicBase))
+    resolveMediaUrl: mediaResolver,
+    resolveImageUrl: imageResolver
   });
 }
 

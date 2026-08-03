@@ -24,14 +24,37 @@ Preserve useful guidance and remove stale information.
   `styles/_typography.scss` owns the shared Sass typography placeholders.
 - `core/content.js`: browser/Node-compatible YAML, validation, safe
   repository paths, and record summaries. `media.js` owns upload accept-list
-  parsing and matching; `slug.js` owns filename templates; `id.js` owns the
-  opaque generated-ID format and collision-aware generator. These helpers are
-  exported as `@signalwerk/minicms/core/*` for the independent API service;
-  miniCMS contains no HTTP server.
+  parsing and matching; `image-service.js` owns the shared processing config,
+  content-addressed media-path parser, readable operation-stack grammar,
+  derivative URL builder and canonical URL parser under the collision-free
+  `/media/_image/` namespace,
+  and the strict content-addressed API raw-media URL mapper. It has no
+  encoded/flat-path compatibility route;
+  `slug.js` owns
+  filename templates; `inline-reference.js` owns the strict canonical
+  `minicms://reference/<collection>/<encoded-value>` URI grammar plus the
+  Markdown-safe link predicate; `id.js` owns the opaque
+  generated-ID format and collision-aware generator. These helpers are
+  exported as `@signalwerk/minicms/core/*` for infrastructure packages and the
+  independent API service; miniCMS contains no HTTP server.
+- Consumer renderers may prepend a validated source-space crop to an existing
+  canonical raster derivative with `prependImageServiceOperations`. Crop
+  coordinates may be decimal or negative, dimensions are decimal values of at
+  least one source pixel, and optional `rotation` is clockwise. Crop is always
+  first and cannot coexist with whole-image `rotate`. The helper preserves the
+  derivative's origin, source, schema, resize, quality, slug, and format; raw,
+  GitHub, info, noop, and SVG URLs intentionally return `null`.
 - `content/`: the complete project-facing read contract. `index.js` resolves
-  references/media over an abstract raw source; `fs.js` loads validated YAML
-  for static Node builds. Both return the same `{config, collection, item}` or
+  references, configured Markdown inline references, and media over an
+  abstract raw source; `fs.js` loads validated YAML
+  for static Node builds. An explicit API backend gets shared service-media
+  defaults; GitHub/backend-less builds retain public static URLs unless the
+  website explicitly supplies `imageServiceBaseUrl`. Supplied resolvers take
+  precedence. Both return the same `{config, collection, item}` or
   `{config, collection, items}` envelopes.
+- The editor recreates its browser content adapter after collection summaries
+  change so reference-target caches cannot outlive an editor-owned write.
+  Unsaved source-record drafts remain safe to resolve repeatedly.
 - `admin/vite.config.js`: editor development configuration and the standalone
   browser build. Production emits only `dist/minicms.js`, a classic IIFE with
   CSS, assets, and dynamic modules inlined. `admin/index.html` is development
@@ -39,6 +62,10 @@ Preserve useful guidance and remove stale information.
 - `bin/minicms.mjs`: package CLI. `build` is project-independent and `dev`
   starts only the Vite editor, proxying API/media requests to
   `MINICMS_API_URL`. The API has its own package and process.
+- The shared media helper can scope accepted upload types to one collection by
+  traversing its allowed record types and nested slot types cycle-safely. The
+  filesystem API uses that scope; the GitHub adapter retains its established
+  global upload behavior.
 - Consumer websites own `/admin/index.html`, config/media copying, deployment,
   and runtime preview registration. Never resolve or bundle consumer preview
   source while building miniCMS.
@@ -83,13 +110,27 @@ API service after changing shared core modules it has imported.
 - Root `backend` selects `api` or `github`; legacy `node` normalizes to `api`.
   API accepts an optional HTTPS `api_url`. GitHub requires `repo`, `base_url`,
   and `branch`; Settings exposes all common and advanced options.
+- `site.image_processing` configures only the API image-service capability:
+  default raster dimensions, fit, output format/quality, and cache
+  schema/strategy/age. Project dimensions constrain newly generated URLs;
+  deployment-owned limits are the service's stable enforcement boundary so
+  existing URLs survive later default changes. GitHub image URL behavior must
+  remain unchanged.
+- Non-empty API origins are normalized and validated as credential-free HTTPS
+  origins in shared config before browser or static adapters use them.
 - Fields use a compact, intentionally custom declarative schema.
+- Fields are optional by default. Omit `required` for optional fields and
+  persist only `required: true`; legacy `required: false` input normalizes away
+  when configuration is validated or saved.
 - Records contain `id`, `type`, `order`, `properties`, and typed `slots`.
 - Collection folders and media folders must remain inside consumer `content/`.
 - YAML uses `js-yaml`’s JSON schema so dates remain strings.
 - Saving Settings normalizes YAML formatting and does not preserve source
   comments; keep important project knowledge in `AGENTS.md`, not YAML comments.
 - Writes atomically replace complete records; do not add partial field writes.
+- API uploads are collection-scoped. The service computes SHA-256 while
+  streaming and returns `/media/<collection>/<sha256>/<filename>`; the browser
+  never supplies the hash. GitHub upload paths remain unchanged.
 - GitHub writes use one Git tree/commit/ref transaction per editor operation;
   preserve non-force branch conflict detection and never expose tokens in
   config, URLs, logs, or persistent local storage.
@@ -106,15 +147,35 @@ API service after changing shared core modules it has imported.
 - A content field named `slug` stores a path segment; new records default it to
   the slash-free record ID. Full public paths are a renderer concern.
 
-Supported widgets include `string`, `text`, `markdown`, `select`, `boolean`,
-`datetime`, `number`, `file`, `image`, `reference`, and `id`. The legacy
+Supported widgets include `string`, `url`, `text`, `markdown`, `select`,
+`boolean`, `datetime`, `number`, `file`, `image`, `reference`, `tags`, and
+`id`. The legacy
 `uuid` widget is accepted and normalized to `id` when configuration is loaded.
+URL fields store empty strings or absolute HTTP(S) URLs and use the browser's
+semantic URL input; shared record validation enforces the same contract. A `tags`
+field names one target collection and persists an ordered, unique array of its
+opaque generated IDs. The target publishes its generated-ID and string-label
+fields through `views.reference.value` and `views.reference.title`; the shared
+read adapter resolves each stored ID to the standard reference envelope while
+retaining the ID in `ref`. A tag lookup that misses a cached target index
+refreshes that collection once, so an inline-created tag resolves in the live
+preview immediately. The Inspector uses a creatable React Select: creating a
+tag immediately writes a complete target record through the active adapter,
+then selects it. Like media upload, that independent write survives discarding
+the source record draft. A concurrent filename conflict refreshes the target
+collection and retries once unless the same label already exists. Tags have no
+configured default or per-type filter;
+their published value must be a generated-ID property such as `content_id`,
+because `id` and `$id` denote the readable top-level record ID. Inline creation
+uses the target collection's `node_type`, which must remain in its
+`allowed_types` when that list is configured.
 Select options may be scalars or `{label, value}` mappings. Uploads are
 immediate. File and image fields use an `accept` array of HTML accept tokens;
 MIME types, extensions, and wildcards including `*/*` are supported and
 enforced by both adapters. Legacy comma-delimited strings normalize to arrays
 when loaded. The
-shared image default includes SVG; the file default accepts all types.
+shared image default includes SVG; when TIFF is configured, MIME inference
+recognizes both `.tif` and `.tiff`. The file default accepts all types.
 Rejected media errors include the normalized MIME type received from the
 browser or request header; use the shared media error formatter.
 Opaque IDs generated by miniCMS always match `[a-z0-9]{15}`. This covers
@@ -128,7 +189,12 @@ Persisted width and
 height define the annotation coordinate space and take precedence over a
 browser's `naturalWidth`/`naturalHeight` when an annotated image is reopened;
 this is especially important for dimensionless SVGs whose fallback intrinsic
-size varies between browsers. Regions may include a normalized numeric
+size varies between browsers. API derivatives must obtain unannotated source
+dimensions from the public curated info route before enabling annotations.
+Metadata URLs always use the canonical `noop` operation so they remain
+independent of display-size and quality defaults. Never persist a downsampled
+derivative's natural dimensions. Regions may
+include a normalized numeric
 `rotation`; annotation coordinates remain integers, while rotation may use
 decimal degrees. Reference
 presentation belongs to the target collection’s `views.reference` and may
@@ -136,16 +202,63 @@ configure `value`, `image`, `title`, `description`, and target-published
 `selections`. The published mapping defines presentation order; reference
 fields treat their selection-name list as an opt-in set. Values stay
 scalar without selections and expand to `{ref, selections}` when needed; read
-both forms through `model/reference.js`. Reference fields may limit choices to
-a target collection subset with `allowed_types`. Fields may set
+both forms through `model/reference.js`. Reference cards resolve a thumbnail
+only when `views.reference.image` explicitly names a field; image-less targets
+use their collection icon and never interpret the record ID as media.
+Reference fields may limit choices to a target collection subset with
+`allowed_types`. Their dialog has separate Select and Create tabs. Create uses
+the permitted primary record type and renders every currently applicable
+declared field through the normal field widgets, even when a configured
+Inspector panel omits that field.
+Its stable full-record draft carries defaults, collision-aware generated IDs,
+root hierarchy/order, and empty slots; visible required fields validate before
+the active adapter writes it. A successful adapter result is selected
+automatically, while a failed write leaves the complete draft mounted. One
+filename conflict refresh rebuilds storage identity without reusing an
+exact-label record or discarding entered fields. Nested creation cycles are
+disabled. BlockNote inline references use the same Select/Create full-record
+flow and insert the stored adapter result immediately. The independent target
+write survives discarding the source draft. Choosing a different target stores only its scalar
+value and therefore clears stale selection IDs; choosing the same target
+preserves them. Regular reference misses refresh their cached target index once
+so newly created records resolve in live preview. Fields may set
 `visible_when: {field, equals}`;
 the inspector evaluates the condition against the current node properties and
 Settings exposes it as conditional visibility rather than raw configuration.
 Optional select fields default to an empty value and retain a clearable `None`
 option; required selects may fall back to their first configured option.
 Markdown fields lazy-load BlockNote and default to its controlled visual view;
-Code exposes the exact Markdown source. BlockNote normalizes Markdown only
-after a visual edit and cannot represent every source construct losslessly.
+Code exposes the exact Markdown source. `blocknote.inline_reference` may name
+one collection and an optional `preview_field`. The picker uses that field for
+the inserted link-text snapshot, then the collection's published reference
+title and normal record title fallbacks; identity always comes from
+`views.reference.value` (or the record ID fallback). Storage is an ordinary
+Markdown link whose canonical destination is
+`minicms://reference/<collection>/<encoded-value>`. BlockNote accepts only
+strict canonical internal destinations in addition to its normal safe link
+schemes, and its internal-link toolbar offers Replace/Delete without opening
+the custom URI, including in read-only mode. Its picker exposes the same
+Select/Create tabs and complete target inspector as ordinary references; after
+the adapter stores the target, its published value and configured preview text
+are inserted into the paragraph automatically. That target write is independent
+and survives discarding the Markdown draft. Inline-reference resolution refreshes
+its target index once on a miss so the newly created record reaches live
+preview without rebuilding the editor adapter. MarkdownField uses the
+explicitly imported `inlineReferenceCreationConfig` only to seed the most
+appropriate editable label field when switching from search to Create; never
+rely on an implicit browser global.
+Serialization escapes Markdown
+link-label delimiters on a cloned block tree so the visual text is unchanged;
+do not add escapes to the live editor document. Only actual Markdown link
+destinations resolve—plain text, code spans/fences, and image destinations do
+not. Inline-reference identities must use a text-backed field;
+`preview_field` is limited to scalar display fields so structured values are
+never stringified into link text. Configured properties resolve for consumers to
+`{markdown, references}`, keyed by canonical destination with
+`{collection, ref, record}` values; unresolved targets keep `record: null`,
+unconfigured Markdown stays a string, and stored Markdown is never rewritten
+by resolution. BlockNote normalizes Markdown only after a visual edit and
+cannot represent every source construct losslessly.
 
 Detail layout belongs under
 `node_types.<type>.views.detail.panels.<panel>.groups.<group>.fields`.
@@ -191,7 +304,9 @@ grip, and delete action visible while collapsed.
   Save is its rightmost/default action and responds to Enter and
   Command/Ctrl+S; destructive confirmation remains a separate action.
 - Command/Ctrl+S suppresses the browser save dialog and persists the active
-  record; while Settings is open it persists the configuration draft instead.
+  record; while Settings is open it persists the configuration draft, and
+  while a reference Create tab owns focus it stores and selects that target
+  draft instead.
 - Every active Inspector panel, including the implicit default Inspector,
   exposes a focus action. Panel focus keeps all of its groups and fields mounted
   in a fixed, centered surface below global toasts and dialogs. The global
@@ -203,8 +318,12 @@ grip, and delete action visible while collapsed.
   selection hash restores its record and optional content node after refresh.
 - Multiple tree selections show only their selection count in the inspector.
 - Inspector panel and field-group headings do not show field-count badges.
+- The Inspector pane heading contains only its working panel tabs or selection
+  title. Do not add an inert menu/collapse action beside them.
 - Content-tree rows use their configured icon as the type indicator; do not
   add a redundant type-name suffix on the right side.
+- The Content structure panel heading is title-only. Do not add a node-count
+  badge or an inert overflow/options action beside it.
 - Collection-tree rows resolve their configured icon from each record’s own
   type, including heterogeneous collections; DnD previews use the same icon.
 - Every visible breadcrumb level is keyboard-focusable and clickable. The
@@ -260,7 +379,9 @@ grip, and delete action visible while collapsed.
 - Reference selections use a target-published contract and a local-draft modal
   with native `None` controls plus focusable visual overlays. A selected crop
   renders a magnified draft result before Apply; a selected focus point is
-  shown in that result. Preserve stale IDs
+  shown in that result. Selection changes also feed a transient record to the
+  registered page preview, while Apply alone dirties the record and Cancel
+  restores its original rendering. Preserve stale IDs
   with a warning until the editor explicitly replaces or clears them;
   changing the target clears its selections. When both are selected, warn if
   the first focus point is outside the first crop while leaving renderer-side
@@ -280,8 +401,15 @@ grip, and delete action visible while collapsed.
 
 Every adapter implements config read/write, collection list, record
 read/create/save/rename/delete, media upload, media URL resolution, and session
-methods. UI code must use `AdapterContext`, never call `/api` or GitHub
+methods. `resolveMediaUrl` remains the raw file/download path;
+`resolveImageUrl` is a separate capability. The API implementation builds
+transformed routes from the latest loaded config and exposes public curated
+`getImageInfo`; GitHub delegates image resolution exactly to its existing raw
+resolver and does no info fetch. UI code must use `AdapterContext`, never call `/api` or GitHub
 directly. The independent service's content contract remains under `/api`.
+Upload widgets pass the active collection name to `uploadMedia`; storage
+adapters may ignore it only when their established backend layout does not use
+collection-scoped media (currently GitHub).
 Deployed browser bundles load
 `cms.config.yml` relative to the consumer-owned admin document and then use the
 configured adapter. API bearers are opaque service credentials stored only in

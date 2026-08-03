@@ -285,7 +285,9 @@ function InsertionDialog({
                   field={field}
                   value={previewProperties[field.name]}
                   idPrefix="insert-field"
+                  collectionName={collection?.name}
                   collections={collections}
+                  nodeTypes={nodeTypes}
                   onChange={(value) =>
                     setPropertyOverridesByType((current) => ({
                       ...current,

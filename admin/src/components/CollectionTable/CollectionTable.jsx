@@ -91,6 +91,7 @@ function TableCell({
     column.mode === "edit" &&
     !column.field.startsWith("$") &&
     field.widget !== "image" &&
+    field.widget !== "tags" &&
     !structuredReference &&
     field.readonly !== true;
   const [draftValue, setDraftValue] = useState(value ?? "");
@@ -163,9 +164,15 @@ function TableCell({
             ? "date"
             : field.widget === "number"
               ? "number"
-              : "text"
+              : field.widget === "url"
+                ? "url"
+                : "text"
         }
         value={draftValue}
+        inputMode={field.widget === "url" ? "url" : undefined}
+        autoCapitalize={field.widget === "url" ? "none" : undefined}
+        autoCorrect={field.widget === "url" ? "off" : undefined}
+        spellCheck={field.widget === "url" ? false : undefined}
         aria-label={field.label || field.name}
         disabled={editing}
         onClick={(event) => event.stopPropagation()}
@@ -182,7 +189,11 @@ function TableCell({
       />
     );
   } else if (field.display === "image") {
-    const source = adapter.resolveMediaUrl(imageSource(value));
+    const source = adapter.resolveImageUrl(imageSource(value), {
+      width: 320,
+      height: 320,
+      fit: "inside"
+    });
     content = source ? (
       <img className="table-cell__image" src={source} alt="" />
     ) : (

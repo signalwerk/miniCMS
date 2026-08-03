@@ -5,6 +5,7 @@ import {
   compactImageValue,
   ensureImageAnnotationIds,
   imageCoordinateSize,
+  imageInfoCoordinateSize,
   imageSource,
   normalizeImageValue,
   refreshImageAnnotationIds
@@ -182,6 +183,52 @@ test("keeps persisted coordinate dimensions authoritative over browser natural s
     imageCoordinateSize("/media/example.svg", 300, 300),
     { width: 300, height: 300 }
   );
+});
+
+test("keeps service-reported original dimensions ahead of a derivative natural size", () => {
+  const information = {
+    format: "jpeg",
+    width: 10000,
+    height: 7500,
+    channels: 3,
+    size: 24000000
+  };
+  assert.deepEqual(imageInfoCoordinateSize(information), {
+    width: 10000,
+    height: 7500
+  });
+  assert.deepEqual(
+    imageCoordinateSize("/media/huge.jpg", 1600, 1200, information),
+    { width: 10000, height: 7500 }
+  );
+  assert.deepEqual(
+    imageCoordinateSize(
+      {
+        src: "/media/huge.jpg",
+        width: 1200,
+        height: 800
+      },
+      1600,
+      1200,
+      information
+    ),
+    { width: 1200, height: 800 }
+  );
+});
+
+test("normalizes legacy nested and orientation-aware image information", () => {
+  assert.deepEqual(
+    imageInfoCoordinateSize({
+      meta: {
+        width: 4000,
+        height: 6000,
+        normalizedWidth: 6000,
+        normalizedHeight: 4000
+      }
+    }),
+    { width: 6000, height: 4000 }
+  );
+  assert.equal(imageInfoCoordinateSize({ format: "jpeg" }), null);
 });
 
 test("preserves future image metadata while editing annotations", () => {

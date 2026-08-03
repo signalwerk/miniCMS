@@ -1,4 +1,9 @@
 import yaml from "js-yaml";
+import { ID_PATTERN } from "./id.js";
+import {
+  normalizeHttpOrigin,
+  validateImageProcessingConfig
+} from "./image-service.js";
 import { acceptTokens, validateMediaAccept } from "./media.js";
 
 const YAML_OPTIONS = {
@@ -36,6 +41,7 @@ const FIELD_ALIGNMENTS = new Set(["left", "center", "right"]);
 const FIELD_WIDGETS = new Set([
   "string",
   "text",
+  "url",
   "markdown",
   "select",
   "boolean",
@@ -44,8 +50,23 @@ const FIELD_WIDGETS = new Set([
   "file",
   "image",
   "reference",
+  "tags",
   "id",
   "uuid"
+]);
+const INLINE_REFERENCE_VALUE_WIDGETS = new Set([
+  "string",
+  "text",
+  "url",
+  "markdown",
+  "select",
+  "datetime",
+  "id"
+]);
+const INLINE_REFERENCE_PREVIEW_WIDGETS = new Set([
+  ...INLINE_REFERENCE_VALUE_WIDGETS,
+  "boolean",
+  "number"
 ]);
 const REFERENCE_SELECTION_KINDS = new Set([
   "image_region",
@@ -61,6 +82,15 @@ function contentError(status, message) {
 
 function isMapping(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isWebUrl(value) {
+  if (typeof value !== "string" || !value) return false;
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
 }
 
 function assertSafeName(value, label, status = 400) {
@@ -183,6 +213,24 @@ function validateBackend(backend, status) {
     if (backend.api_url !== undefined && typeof backend.api_url !== "string") {
       throw contentError(status, "The miniCMS API URL must be a string.");
     }
+    if (backend.api_url !== undefined) {
+      const apiUrl = backend.api_url.trim();
+      if (!apiUrl) {
+        backend.api_url = "";
+        return;
+      }
+      try {
+        backend.api_url = normalizeHttpOrigin(
+          apiUrl,
+          "The miniCMS API URL"
+        );
+      } catch (error) {
+        throw contentError(status, error.message);
+      }
+      if (!backend.api_url.startsWith("https://")) {
+        throw contentError(status, "The miniCMS API URL must use HTTPS.");
+      }
+    }
     return;
   }
   if (
@@ -253,7 +301,51 @@ function validateConfig(config, status = 500) {
           `Field "${typeName}.${fieldName}" uses unsupported widget "${field.widget ?? ""}".`
         );
       }
+      if (field.required === false) {
+        delete field.required;
+      } else if (field.required !== undefined && field.required !== true) {
+        fail(
+          `Field "${typeName}.${fieldName}" required must be true when configured.`
+        );
+      }
       if (field.widget === "uuid") field.widget = "id";
+      if (field.blocknote !== undefined && field.widget !== "markdown") {
+        fail(
+          `Field "${typeName}.${fieldName}" may configure BlockNote only for a markdown widget.`
+        );
+      }
+      if (field.blocknote !== undefined) {
+        if (!isMapping(field.blocknote)) {
+          fail(
+            `Markdown field "${typeName}.${fieldName}" blocknote must be a mapping.`
+          );
+        }
+        const inlineReference = field.blocknote.inline_reference;
+        if (inlineReference !== undefined) {
+          if (!isMapping(inlineReference)) {
+            fail(
+              `Markdown field "${typeName}.${fieldName}" blocknote.inline_reference must be a mapping.`
+            );
+          }
+          if (
+            typeof inlineReference.collection !== "string" ||
+            !inlineReference.collection.trim()
+          ) {
+            fail(
+              `Markdown field "${typeName}.${fieldName}" inline reference must define a collection.`
+            );
+          }
+          if (
+            inlineReference.preview_field !== undefined &&
+            (typeof inlineReference.preview_field !== "string" ||
+              !inlineReference.preview_field.trim())
+          ) {
+            fail(
+              `Markdown field "${typeName}.${fieldName}" inline reference preview_field must be a non-empty field name.`
+            );
+          }
+        }
+      }
       if (field.widget !== "reference" && field.selections !== undefined) {
         fail(
           `Field "${typeName}.${fieldName}" may define selections only for a reference widget.`
@@ -262,6 +354,21 @@ function validateConfig(config, status = 500) {
       if (field.widget === "select" && !Array.isArray(field.options)) {
         fail(
           `Select field "${typeName}.${fieldName}" must define an options array.`
+        );
+      }
+      if (field.widget === "tags" && field.default !== undefined) {
+        fail(
+          `Tags field "${typeName}.${fieldName}" cannot define a default.`
+        );
+      }
+      if (
+        field.widget === "url" &&
+        field.default !== undefined &&
+        field.default !== "" &&
+        !isWebUrl(field.default)
+      ) {
+        fail(
+          `URL field "${typeName}.${fieldName}" default must be an absolute HTTP or HTTPS URL.`
         );
       }
       if (
@@ -575,16 +682,131 @@ function validateConfig(config, status = 500) {
 
   const mediaFolder = config.site?.media_folder || "content/media";
   assertContentPath(mediaFolder, "site.media_folder", status);
+  try {
+    validateImageProcessingConfig(config);
+  } catch (error) {
+    fail(error.message);
+  }
 
   for (const [typeName, type] of Object.entries(config.node_types)) {
     for (const [fieldName, field] of Object.entries(type.fields)) {
-      if (field.widget !== "reference") continue;
+      const inlineReference = field.blocknote?.inline_reference;
+      if (inlineReference) {
+        const targetCollection = config.collections[inlineReference.collection];
+        if (!targetCollection) {
+          fail(
+            `Node type "${typeName}" markdown field "${fieldName}" inline reference uses unknown collection "${inlineReference.collection}".`
+          );
+        }
+        const targetFields =
+          config.node_types[targetCollection.node_type].fields;
+        const valueField = targetCollection.views?.reference?.value || "id";
+        if (
+          !["id", "$id"].includes(valueField) &&
+          !INLINE_REFERENCE_VALUE_WIDGETS.has(targetFields[valueField]?.widget)
+        ) {
+          fail(
+            `Node type "${typeName}" markdown field "${fieldName}" inline reference value field "${valueField}" must store text.`
+          );
+        }
+        if (inlineReference.preview_field) {
+          validateFieldName(
+            inlineReference.preview_field,
+            targetFields,
+            `Node type "${typeName}" markdown field "${fieldName}" inline reference preview`,
+            status
+          );
+          if (
+            !SYSTEM_FIELDS.has(inlineReference.preview_field) &&
+            !INLINE_REFERENCE_PREVIEW_WIDGETS.has(
+              targetFields[inlineReference.preview_field]?.widget
+            )
+          ) {
+            fail(
+              `Node type "${typeName}" markdown field "${fieldName}" inline reference preview field "${inlineReference.preview_field}" must store scalar text.`
+            );
+          }
+        }
+      }
+      if (!["reference", "tags"].includes(field.widget)) continue;
+      const fieldKind = field.widget === "tags" ? "tags" : "reference";
       if (!config.collections[field.collection]) {
         fail(
-          `Node type "${typeName}" reference field "${fieldName}" uses unknown collection "${field.collection}".`
+          `Node type "${typeName}" ${fieldKind} field "${fieldName}" uses unknown collection "${field.collection ?? ""}".`
         );
       }
       const targetCollection = config.collections[field.collection];
+      const targetTypes = targetCollection.allowed_types ?? [
+        targetCollection.node_type
+      ];
+
+      if (field.widget === "tags") {
+        if (!targetTypes.includes(targetCollection.node_type)) {
+          fail(
+            `Collection "${field.collection}" must allow its node type "${targetCollection.node_type}" so tags can be created.`
+          );
+        }
+        if (
+          field.value_field !== undefined ||
+          field.allowed_types !== undefined
+        ) {
+          fail(
+            `Node type "${typeName}" tags field "${fieldName}" may configure only its collection relation.`
+          );
+        }
+        const referenceView = targetCollection.views?.reference;
+        const valueField = referenceView?.value;
+        const titleField = referenceView?.title;
+        if (typeof valueField !== "string" || !valueField) {
+          fail(
+            `Collection "${field.collection}" must publish a reference value field for tags.`
+          );
+        }
+        if (typeof titleField !== "string" || !titleField) {
+          fail(
+            `Collection "${field.collection}" must publish a reference title field for tags.`
+          );
+        }
+        if (["id", "$id"].includes(valueField)) {
+          fail(
+            `Collection "${field.collection}" must publish an opaque generated-ID field for tags, not its record ID.`
+          );
+        }
+        const tagTypes = [
+          ...new Set([targetCollection.node_type, ...targetTypes])
+        ];
+        for (const targetType of tagTypes) {
+          const targetFields = config.node_types[targetType]?.fields ?? {};
+          if (targetFields[valueField]?.widget !== "id") {
+            fail(
+              `Collection "${field.collection}" tags value field "${valueField}" must use the id widget on type "${targetType}".`
+            );
+          }
+          if (targetFields[titleField]?.widget !== "string") {
+            fail(
+              `Collection "${field.collection}" tags title field "${titleField}" must use the string widget on type "${targetType}".`
+            );
+          }
+        }
+        continue;
+      }
+
+      if (
+        field.allowed_types !== undefined &&
+        !Array.isArray(field.allowed_types)
+      ) {
+        fail(
+          `Node type "${typeName}" ${fieldKind} field "${fieldName}" allowed_types must be an array.`
+        );
+      }
+      for (const allowedType of field.allowed_types ?? []) {
+        if (!targetTypes.includes(allowedType)) {
+          fail(
+            `Node type "${typeName}" ${fieldKind} field "${fieldName}" uses type "${allowedType}" outside its target collection.`
+          );
+        }
+      }
+
       if (field.selections !== undefined && !Array.isArray(field.selections)) {
         fail(
           `Node type "${typeName}" reference field "${fieldName}" selections must be an array.`
@@ -619,24 +841,6 @@ function validateConfig(config, status = 500) {
         fail(
           `Node type "${typeName}" reference field "${fieldName}" selections must use the same source field.`
         );
-      }
-      if (
-        field.allowed_types !== undefined &&
-        !Array.isArray(field.allowed_types)
-      ) {
-        fail(
-          `Node type "${typeName}" reference field "${fieldName}" allowed_types must be an array.`
-        );
-      }
-      const targetTypes = targetCollection.allowed_types ?? [
-        targetCollection.node_type
-      ];
-      for (const allowedType of field.allowed_types ?? []) {
-        if (!targetTypes.includes(allowedType)) {
-          fail(
-            `Node type "${typeName}" reference field "${fieldName}" uses type "${allowedType}" outside its target collection.`
-          );
-        }
       }
       if (field.value_field) {
         validateFieldName(
@@ -694,6 +898,36 @@ function validateRecord(record, collection, config, status = 400) {
       );
     }
     seenIds.add(node.id);
+
+    const fields = config.node_types[node.type]?.fields ?? {};
+    for (const [fieldName, field] of Object.entries(fields)) {
+      if (!Object.hasOwn(node.properties ?? {}, fieldName)) continue;
+      const value = node.properties[fieldName];
+      if (field.widget === "tags" && (
+        !Array.isArray(value) ||
+        value.some(
+          (tagId, index) =>
+            typeof tagId !== "string" ||
+            !ID_PATTERN.test(tagId) ||
+            value.indexOf(tagId) !== index
+        )
+      )) {
+        throw contentError(
+          status,
+          `Tags field "${node.type}.${fieldName}" must contain an array of unique generated IDs.`
+        );
+      }
+      if (
+        field.widget === "url" &&
+        value !== "" &&
+        !isWebUrl(value)
+      ) {
+        throw contentError(
+          status,
+          `URL field "${node.type}.${fieldName}" must be empty or contain an absolute HTTP or HTTPS URL.`
+        );
+      }
+    }
 
     for (const [slotName, children] of Object.entries(node.slots ?? {})) {
       const slot = config.node_types[node.type]?.slots?.[slotName];
@@ -754,13 +988,15 @@ function summarizeRecord(record, metadata, collection) {
     "parent_field",
     record.parent ?? null
   );
+  const titleField = collection.views?.reference?.title || "title";
   return {
     id: record.id,
     hierarchy_id: hierarchyId,
     type: record.type,
     parent,
     order: Number.isFinite(record.order) ? record.order : 0,
-    title: record.properties?.title || record.id,
+    title:
+      record.properties?.[titleField] || record.properties?.title || record.id,
     hidden: Boolean(record.properties?.hidden),
     properties: record.properties ?? {},
     created_at: toTimestamp(metadata?.created_at ?? metadata?.birthtime),

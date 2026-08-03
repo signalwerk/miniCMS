@@ -1,5 +1,102 @@
+import { parseInlineReferenceUrl } from "../core/inline-reference.js";
+
 function isMapping(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export { prependImageServiceOperations } from "../core/image-service.js";
+export {
+  INLINE_REFERENCE_PREFIX,
+  buildInlineReferenceUrl,
+  isAllowedMarkdownLink,
+  isInlineReferenceUrl,
+  parseInlineReferenceUrl
+} from "../core/inline-reference.js";
+
+function skipCodeSpan(markdown, start) {
+  let size = 1;
+  while (markdown[start + size] === "`") size += 1;
+  const delimiter = "`".repeat(size);
+  const end = markdown.indexOf(delimiter, start + size);
+  return end === -1 ? markdown.length : end + size;
+}
+
+function closingLabelBracket(markdown, start) {
+  let depth = 1;
+  for (let cursor = start; cursor < markdown.length; cursor += 1) {
+    if (markdown[cursor] === "\\") {
+      cursor += 1;
+      continue;
+    }
+    if (markdown[cursor] === "`") {
+      cursor = skipCodeSpan(markdown, cursor) - 1;
+      continue;
+    }
+    if (markdown[cursor] === "[") depth += 1;
+    if (markdown[cursor] !== "]") continue;
+    depth -= 1;
+    if (depth === 0) return cursor;
+  }
+  return -1;
+}
+
+function inlineReferencesInMarkdown(markdown, collectionName) {
+  const references = new Map();
+  let cursor = 0;
+
+  while (cursor < markdown.length) {
+    if (markdown[cursor] === "\\") {
+      cursor += 2;
+      continue;
+    }
+    if (markdown[cursor] === "`") {
+      cursor = skipCodeSpan(markdown, cursor);
+      continue;
+    }
+    if (markdown[cursor] !== "[" || markdown[cursor - 1] === "!") {
+      cursor += 1;
+      continue;
+    }
+
+    const labelEnd = closingLabelBracket(markdown, cursor + 1);
+    if (labelEnd === -1 || markdown[labelEnd + 1] !== "(") {
+      cursor += 1;
+      continue;
+    }
+    let destinationStart = labelEnd + 2;
+    while (/[ \t\n\r]/.test(markdown[destinationStart] ?? "")) {
+      destinationStart += 1;
+    }
+    const angled = markdown[destinationStart] === "<";
+    if (angled) destinationStart += 1;
+    let destinationEnd = destinationStart;
+    while (
+      destinationEnd < markdown.length &&
+      (angled
+        ? markdown[destinationEnd] !== ">"
+        : !/[\s)]/.test(markdown[destinationEnd]))
+    ) {
+      destinationEnd += 1;
+    }
+    const afterDestination = angled ? destinationEnd + 1 : destinationEnd;
+    if (
+      destinationEnd === destinationStart ||
+      (angled && markdown[destinationEnd] !== ">") ||
+      markdown[afterDestination] !== ")"
+    ) {
+      cursor = labelEnd + 1;
+      continue;
+    }
+
+    const href = markdown.slice(destinationStart, destinationEnd);
+    const reference = parseInlineReferenceUrl(href);
+    if (reference?.collection === collectionName && !references.has(href)) {
+      references.set(href, reference);
+    }
+    cursor = afterDestination + 1;
+  }
+
+  return references;
 }
 
 function cloneValue(value) {
@@ -106,6 +203,8 @@ function sourceFunctions(options) {
   const getRaw = options.getRaw ?? source?.get ?? source?.record;
   const resolveMediaUrl =
     options.resolveMediaUrl ?? source?.resolveMediaUrl ?? ((value) => value);
+  const resolveImageUrl =
+    options.resolveImageUrl ?? source?.resolveImageUrl ?? resolveMediaUrl;
 
   return {
     listRaw:
@@ -115,6 +214,10 @@ function sourceFunctions(options) {
     resolveMediaUrl:
       typeof resolveMediaUrl === "function"
         ? resolveMediaUrl.bind(source ?? options)
+        : null,
+    resolveImageUrl:
+      typeof resolveImageUrl === "function"
+        ? resolveImageUrl.bind(source ?? options)
         : null
   };
 }
@@ -128,7 +231,8 @@ function createContentAdapter({
   source,
   listRaw,
   getRaw,
-  resolveMediaUrl
+  resolveMediaUrl,
+  resolveImageUrl
 } = {}) {
   if (!isMapping(config)) {
     throw new TypeError("createContentAdapter requires a configuration mapping.");
@@ -137,7 +241,8 @@ function createContentAdapter({
     source,
     listRaw,
     getRaw,
-    resolveMediaUrl
+    resolveMediaUrl,
+    resolveImageUrl
   });
   if (!sourceApi.listRaw || !sourceApi.getRaw) {
     throw new TypeError(
@@ -147,6 +252,9 @@ function createContentAdapter({
   if (!sourceApi.resolveMediaUrl) {
     throw new TypeError("resolveMediaUrl must be a function.");
   }
+  if (!sourceApi.resolveImageUrl) {
+    throw new TypeError("resolveImageUrl must be a function.");
+  }
 
   const contentConfig = freezeValue(cloneValue(config));
   const collectionCache = new Map();
@@ -155,6 +263,19 @@ function createContentAdapter({
   const referenceIndexCache = new Map();
   const resolvedRecordCache = new Map();
   const resolvedListCache = new Map();
+  const refreshedReferenceMisses = new Set();
+  const activeReferenceRefreshes = new Map();
+
+  function clearListCaches(collectionName) {
+    rawListCache.delete(collectionName);
+    resolvedListCache.delete(collectionName);
+    for (const key of referenceIndexCache.keys()) {
+      if (key.startsWith(`${collectionName}:`)) {
+        referenceIndexCache.delete(key);
+      }
+    }
+  }
+
   function collectionFor(name) {
     if (collectionCache.has(name)) return collectionCache.get(name);
     const definition = contentConfig.collections?.[name];
@@ -209,8 +330,9 @@ function createContentAdapter({
     return rawListCache.get(collectionName);
   }
 
-  async function referenceIndex(collectionName, valueField) {
+  async function referenceIndex(collectionName, valueField, refresh = false) {
     const key = `${collectionName}:${valueField}`;
+    if (refresh) clearListCaches(collectionName);
     if (!referenceIndexCache.has(key)) {
       const pending = rawList(collectionName)
         .then((items) => {
@@ -236,10 +358,41 @@ function createContentAdapter({
     return referenceIndexCache.get(key);
   }
 
-  async function referenceTarget(collectionName, ref, valueField) {
+  function refreshedReferenceIndex(collectionName, valueField) {
+    const key = `${collectionName}:${valueField}`;
+    if (!activeReferenceRefreshes.has(key)) {
+      const pending = referenceIndex(collectionName, valueField, true).finally(
+        () => {
+          if (activeReferenceRefreshes.get(key) === pending) {
+            activeReferenceRefreshes.delete(key);
+          }
+        }
+      );
+      activeReferenceRefreshes.set(key, pending);
+    }
+    return activeReferenceRefreshes.get(key);
+  }
+
+  async function referenceTarget(
+    collectionName,
+    ref,
+    valueField,
+    refreshOnMiss = false
+  ) {
     if (!hasReferenceValue(ref)) return { id: null, record: null };
-    const index = await referenceIndex(collectionName, valueField);
-    const id = index.get(scalarKey(ref)) ?? null;
+    const valueKey = scalarKey(ref);
+    let index = await referenceIndex(collectionName, valueField);
+    let id = index.get(valueKey) ?? null;
+    const missKey = `${collectionName}:${valueField}:${valueKey}`;
+    if (
+      refreshOnMiss &&
+      !id &&
+      !refreshedReferenceMisses.has(missKey)
+    ) {
+      refreshedReferenceMisses.add(missKey);
+      index = await refreshedReferenceIndex(collectionName, valueField);
+      id = index.get(valueKey) ?? null;
+    }
     if (!id) return { id: null, record: null };
     return { id, record: await rawRecord(collectionName, id) };
   }
@@ -295,7 +448,8 @@ function createContentAdapter({
     const target = await referenceTarget(
       targetCollection.name,
       reference.ref,
-      valueField
+      valueField,
+      ["reference", "tags"].includes(field.widget)
     );
     const targetKey = target.id
       ? `${targetCollection.name}:${target.id}`
@@ -316,14 +470,53 @@ function createContentAdapter({
     };
   }
 
+  async function resolvedTags(field, value, ancestors) {
+    if (!Array.isArray(value)) return [];
+    return Promise.all(
+      value.map((tagId) => resolvedReference(field, tagId, ancestors))
+    );
+  }
+
+  async function resolvedMarkdown(field, value, ancestors) {
+    const markdown = typeof value === "string" ? value : String(value ?? "");
+    const collectionName = field.blocknote.inline_reference.collection;
+    const references = inlineReferencesInMarkdown(markdown, collectionName);
+    const resolvedEntries = await Promise.all(
+      [...references].map(async ([href, reference]) => {
+        const resolved = await resolvedReference(
+          { widget: "reference", collection: collectionName },
+          reference.ref,
+          ancestors
+        );
+        return [
+          href,
+          {
+            collection: collectionName,
+            ref: reference.ref,
+            record: resolved.record
+          }
+        ];
+      })
+    );
+
+    return {
+      markdown,
+      references: Object.fromEntries(resolvedEntries)
+    };
+  }
+
   async function resolvedMedia(value, widget) {
+    const resolveUrl =
+      widget === "image"
+        ? sourceApi.resolveImageUrl
+        : sourceApi.resolveMediaUrl;
     if (typeof value === "string") {
-      return value ? await sourceApi.resolveMediaUrl(value) : value;
+      return value ? await resolveUrl(value) : value;
     }
     if (widget === "image" && isMapping(value)) {
       const image = cloneValue(value);
       if (typeof image.src === "string" && image.src) {
-        image.src = await sourceApi.resolveMediaUrl(image.src);
+        image.src = await resolveUrl(image.src);
       }
       return image;
     }
@@ -341,6 +534,17 @@ function createContentAdapter({
       const field = fields[name];
       if (field?.widget === "reference") {
         resolvedProperties[name] = await resolvedReference(
+          field,
+          value,
+          ancestors
+        );
+      } else if (field?.widget === "tags") {
+        resolvedProperties[name] = await resolvedTags(field, value, ancestors);
+      } else if (
+        field?.widget === "markdown" &&
+        isMapping(field.blocknote?.inline_reference)
+      ) {
+        resolvedProperties[name] = await resolvedMarkdown(
           field,
           value,
           ancestors

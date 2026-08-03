@@ -16,6 +16,7 @@ import {
   createImageAnnotationId,
   ensureImageAnnotationIds,
   imageCoordinateSize,
+  imageInfoCoordinateSize,
   normalizeImageValue
 } from "../../model/image.js";
 import {
@@ -77,7 +78,7 @@ function arrowDelta(event) {
   return null;
 }
 
-function AnnotatedImageField({ id, field, value, onChange }) {
+function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
   const api = useAdapter();
   const inputRef = useRef(null);
   const canvasRef = useRef(null);
@@ -87,13 +88,37 @@ function AnnotatedImageField({ id, field, value, onChange }) {
   const interactionRef = useRef(null);
   const [image, setImage] = useState(() => normalizeImageValue(value));
   const imageRef = useRef(image);
-  const [imageSize, setImageSize] = useState(null);
+  const [naturalImageSize, setNaturalImageSize] = useState(null);
+  const [sourceInfo, setSourceInfo] = useState({
+    source: "",
+    status: "idle",
+    value: null
+  });
   const [selection, setSelection] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const serializedValue = JSON.stringify(value ?? "");
   const rotationInstructionsId = `${id}-rotation-instructions`;
+  const storedImageSize = imageCoordinateSize(image);
+  const needsServiceInfo = Boolean(
+    image.src && !storedImageSize && typeof api.getImageInfo === "function"
+  );
+  const activeSourceInfo =
+    sourceInfo.source === image.src ? sourceInfo : null;
+  const mayUseNaturalSize =
+    !needsServiceInfo || activeSourceInfo?.status === "bypass";
+  const imageSize = imageCoordinateSize(
+    image,
+    mayUseNaturalSize ? naturalImageSize?.width : null,
+    mayUseNaturalSize ? naturalImageSize?.height : null,
+    activeSourceInfo?.status === "ready" ? activeSourceInfo.value : null
+  );
+  const sourceInfoError =
+    activeSourceInfo?.status === "error"
+      ? "The original image dimensions could not be read."
+      : "";
+  const displayedError = error || sourceInfoError;
 
   useEffect(() => {
     const nextImage = normalizeImageValue(value);
@@ -102,10 +127,55 @@ function AnnotatedImageField({ id, field, value, onChange }) {
   }, [serializedValue]);
 
   useEffect(() => {
-    setImageSize(imageCoordinateSize(image));
+    setNaturalImageSize(null);
     setSelection(null);
     interactionRef.current = null;
   }, [image.src, image.width, image.height]);
+
+  useEffect(() => {
+    let active = true;
+    if (!needsServiceInfo) {
+      setSourceInfo({ source: image.src, status: "idle", value: null });
+      return () => {
+        active = false;
+      };
+    }
+
+    setSourceInfo({ source: image.src, status: "loading", value: null });
+    api
+      .getImageInfo(image.src)
+      .then((information) => {
+        if (!active) return;
+        if (information === null) {
+          setSourceInfo({
+            source: image.src,
+            status: "bypass",
+            value: null
+          });
+          return;
+        }
+        if (!imageInfoCoordinateSize(information)) {
+          throw new Error("The image information contains no dimensions.");
+        }
+        setSourceInfo({
+          source: image.src,
+          status: "ready",
+          value: information
+        });
+      })
+      .catch(() => {
+        if (active) {
+          setSourceInfo({
+            source: image.src,
+            status: "error",
+            value: null
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [api, image.src, needsServiceInfo]);
 
   useEffect(() => {
     if (!editorOpen) return undefined;
@@ -179,7 +249,7 @@ function AnnotatedImageField({ id, field, value, onChange }) {
     setUploading(true);
     setError("");
     try {
-      const result = await api.uploadMedia(file);
+      const result = await api.uploadMedia(file, collectionName);
       replaceValue(result.path);
     } catch (uploadError) {
       setError(uploadError.message);
@@ -419,21 +489,22 @@ function AnnotatedImageField({ id, field, value, onChange }) {
       onPointerCancel={endPointer}
     >
       <img
-        src={api.resolveMediaUrl(image.src)}
+        src={api.resolveImageUrl(image.src, {
+          width: 2048,
+          height: 2048,
+          fit: "inside"
+        })}
         alt=""
         draggable={false}
         onLoad={(event) => {
           setError("");
-          setImageSize(
-            imageCoordinateSize(
-              imageRef.current,
-              event.currentTarget.naturalWidth,
-              event.currentTarget.naturalHeight
-            )
-          );
+          setNaturalImageSize({
+            width: event.currentTarget.naturalWidth,
+            height: event.currentTarget.naturalHeight
+          });
         }}
         onError={() => {
-          setImageSize(null);
+          setNaturalImageSize(null);
           setError("The image could not be loaded.");
         }}
       />
@@ -654,20 +725,21 @@ function AnnotatedImageField({ id, field, value, onChange }) {
           >
             <img
               className="image-field__preview"
-              src={api.resolveMediaUrl(image.src)}
+              src={api.resolveImageUrl(image.src, {
+                width: 640,
+                height: 480,
+                fit: "inside"
+              })}
               alt=""
               onLoad={(event) => {
                 setError("");
-                setImageSize(
-                  imageCoordinateSize(
-                    imageRef.current,
-                    event.currentTarget.naturalWidth,
-                    event.currentTarget.naturalHeight
-                  )
-                );
+                setNaturalImageSize({
+                  width: event.currentTarget.naturalWidth,
+                  height: event.currentTarget.naturalHeight
+                });
               }}
               onError={() => {
-                setImageSize(null);
+                setNaturalImageSize(null);
                 setError("The image could not be loaded.");
               }}
             />
@@ -728,7 +800,9 @@ function AnnotatedImageField({ id, field, value, onChange }) {
         accept={acceptTokens(field.accept || DEFAULT_IMAGE_ACCEPT).join(",")}
         onChange={upload}
       />
-      {error && <small className="field-error">{error}</small>}
+      {displayedError && (
+        <small className="field-error">{displayedError}</small>
+      )}
 
       {editorOpen && createPortal(
         <div

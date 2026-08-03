@@ -20,7 +20,7 @@ function filenameFromPath(value) {
   }
 }
 
-function FileUploadField({ id, field, value, onChange }) {
+function FileUploadField({ id, field, value, collectionName, onChange }) {
   const adapter = useAdapter();
   const inputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
@@ -38,7 +38,7 @@ function FileUploadField({ id, field, value, onChange }) {
     setUploading(true);
     setError("");
     try {
-      const result = await adapter.uploadMedia(file);
+      const result = await adapter.uploadMedia(file, collectionName);
       onChange(result.path);
     } catch (uploadError) {
       setError(uploadError.message);

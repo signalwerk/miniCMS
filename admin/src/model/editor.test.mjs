@@ -86,14 +86,14 @@ test("includes the file symlink icon in configurable icon choices", () => {
   assert.equal(ICON_NAMES.includes("file-symlink"), true);
 });
 
-test("keeps optional selects empty until an option is chosen", () => {
+test("keeps selects optional by default until an option is chosen", () => {
   const options = [
     { label: "Column 1", value: "1" },
     { label: "Column 2", value: "2" }
   ];
 
   assert.equal(
-    defaultFieldValue({ widget: "select", required: false, options }),
+    defaultFieldValue({ widget: "select", options }),
     ""
   );
   assert.equal(
@@ -103,12 +103,19 @@ test("keeps optional selects empty until an option is chosen", () => {
   assert.equal(
     defaultFieldValue({
       widget: "select",
-      required: false,
       default: "2",
       options
     }),
     "2"
   );
+});
+
+test("gives every tags field a fresh array default", () => {
+  const first = defaultFieldValue({ widget: "tags" });
+  const second = defaultFieldValue({ widget: "tags" });
+  assert.deepEqual(first, []);
+  assert.deepEqual(second, []);
+  assert.notEqual(first, second);
 });
 
 test("filters reference choices by configured record types", () => {

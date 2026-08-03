@@ -1,158 +1,28 @@
 import {
   ArrowDown,
   ArrowUp,
-  ChevronDown,
-  ChevronRight,
   Copy,
   Layers3,
   Maximize2,
   Minimize2,
-  RefreshCw,
-  Settings2,
   Trash2
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import "./Inspector.scss";
-import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import {
   cx,
   findLocation,
   getNode,
   iconFor
 } from "../../model/editor.js";
-import { imageSource } from "../../model/image.js";
 import {
-  displayValue,
-  groupsForPanel,
-  panelsFor,
-  systemFieldValue
-} from "../../model/views.js";
+  focusableElements,
+  isolateFocusSurface
+} from "../../model/focus.js";
+import { panelsFor } from "../../model/views.js";
 import { EmptyState } from "../Common/Common.jsx";
 import { Field } from "../Fields/Fields.jsx";
-
-function focusableElements(root) {
-  if (!root) return [];
-  return Array.from(
-    root.querySelectorAll(
-      "button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [contenteditable='true'], [tabindex]:not([tabindex='-1'])"
-    )
-  ).filter(
-    (element) =>
-      element.getClientRects().length > 0 &&
-      !element.closest("[hidden], [aria-hidden='true']")
-  );
-}
-
-function isolateFocusSurface(surface) {
-  const states = [];
-  let current = surface;
-  while (current?.parentElement) {
-    const parent = current.parentElement;
-    for (const sibling of parent.children) {
-      if (sibling === current || !(sibling instanceof HTMLElement)) continue;
-      if (
-        sibling.matches(
-          "[data-portal], [data-mantine-shared-portal-node], [aria-live], [role='alert'], [role='status'], .toast, .dialog-backdrop"
-        )
-      ) {
-        continue;
-      }
-      states.push({
-        element: sibling,
-        inert: sibling.inert,
-        ariaHidden: sibling.getAttribute("aria-hidden")
-      });
-      sibling.inert = true;
-      sibling.setAttribute("aria-hidden", "true");
-    }
-    current = parent;
-    if (parent === document.body) break;
-  }
-
-  return () => {
-    for (const state of states) {
-      state.element.inert = state.inert;
-      if (state.ariaHidden === null) {
-        state.element.removeAttribute("aria-hidden");
-      } else {
-        state.element.setAttribute("aria-hidden", state.ariaHidden);
-      }
-    }
-  };
-}
-
-function ReadOnlyDetailField({ field, value, action }) {
-  const adapter = useAdapter();
-  const formatted = displayValue(value, field);
-  const image = adapter.resolveMediaUrl(imageSource(value));
-  const content =
-    field.display === "code" ? (
-      <code>{formatted}</code>
-    ) : field.display === "image" && image ? (
-      <img className="detail-value__image" src={image} alt="" />
-    ) : field.display === "badge" ? (
-      <span className="detail-value__badge">{formatted}</span>
-    ) : (
-      <span>{formatted}</span>
-    );
-  return (
-    <div
-      className={cx(
-        "detail-value",
-        field.appearance && `detail-value--${field.appearance}`,
-        field.align && `detail-value--${field.align}`
-      )}
-    >
-      <span className="detail-value__label">{field.label || field.name}</span>
-      <div className="detail-value__content">
-        {content}
-        {action}
-      </div>
-    </div>
-  );
-}
-
-function InspectorGroup({ group, children, panelFocused = false }) {
-  const [open, setOpen] = useState(true);
-  const GroupIcon = iconFor(group.icon, Settings2);
-  const expanded = panelFocused || open;
-
-  return (
-    <section
-      className={cx(
-        "inspector-group",
-        expanded && "inspector-group--open"
-      )}
-    >
-      <div className="inspector-group__header">
-        <button
-          type="button"
-          className="inspector-group__heading"
-          onClick={() => {
-            if (!panelFocused) setOpen((value) => !value);
-          }}
-          aria-expanded={expanded}
-          aria-disabled={panelFocused || undefined}
-          tabIndex={panelFocused ? -1 : undefined}
-        >
-          <span className="inspector-group__icon">
-            <GroupIcon size={14} />
-          </span>
-          <span className="inspector-group__title">
-            <strong>{group.label}</strong>
-            {group.description && <small>{group.description}</small>}
-          </span>
-          {panelFocused ? null : expanded ? (
-            <ChevronDown size={14} />
-          ) : (
-            <ChevronRight size={14} />
-          )}
-        </button>
-      </div>
-      {expanded && <div className="inspector-group__content">{children}</div>}
-    </section>
-  );
-}
+import { InspectorPanelFields } from "./InspectorPanelFields.jsx";
 
 function Inspector({
   record,
@@ -166,6 +36,8 @@ function Inspector({
   onFocus,
   onExitFocus,
   onPropertyChange,
+  onPropertyPreview,
+  onPropertyPreviewEnd,
   onMove,
   onDelete,
   onDuplicate,
@@ -188,7 +60,7 @@ function Inspector({
 
     function handleKeyDown(event) {
       const inNestedSurface = event.target?.closest?.(
-        ".dialog-backdrop, [data-portal], [data-mantine-shared-portal-node]"
+        ".dialog-backdrop, [data-portal], [data-mantine-shared-portal-node], .tags-select__menu-portal, [data-field-popup-open='true']"
       );
       if (event.key === "Escape") {
         if (inNestedSurface) return;
@@ -236,12 +108,6 @@ function Inspector({
   const panels = panelsFor(type, isDocument);
   const currentPanel =
     panels.find((panel) => panel.name === activePanel) || panels[0];
-  const groups = groupsForPanel(
-    type,
-    currentPanel.name,
-    isDocument,
-    node.properties ?? {}
-  );
   const currentItem = items.find((item) => item.id === record.id);
   return (
     <div
@@ -311,64 +177,34 @@ function Inspector({
         </button>
       </div>
 
-      <div className="inspector__fields">
-        {groups.map((group) => (
-          <InspectorGroup
-            key={`${node.id}-${currentPanel.name}-${group.name}`}
-            group={group}
-            panelFocused={focused}
-          >
-            {group.fields.map((field) => (
-              field.system || field.mode === "read" ? (
-                <ReadOnlyDetailField
-                  key={field.name}
-                  field={field}
-                  value={
-                    field.system
-                      ? systemFieldValue(
-                          field.name,
-                          record,
-                          collection,
-                          currentItem
-                        )
-                      : node.properties?.[field.name]
-                  }
-                  action={
-                    field.name === "$filename" && collection.slug ? (
-                      <button
-                        type="button"
-                        className="detail-value__action"
-                        title="Regenerate filename from configuration"
-                        aria-label="Regenerate filename from the configured slug"
-                        disabled={renameDisabled}
-                        onClick={onRenameFile}
-                      >
-                        <RefreshCw size={14} />
-                      </button>
-                    ) : null
-                  }
-                />
-              ) : (
-                <Field
-                  key={field.name}
-                  field={field}
-                  value={node.properties?.[field.name]}
-                  collections={collections}
-                  onChange={(value) =>
-                    onPropertyChange(node.id, field.name, value)
-                  }
-                />
-              )
-            ))}
-          </InspectorGroup>
-        ))}
-
-        {!groups.length && (
-          <EmptyState icon={Settings2} title="No fields configured">
-            Assign fields to a group in this panel in cms.config.yml.
-          </EmptyState>
+      <InspectorPanelFields
+        record={record}
+        node={node}
+        type={type}
+        panelName={currentPanel.name}
+        includeInfo={isDocument}
+        panelFocused={focused}
+        collection={collection}
+        item={currentItem}
+        onRenameFile={onRenameFile}
+        renameDisabled={renameDisabled}
+        renderField={(field) => (
+          <Field
+            field={field}
+            value={node.properties?.[field.name]}
+            collectionName={collection.name}
+            collections={collections}
+            nodeTypes={nodeTypes}
+            onChange={(value) =>
+              onPropertyChange(node.id, field.name, value)
+            }
+            onPreviewChange={(value) =>
+              onPropertyPreview?.(node.id, field.name, value)
+            }
+            onPreviewEnd={onPropertyPreviewEnd}
+          />
         )}
-      </div>
+      />
 
       {!isDocument && location && (
         <div className="inspector__footer">

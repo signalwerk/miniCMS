@@ -145,3 +145,11 @@ test("displays structured reference values by their target reference", () => {
   assert.equal(displayValue(0, { widget: "reference" }), "0");
   assert.equal(displayValue(false, { widget: "reference" }), "false");
 });
+
+test("displays tag ID arrays without coercing them to editor strings", () => {
+  assert.equal(
+    displayValue(["aaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbb"], { widget: "tags" }),
+    "aaaaaaaaaaaaaaa, bbbbbbbbbbbbbbb"
+  );
+  assert.equal(displayValue([], { widget: "tags" }), "—");
+});

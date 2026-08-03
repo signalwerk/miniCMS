@@ -346,19 +346,73 @@
 }
 
 .reference-dialog {
-  width: min(680px, calc(100vw - 32px));
+  display: grid;
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
 .reference-dialog__body {
-  display: grid;
   min-height: 0;
+}
+
+.reference-dialog__body--select {
+  display: grid;
   gap: 10px;
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.reference-dialog__body--create {
+  padding: 14px;
+  overflow-y: auto;
+}
+
+.reference-dialog__tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  padding: 7px;
+  background: #191a17;
+  border-bottom: 1px solid #353630;
+}
+
+.reference-dialog__tabs button {
+  @extend %type-normal;
+  display: flex;
+  min-height: 34px;
+  gap: 7px;
+  align-items: center;
+  justify-content: center;
+  color: #85877f;
+  background: #242521;
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+
+.reference-dialog__tabs button:hover:not(:disabled) {
+  color: #d9dad3;
+  background: #2d2e2a;
+}
+
+.reference-dialog__tabs button.is-active {
+  color: var(--lime);
+  background: #303328;
+  border-color: #4e5734;
+}
+
+.reference-dialog__tabs button:focus-visible {
+  outline: 2px solid #778444;
+  outline-offset: -2px;
+}
+
+.reference-dialog__tabs button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .reference-dialog__items {
   display: grid;
-  max-height: min(520px, 60vh);
+  max-height: min(520px, 56vh);
   min-height: 160px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
@@ -384,6 +438,11 @@
   border-color: #4a4c44;
 }
 
+.reference-dialog__items > button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .reference-dialog__items > button.is-selected {
   background: #303328;
   border-color: #718038;
@@ -394,9 +453,98 @@
 }
 
 .reference-dialog__items .empty-state,
-.reference-dialog__items .panel-loader {
+.reference-dialog__items .panel-loader,
+.reference-dialog__error {
   min-height: 160px;
   grid-column: 1 / -1;
+}
+
+.reference-dialog__error {
+  @extend %type-normal;
+  display: flex;
+  min-height: auto;
+  gap: 7px;
+  align-items: center;
+  padding: 9px 10px;
+  color: #ffaaa4;
+  background: #372321;
+  border: 1px solid #5c312d;
+  border-radius: 3px;
+}
+
+.reference-dialog__inspector {
+  width: min(520px, 100%);
+  margin: 0 auto;
+  overflow: hidden;
+  background: #242521;
+  border: 1px solid #393b34;
+  border-radius: 4px;
+}
+
+.reference-dialog__inspector-identity {
+  display: flex;
+  min-width: 0;
+  min-height: 58px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid #393b34;
+}
+
+.reference-dialog__inspector-icon {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  align-items: center;
+  justify-content: center;
+  color: #dce0d4;
+  background: #34362f;
+  border-radius: 3px;
+}
+
+.reference-dialog__inspector-identity > span:last-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.reference-dialog__inspector-identity strong {
+  @extend %type-normal-bold;
+  color: #e2e3dd;
+}
+
+.reference-dialog__inspector-identity small {
+  @extend %type-consulting;
+  margin-top: 3px;
+  color: #777970;
+}
+
+.reference-dialog__inspector-heading {
+  @extend %type-normal-bold;
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  padding: 0 12px;
+  color: #898b83;
+  background: #1d1e1b;
+  border-bottom: 1px solid #353730;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.reference-dialog__inspector-fields {
+  padding: 13px 12px 4px;
+}
+
+.reference-dialog__inspector-fields .reference-dialog__error {
+  margin-bottom: 12px;
+}
+
+@media (max-width: 560px) {
+  .reference-dialog__items {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .generated-id-field input[readonly] {

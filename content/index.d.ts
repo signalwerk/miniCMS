@@ -1,3 +1,15 @@
+import type { ImageProcessingConfig } from "../core/image-service.js";
+export { prependImageServiceOperations } from "../core/image-service.js";
+export type { ImageOperation } from "../core/image-service.js";
+export {
+  INLINE_REFERENCE_PREFIX,
+  buildInlineReferenceUrl,
+  isAllowedMarkdownLink,
+  isInlineReferenceUrl,
+  parseInlineReferenceUrl
+} from "../core/inline-reference.js";
+export type { InlineReference } from "../core/inline-reference.js";
+
 export type UnknownMapping = Record<string, unknown>;
 export type ReferenceScalar = string | number | boolean;
 
@@ -25,12 +37,34 @@ export interface ResolvedReference<T extends ContentRecord = ContentRecord> {
   selections: Record<string, ResolvedSelection>;
 }
 
+export interface ResolvedMarkdownReference<
+  T extends ContentRecord = ContentRecord
+> {
+  collection: string;
+  ref: string;
+  record: T | null;
+}
+
+export interface ResolvedMarkdown<T extends ContentRecord = ContentRecord> {
+  markdown: string;
+  references: Record<string, ResolvedMarkdownReference<T>>;
+}
+
+export type ResolvedTags<T extends ContentRecord = ContentRecord> =
+  ResolvedReference<T>[];
+
 export interface CmsConfig extends UnknownMapping {
+  backend?: {
+    name?: string;
+    api_url?: string;
+    [key: string]: unknown;
+  };
   site?: {
     name?: string;
     locale?: string;
     media_folder?: string;
     public_folder?: string;
+    image_processing?: ImageProcessingConfig;
     [key: string]: unknown;
   };
   collections: Record<string, UnknownMapping>;
@@ -75,6 +109,7 @@ export interface ContentSource {
     id: string
   ) => MaybePromise<ContentSourceRecordResult>;
   resolveMediaUrl?: (value: string) => MaybePromise<string>;
+  resolveImageUrl?: (value: string) => MaybePromise<string>;
 }
 
 export interface ContentAdapterOptions {
@@ -86,6 +121,7 @@ export interface ContentAdapterOptions {
     id: string
   ) => MaybePromise<ContentSourceRecordResult>;
   resolveMediaUrl?: (value: string) => MaybePromise<string>;
+  resolveImageUrl?: (value: string) => MaybePromise<string>;
 }
 
 export interface ContentAdapter {

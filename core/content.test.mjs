@@ -4,7 +4,8 @@ import {
   dumpYaml,
   parseYaml,
   summarizeRecord,
-  validateConfig
+  validateConfig,
+  validateRecord
 } from "./content.js";
 
 function fixtureConfig() {
@@ -71,6 +72,10 @@ test("accepts the API backend and normalizes the legacy Node name", () => {
     api_url: "https://content.example.com"
   };
   assert.equal(validateConfig(apiConfig).backend.name, "api");
+  assert.equal(
+    validateConfig(apiConfig).backend.api_url,
+    "https://content.example.com"
+  );
 
   const legacyConfig = fixtureConfig();
   legacyConfig.backend = { name: "node", api_url: "" };
@@ -79,11 +84,57 @@ test("accepts the API backend and normalizes the legacy Node name", () => {
     api_url: ""
   });
 
+  const whitespaceConfig = fixtureConfig();
+  whitespaceConfig.backend = { name: "api", api_url: "   " };
+  assert.equal(validateConfig(whitespaceConfig).backend.api_url, "");
+
   const invalidConfig = fixtureConfig();
   invalidConfig.backend = { name: "api", api_url: 42 };
   assert.throws(
     () => validateConfig(invalidConfig, 400),
     /miniCMS API URL must be a string/
+  );
+
+  for (const apiUrl of [
+    "http://content.example.com",
+    "ftp://content.example.com",
+    "https://user@content.example.com",
+    "https://content.example.com/api",
+    "https://content.example.com?project=other"
+  ]) {
+    const invalidOrigin = fixtureConfig();
+    invalidOrigin.backend = { name: "api", api_url: apiUrl };
+    assert.throws(
+      () => validateConfig(invalidOrigin, 400),
+      /miniCMS API URL/
+    );
+  }
+});
+
+test("validates the image processing and cache contract", () => {
+  const config = fixtureConfig();
+  config.site.image_processing = {
+    width: 1600,
+    height: 1200,
+    fit: "inside",
+    format: "avif",
+    quality: 75,
+    cache: {
+      schema: "images_2",
+      strategy: "immutable",
+      max_age: 31_536_000
+    }
+  };
+  assert.equal(
+    validateConfig(config).site.image_processing.cache.schema,
+    "images_2"
+  );
+
+  const invalid = structuredClone(config);
+  invalid.site.image_processing.cache.schema = "../../images";
+  assert.throws(
+    () => validateConfig(invalid, 400),
+    /cache\.schema must match/
   );
 });
 
@@ -108,6 +159,319 @@ test("accepts generated ID fields and normalizes the legacy UUID widget", () => 
   const validated = validateConfig(config);
   assert.equal(validated.node_types.page.fields.content_id.widget, "id");
   assert.equal(validated.node_types.page.fields.legacy_id.widget, "id");
+});
+
+test("keeps fields optional by default and omits explicit false", () => {
+  const config = fixtureConfig();
+  config.node_types.page.fields.optional = {
+    widget: "string",
+    required: false
+  };
+  config.node_types.page.fields.required = {
+    widget: "string",
+    required: true
+  };
+
+  const validated = validateConfig(config);
+  assert.equal(
+    Object.hasOwn(validated.node_types.page.fields.optional, "required"),
+    false
+  );
+  assert.equal(validated.node_types.page.fields.required.required, true);
+  assert.doesNotMatch(dumpYaml(validated), /required: false/);
+
+  const invalid = fixtureConfig();
+  invalid.node_types.page.fields.title.required = "yes";
+  assert.throws(
+    () => validateConfig(invalid, 400),
+    /required must be true when configured/
+  );
+});
+
+test("validates markdown BlockNote inline reference configuration", () => {
+  const config = fixtureConfig();
+  config.node_types.page.fields.body = {
+    widget: "markdown",
+    blocknote: {
+      inline_reference: {
+        collection: "pages",
+        preview_field: "title"
+      }
+    }
+  };
+
+  const validated = validateConfig(config);
+  assert.deepEqual(
+    validated.node_types.page.fields.body.blocknote.inline_reference,
+    { collection: "pages", preview_field: "title" }
+  );
+  assert.match(dumpYaml(validated), /inline_reference:/);
+
+  const fallbackTitle = structuredClone(config);
+  delete fallbackTitle.node_types.page.fields.body.blocknote.inline_reference
+    .preview_field;
+  assert.equal(
+    validateConfig(fallbackTitle).node_types.page.fields.body.blocknote
+      .inline_reference.collection,
+    "pages"
+  );
+
+  const wrongWidget = structuredClone(config);
+  wrongWidget.node_types.page.fields.body.widget = "text";
+  assert.throws(
+    () => validateConfig(wrongWidget, 400),
+    /configure BlockNote only for a markdown widget/
+  );
+
+  for (const [property, value, expected] of [
+    ["blocknote", [], /blocknote must be a mapping/],
+    ["inline_reference", [], /inline_reference must be a mapping/]
+  ]) {
+    const invalid = structuredClone(config);
+    if (property === "blocknote") {
+      invalid.node_types.page.fields.body.blocknote = value;
+    } else {
+      invalid.node_types.page.fields.body.blocknote[property] = value;
+    }
+    assert.throws(() => validateConfig(invalid, 400), expected);
+  }
+
+  const missingCollectionName = structuredClone(config);
+  missingCollectionName.node_types.page.fields.body.blocknote.inline_reference
+    .collection = "";
+  assert.throws(
+    () => validateConfig(missingCollectionName, 400),
+    /must define a collection/
+  );
+
+  const unknownCollection = structuredClone(config);
+  unknownCollection.node_types.page.fields.body.blocknote.inline_reference
+    .collection = "missing";
+  assert.throws(
+    () => validateConfig(unknownCollection, 400),
+    /inline reference uses unknown collection "missing"/
+  );
+
+  const emptyPreviewField = structuredClone(config);
+  emptyPreviewField.node_types.page.fields.body.blocknote.inline_reference
+    .preview_field = "";
+  assert.throws(
+    () => validateConfig(emptyPreviewField, 400),
+    /preview_field must be a non-empty field name/
+  );
+
+  const unknownPreviewField = structuredClone(config);
+  unknownPreviewField.node_types.page.fields.body.blocknote.inline_reference
+    .preview_field = "missing";
+  assert.throws(
+    () => validateConfig(unknownPreviewField, 400),
+    /inline reference preview references unknown field "missing"/
+  );
+
+  const structuredPreviewField = structuredClone(config);
+  structuredPreviewField.node_types.page.fields.poster = { widget: "image" };
+  structuredPreviewField.node_types.page.fields.body.blocknote.inline_reference
+    .preview_field = "poster";
+  assert.throws(
+    () => validateConfig(structuredPreviewField, 400),
+    /inline reference preview field "poster" must store scalar text/
+  );
+
+  const numericValueField = structuredClone(config);
+  numericValueField.node_types.page.fields.sequence = { widget: "number" };
+  numericValueField.collections.pages.views = {
+    reference: { value: "sequence" }
+  };
+  assert.throws(
+    () => validateConfig(numericValueField, 400),
+    /inline reference value field "sequence" must store text/
+  );
+});
+
+test("validates URL fields and tag collection relations", () => {
+  const config = fixtureConfig();
+  config.node_types.page.fields.website = {
+    widget: "url",
+    default: "https://example.com/archive"
+  };
+  config.node_types.page.fields.tags = {
+    widget: "tags",
+    collection: "tags"
+  };
+  config.node_types.tag = {
+    fields: {
+      content_id: { widget: "id" },
+      name: { widget: "string" }
+    }
+  };
+  config.collections.tags = {
+    folder: "content/tags",
+    extension: "yml",
+    node_type: "tag",
+    allowed_types: ["tag"],
+    views: {
+      reference: {
+        value: "content_id",
+        title: "name"
+      }
+    }
+  };
+
+  const validated = validateConfig(config);
+  assert.equal(validated.node_types.page.fields.website.widget, "url");
+  assert.equal(validated.node_types.page.fields.tags.collection, "tags");
+
+  const missingCollection = structuredClone(config);
+  missingCollection.node_types.page.fields.tags.collection = "missing";
+  assert.throws(
+    () => validateConfig(missingCollection, 400),
+    /tags field "tags" uses unknown collection "missing"/
+  );
+
+  const invalidIdentity = structuredClone(config);
+  invalidIdentity.node_types.tag.fields.content_id.widget = "string";
+  assert.throws(
+    () => validateConfig(invalidIdentity, 400),
+    /tags value field "content_id" must use the id widget/
+  );
+
+  const recordIdentity = structuredClone(config);
+  recordIdentity.node_types.tag.fields.id = { widget: "id" };
+  recordIdentity.collections.tags.views.reference.value = "id";
+  assert.throws(
+    () => validateConfig(recordIdentity, 400),
+    /not its record ID/
+  );
+
+  const referenceOnlyOption = structuredClone(config);
+  referenceOnlyOption.node_types.page.fields.tags.allowed_types = ["tag"];
+  assert.throws(
+    () => validateConfig(referenceOnlyOption, 400),
+    /only its collection relation/
+  );
+
+  const missingTitle = structuredClone(config);
+  delete missingTitle.collections.tags.views.reference.title;
+  assert.throws(
+    () => validateConfig(missingTitle, 400),
+    /must publish a reference title field for tags/
+  );
+
+  const invalidDefault = structuredClone(config);
+  invalidDefault.node_types.page.fields.tags.default = "aaaaaaaaaaaaaaa";
+  assert.throws(
+    () => validateConfig(invalidDefault, 400),
+    /cannot define a default/
+  );
+
+  for (const defaultValue of ["/archive", "javascript:alert(1)"]) {
+    const invalidUrlDefault = structuredClone(config);
+    invalidUrlDefault.node_types.page.fields.website.default = defaultValue;
+    assert.throws(
+      () => validateConfig(invalidUrlDefault, 400),
+      /default must be an absolute HTTP or HTTPS URL/
+    );
+  }
+
+  const invalidDefaultTagType = structuredClone(config);
+  invalidDefaultTagType.node_types.alternate_tag = structuredClone(
+    invalidDefaultTagType.node_types.tag
+  );
+  invalidDefaultTagType.collections.tags.allowed_types = ["alternate_tag"];
+  assert.throws(
+    () => validateConfig(invalidDefaultTagType, 400),
+    /must allow its node type "tag"/
+  );
+});
+
+test("requires persisted URL values to be empty or use HTTP(S)", () => {
+  const config = fixtureConfig();
+  config.node_types.page.fields.website = { widget: "url" };
+  validateConfig(config);
+  const collection = { name: "pages", ...config.collections.pages };
+  const record = {
+    id: "home",
+    type: "page",
+    order: 0,
+    properties: { title: "Home", website: "https://example.com/research" },
+    slots: {}
+  };
+
+  assert.equal(validateRecord(record, collection, config), record);
+  assert.equal(
+    validateRecord(
+      { ...record, properties: { ...record.properties, website: "" } },
+      collection,
+      config
+    ).properties.website,
+    ""
+  );
+
+  for (const website of [
+    "example.com",
+    "/research",
+    "javascript:alert(1)",
+    "data:text/plain,unsafe",
+    42
+  ]) {
+    assert.throws(
+      () =>
+        validateRecord(
+          { ...record, properties: { ...record.properties, website } },
+          collection,
+          config
+        ),
+      /must be empty or contain an absolute HTTP or HTTPS URL/
+    );
+  }
+});
+
+test("requires persisted tag values to be unique generated-ID arrays", () => {
+  const config = fixtureConfig();
+  config.node_types.page.fields.tags = {
+    widget: "tags",
+    collection: "tags"
+  };
+  config.node_types.tag = {
+    fields: {
+      content_id: { widget: "id" },
+      name: { widget: "string" }
+    }
+  };
+  config.collections.tags = {
+    folder: "content/tags",
+    extension: "yml",
+    node_type: "tag",
+    views: {
+      reference: { value: "content_id", title: "name" }
+    }
+  };
+  validateConfig(config);
+  const collection = { name: "pages", ...config.collections.pages };
+  const record = {
+    id: "home",
+    type: "page",
+    order: 0,
+    properties: { tags: ["aaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbb"] },
+    slots: {}
+  };
+
+  assert.equal(validateRecord(record, collection, config), record);
+  for (const tags of [
+    "aaaaaaaaaaaaaaa",
+    ["short"],
+    ["aaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaa"]
+  ]) {
+    assert.throws(
+      () =>
+        validateRecord(
+          { ...record, properties: { tags } },
+          collection,
+          config
+        ),
+      /array of unique generated IDs/
+    );
+  }
 });
 
 test("validates conditional fields and type-restricted references", () => {
@@ -266,4 +630,19 @@ test("summarizes records consistently across storage adapters", () => {
   assert.equal(summary.hidden, true);
   assert.equal(summary.order, 2);
   assert.equal(summary.updated_at, "2026-07-31T11:00:00.000Z");
+});
+
+test("uses reference presentation for collection summary titles", () => {
+  const summary = summarizeRecord(
+    {
+      id: "research-2026-08",
+      type: "tag",
+      order: 0,
+      properties: { content_id: "aaaaaaaaaaaaaaa", name: "Research" }
+    },
+    {},
+    { name: "tags", views: { reference: { title: "name" } } }
+  );
+
+  assert.equal(summary.title, "Research");
 });

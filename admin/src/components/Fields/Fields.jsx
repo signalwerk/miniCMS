@@ -3,11 +3,20 @@ import {
   ChevronDown,
   CircleAlert,
   Files as FilesIcon,
+  Plus,
   Search,
   SlidersHorizontal,
   X
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useId,
+  useRef,
+  useState
+} from "react";
+import { createPortal } from "react-dom";
 import "./Fields.scss";
 import { isGeneratedIdWidget } from "../../../../core/id.js";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
@@ -15,21 +24,35 @@ import {
   cx,
   defaultFieldValue,
   iconFor,
-  referenceItemsForField
+  isSaveShortcut,
+  referenceItemsForField,
+  typeFields
 } from "../../model/editor.js";
-import { imageSource } from "../../model/image.js";
+import {
+  focusableElements,
+  isolateFocusSurface
+} from "../../model/focus.js";
 import {
   compactReferenceValue,
+  createReferencedRecordDraft,
   hasReferenceValue,
   normalizeReferenceValue,
+  referenceImageSource,
+  referenceItemLabel,
   referenceItemValue,
+  referencePickerOption,
+  referenceRecordCreationConfig,
   referenceSelectionDefinitions,
-  referenceSelectionOptions
+  referenceSelectionOptions,
+  referenceValueAfterSelection,
+  storeReferencedRecordDraft
 } from "../../model/reference.js";
+import { fieldIsVisible } from "../../model/views.js";
 import { EmptyState, Spinner } from "../Common/Common.jsx";
 import { AnnotatedImageField } from "./AnnotatedImageField.jsx";
 import { FileUploadField } from "./FileUploadField.jsx";
 import { ReferenceSelectionsDialog } from "./ReferenceSelectionsDialog.jsx";
+import { TagsField } from "./TagsField.jsx";
 
 const MarkdownField = lazy(() =>
   import("../MarkdownField/MarkdownField.jsx")
@@ -38,13 +61,15 @@ const MarkdownField = lazy(() =>
 function ReferenceCard({ item, view, collection, compact = false }) {
   const adapter = useAdapter();
   const ReferenceIcon = iconFor(collection?.icon, FilesIcon);
-  const image = adapter.resolveMediaUrl(
-    imageSource(referenceItemValue(item, view.image, collection))
-  );
-  const title =
-    referenceItemValue(item, view.title || "title", collection) ||
-    item.title ||
-    item.id;
+  const source = referenceImageSource(item, view, collection);
+  const image = source
+    ? adapter.resolveImageUrl(source, {
+        width: 320,
+        height: 320,
+        fit: "inside"
+      })
+    : "";
+  const title = referenceItemLabel(item, view, collection);
   const descriptions = (Array.isArray(view.description)
     ? view.description
     : view.description
@@ -68,13 +93,21 @@ function ReferenceCard({ item, view, collection, compact = false }) {
   );
 }
 
-function ReferenceField({ field, value, onChange, collections }) {
+function ReferenceField({
+  field,
+  value,
+  onChange,
+  onPreviewChange,
+  onPreviewEnd,
+  collections,
+  nodeTypes,
+  referenceCreateStack = []
+}) {
   const api = useAdapter();
   const targetCollection = collections.find(
     (collection) => collection.name === field.collection
   );
   const referenceView = targetCollection?.views?.reference ?? {};
-  const valueField = field.value_field || referenceView.value || "id";
   const reference = normalizeReferenceValue(value);
   const hasReference = hasReferenceValue(reference.ref);
   const selectionDefinitions = referenceSelectionDefinitions(
@@ -84,21 +117,53 @@ function ReferenceField({ field, value, onChange, collections }) {
   const ReferenceIcon = iconFor(targetCollection?.icon, FilesIcon);
   const singularLabel =
     targetCollection?.label_singular?.toLowerCase() || "item";
+  const dialogId = useId();
+  const backdropRef = useRef(null);
+  const dialogRef = useRef(null);
+  const searchRef = useRef(null);
+  const returnFocusRef = useRef(null);
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("select");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [listError, setListError] = useState("");
+  const [createError, setCreateError] = useState("");
+  const [creationDraft, setCreationDraft] = useState(null);
+  const [creationDate, setCreationDate] = useState(() => new Date());
   const [selectionsOpen, setSelectionsOpen] = useState(false);
   const allowedItems = referenceItemsForField(items, field);
-  const selected = allowedItems.find(
-    (item) =>
-      referenceItemValue(item, valueField, targetCollection) === reference.ref
+  const optionForItem = (item) =>
+    referencePickerOption(item, field, targetCollection);
+  const pickerOptions = allowedItems.flatMap((item) => {
+    const option = optionForItem(item);
+    return option ? [option] : [];
+  });
+  const selectedOption = pickerOptions.find(
+    (option) => option.value === reference.ref
   );
+  const selected = selectedOption?.item;
+  const creation = referenceRecordCreationConfig(targetCollection, nodeTypes, {
+    allowedTypes: field.allowed_types
+  });
+  const CreationIcon = iconFor(creation?.type?.icon, ReferenceIcon);
+  const creationBlocked = referenceCreateStack.includes(
+    targetCollection?.name
+  );
+  const canOpenCreate = Boolean(
+    creation && !creationBlocked && !loading && !listError
+  );
+  const creationFields = creationDraft && creation
+    ? typeFields(creation.type).filter((candidate) =>
+        fieldIsVisible(candidate, creationDraft.properties)
+      )
+    : [];
 
   useEffect(() => {
     if (!targetCollection) return;
     let cancelled = false;
+    setListError("");
     setLoading(true);
     api
       .list(targetCollection.name)
@@ -106,7 +171,7 @@ function ReferenceField({ field, value, onChange, collections }) {
         if (!cancelled) setItems(result.items);
       })
       .catch((loadError) => {
-        if (!cancelled) setError(loadError.message);
+        if (!cancelled) setListError(loadError.message);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -114,23 +179,89 @@ function ReferenceField({ field, value, onChange, collections }) {
     return () => {
       cancelled = true;
     };
-  }, [targetCollection?.name]);
+  }, [api, open, targetCollection?.name]);
 
   useEffect(() => {
     if (!open) return undefined;
-    function handleEscape(event) {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setOpen(false);
-    }
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
+    const previousFocus = returnFocusRef.current;
+    const restoreIsolation = isolateFocusSurface(dialogRef.current);
+    return () => {
+      restoreIsolation();
+      requestAnimationFrame(() => {
+        if (!dialogRef.current?.isConnected && previousFocus?.isConnected) {
+          previousFocus.focus();
+        }
+      });
+    };
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    const frame = requestAnimationFrame(() => {
+      if (activeTab === "select") searchRef.current?.focus();
+      else {
+        dialogRef.current
+          ?.querySelector(
+            '[role="tabpanel"] input:not([readonly]), [role="tabpanel"] textarea, [role="tabpanel"] select, [role="tabpanel"] button'
+          )
+          ?.focus();
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeTab, open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function handleKeyDown(event) {
+      const backdrops = document.querySelectorAll(".dialog-backdrop");
+      if (backdrops[backdrops.length - 1] !== backdropRef.current) return;
+
+      if (isSaveShortcut(event) && activeTab === "create") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!creating && creationDraft && !loading && !listError) {
+          void storeReference();
+        }
+        return;
+      }
+      if (!dialogRef.current?.contains(event.target)) return;
+      if (event.key === "Escape") {
+        if (creating) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closePicker();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = focusableElements(dialogRef.current);
+      if (!focusable.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeElement = document.activeElement;
+      if (!dialogRef.current.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [activeTab, creating, creationDraft, listError, loading, open]);
+
   const normalizedSearch = search.trim().toLocaleLowerCase();
-  const visibleItems = normalizedSearch
-    ? allowedItems.filter((item) => {
+  const visibleOptions = normalizedSearch
+    ? pickerOptions.filter((option) => {
+        const item = option.item;
         const values = [
+          option.label,
           item.id,
           item.title,
           ...Object.values(item.properties ?? {})
@@ -139,7 +270,99 @@ function ReferenceField({ field, value, onChange, collections }) {
           String(entry).toLocaleLowerCase().includes(normalizedSearch)
         );
       })
-    : allowedItems;
+    : pickerOptions;
+
+  function resetPicker() {
+    setOpen(false);
+    setActiveTab("select");
+    setSearch("");
+    setCreateError("");
+    setCreationDraft(null);
+  }
+
+  function openPicker() {
+    returnFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    setActiveTab("select");
+    setSearch("");
+    setCreateError("");
+    setCreationDraft(null);
+    setCreationDate(new Date());
+    setOpen(true);
+  }
+
+  function closePicker() {
+    if (creating) return;
+    resetPicker();
+  }
+
+  function chooseReference(option) {
+    onChange(referenceValueAfterSelection(value, option.value));
+    resetPicker();
+  }
+
+  function showCreateTab() {
+    if (!canOpenCreate || creating) return;
+    setCreateError("");
+    setCreationDraft((current) =>
+      current ?? createReferencedRecordDraft({
+        collection: targetCollection,
+        nodeTypes,
+        allowedTypes: field.allowed_types,
+        items
+      })
+    );
+    setActiveTab("create");
+  }
+
+  async function storeReference() {
+    if (!creationDraft || creating || loading || listError) return;
+    setCreating(true);
+    setCreateError("");
+    try {
+      const result = await storeReferencedRecordDraft({
+        adapter: api,
+        draft: creationDraft,
+        fields: creationFields,
+        collection: targetCollection,
+        nodeTypes,
+        allowedTypes: field.allowed_types,
+        items,
+        date: creationDate,
+        optionForItem
+      });
+      setItems(result.items);
+      chooseReference(result.option);
+    } catch (createError) {
+      setCreateError(
+        createError?.message || "The referenced item could not be created."
+      );
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  function selectDialogTab(tab) {
+    if (tab === "create") showCreateTab();
+    else if (!creating) setActiveTab("select");
+  }
+
+  function handleDialogTabKey(event, tab) {
+    let nextTab = "";
+    if (event.key === "Home") nextTab = "select";
+    if (event.key === "End") nextTab = canOpenCreate ? "create" : "select";
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      nextTab = tab === "select" && canOpenCreate ? "create" : "select";
+    }
+    if (!nextTab) return;
+    event.preventDefault();
+    selectDialogTab(nextTab);
+    requestAnimationFrame(() => {
+      document.getElementById(`${dialogId}-${nextTab}-tab`)?.focus();
+    });
+  }
 
   if (!targetCollection) {
     return (
@@ -191,7 +414,7 @@ function ReferenceField({ field, value, onChange, collections }) {
         <button
           type="button"
           className="button button--secondary"
-          onClick={() => setOpen(true)}
+          onClick={openPicker}
         >
           <Search size={14} />
           {hasReference
@@ -218,15 +441,26 @@ function ReferenceField({ field, value, onChange, collections }) {
           </button>
         )}
       </div>
-      {error && <small className="field-error">{error}</small>}
+      {!open && listError && (
+        <small className="field-error">{listError}</small>
+      )}
       {selectionsOpen && selected && (
         <ReferenceSelectionsDialog
           collection={targetCollection}
           definitions={selectionDefinitions}
           item={selected}
           value={value}
-          onCancel={() => setSelectionsOpen(false)}
+          onPreviewChange={(selections) =>
+            onPreviewChange?.(
+              compactReferenceValue({ ref: reference.ref, selections })
+            )
+          }
+          onCancel={() => {
+            onPreviewEnd?.();
+            setSelectionsOpen(false);
+          }}
           onApply={(selections) => {
+            onPreviewEnd?.();
             onChange(
               compactReferenceValue({ ref: reference.ref, selections })
             );
@@ -234,95 +468,252 @@ function ReferenceField({ field, value, onChange, collections }) {
           }}
         />
       )}
-      {open && (
-        <div className="dialog-backdrop" role="presentation">
+      {open && createPortal(
+        <div
+          ref={backdropRef}
+          className="dialog-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (!creating && event.target === event.currentTarget) closePicker();
+          }}
+        >
           <div
+            ref={dialogRef}
             className="dialog reference-dialog"
+            data-reference-dialog=""
             role="dialog"
             aria-modal="true"
-            aria-labelledby="reference-dialog-title"
+            aria-labelledby={`${dialogId}-title`}
+            aria-busy={creating}
           >
             <div className="dialog__top">
               <span className="dialog__icon">
                 <ReferenceIcon size={18} />
               </span>
               <div>
-                <h2 id="reference-dialog-title">
-                  Choose {targetCollection.label_singular}
+                <h2 id={`${dialogId}-title`}>
+                  Reference {targetCollection.label_singular}
                 </h2>
                 <p>
-                  Select an entry from the {targetCollection.label} collection.
+                  Select an existing {singularLabel} or create a new one.
                 </p>
               </div>
-              <button type="button" onClick={() => setOpen(false)}>
+              <button
+                type="button"
+                aria-label="Close reference dialog"
+                disabled={creating}
+                onClick={closePicker}
+              >
                 <X size={18} />
               </button>
             </div>
-            <div className="dialog__body reference-dialog__body">
-              <div className="insertion-dialog__search">
-                <Search size={15} />
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder={`Search ${targetCollection.label.toLowerCase()}…`}
-                  autoFocus
-                />
-                {search && (
-                  <button type="button" onClick={() => setSearch("")}>
-                    <X size={13} />
-                  </button>
-                )}
-              </div>
-              <div className="reference-dialog__items">
-                {visibleItems.map((item) => (
-                  <button
-                    type="button"
-                    key={item.id}
-                    className={cx(
-                      referenceItemValue(item, valueField, targetCollection) ===
-                        reference.ref &&
-                        "is-selected"
-                    )}
-                    onClick={() => {
-                      const nextReference = referenceItemValue(
-                        item,
-                        valueField,
-                        targetCollection
-                      );
-                      onChange(
-                        nextReference === reference.ref
-                          ? compactReferenceValue(reference)
-                          : nextReference
-                      );
-                      setOpen(false);
-                    }}
-                  >
-                    <ReferenceCard
-                      item={item}
-                      view={referenceView}
-                      collection={targetCollection}
-                    />
-                    {referenceItemValue(item, valueField, targetCollection) ===
-                      reference.ref && (
-                      <Check size={15} />
-                    )}
-                  </button>
-                ))}
-                {!loading && !visibleItems.length && (
-                  <EmptyState
-                    icon={ReferenceIcon}
-                    title={`No matching ${targetCollection.label.toLowerCase()}`}
-                  />
-                )}
-                {loading && (
-                  <div className="panel-loader">
-                    <Spinner />
-                  </div>
-                )}
-              </div>
+            <div
+              className="reference-dialog__tabs"
+              role="tablist"
+              aria-label="Reference item action"
+            >
+              <button
+                type="button"
+                id={`${dialogId}-select-tab`}
+                role="tab"
+                aria-selected={activeTab === "select"}
+                aria-controls={`${dialogId}-select-panel`}
+                tabIndex={activeTab === "select" ? 0 : -1}
+                className={cx(activeTab === "select" && "is-active")}
+                disabled={creating}
+                onClick={() => selectDialogTab("select")}
+                onKeyDown={(event) => handleDialogTabKey(event, "select")}
+              >
+                <Search size={14} />
+                Select
+              </button>
+              <button
+                type="button"
+                id={`${dialogId}-create-tab`}
+                role="tab"
+                aria-selected={activeTab === "create"}
+                aria-controls={`${dialogId}-create-panel`}
+                tabIndex={activeTab === "create" ? 0 : -1}
+                className={cx(activeTab === "create" && "is-active")}
+                disabled={!canOpenCreate || creating}
+                title={
+                  creationBlocked
+                    ? "Creation is unavailable inside this nested reference."
+                    : creation
+                      ? undefined
+                      : "This referenced collection cannot create its primary type."
+                }
+                onClick={showCreateTab}
+                onKeyDown={(event) => handleDialogTabKey(event, "create")}
+              >
+                <Plus size={14} />
+                Create
+              </button>
             </div>
+
+            {activeTab === "select" && (
+              <div
+                id={`${dialogId}-select-panel`}
+                className="dialog__body reference-dialog__body reference-dialog__body--select"
+                role="tabpanel"
+                aria-labelledby={`${dialogId}-select-tab`}
+              >
+                <div className="insertion-dialog__search">
+                  <Search size={15} />
+                  <input
+                    ref={searchRef}
+                    value={search}
+                    disabled={creating}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder={`Search ${targetCollection.label.toLowerCase()}…`}
+                  />
+                  {search && (
+                    <button
+                      type="button"
+                      aria-label="Clear search"
+                      disabled={creating}
+                      onClick={() => setSearch("")}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+                <div className="reference-dialog__items">
+                  {listError && (
+                    <div className="reference-dialog__error" role="alert">
+                      <CircleAlert size={15} />
+                      <span>{listError}</span>
+                    </div>
+                  )}
+                  {visibleOptions.map((option) => {
+                    const item = option.item;
+                    return (
+                      <button
+                        type="button"
+                        key={item.id}
+                        disabled={creating}
+                        className={cx(
+                          option.value === reference.ref && "is-selected"
+                        )}
+                        onClick={() => chooseReference(option)}
+                      >
+                        <ReferenceCard
+                          item={item}
+                          view={referenceView}
+                          collection={targetCollection}
+                        />
+                        {option.value === reference.ref && (
+                          <Check size={15} />
+                        )}
+                      </button>
+                    );
+                  })}
+                  {!loading && !visibleOptions.length && !listError && (
+                    <EmptyState
+                      icon={ReferenceIcon}
+                      title={`No matching ${targetCollection.label.toLowerCase()}`}
+                    />
+                  )}
+                  {loading && (
+                    <div className="panel-loader">
+                      <Spinner />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === "create" && creationDraft && creation && (
+              <div
+                id={`${dialogId}-create-panel`}
+                className="dialog__body reference-dialog__body reference-dialog__body--create"
+                role="tabpanel"
+                aria-labelledby={`${dialogId}-create-tab`}
+              >
+                <section
+                  className="reference-dialog__inspector"
+                  aria-label={`New ${targetCollection.label_singular} inspector`}
+                >
+                  <div className="reference-dialog__inspector-identity">
+                    <span className="reference-dialog__inspector-icon">
+                      <CreationIcon size={16} />
+                    </span>
+                    <span>
+                      <strong>{creation.type.label || creation.typeName}</strong>
+                      <small>New {singularLabel}</small>
+                    </span>
+                  </div>
+                  <div className="reference-dialog__inspector-heading">
+                    Inspector
+                  </div>
+                  <div className="reference-dialog__inspector-fields">
+                    {(createError || listError) && (
+                      <div className="reference-dialog__error" role="alert">
+                        <CircleAlert size={15} />
+                        <span>{createError || listError}</span>
+                      </div>
+                    )}
+                    {creationFields.map((creationField) => (
+                      <Field
+                        key={creationField.name}
+                        field={creationField}
+                        value={creationDraft.properties?.[creationField.name]}
+                        idPrefix={`${dialogId}-create-field`}
+                        collectionName={targetCollection.name}
+                        collections={collections}
+                        nodeTypes={nodeTypes}
+                        referenceCreateStack={[
+                          ...referenceCreateStack,
+                          targetCollection.name
+                        ]}
+                        onChange={(nextValue) => {
+                          setCreateError("");
+                          setCreationDraft((current) => ({
+                            ...current,
+                            properties: {
+                              ...current.properties,
+                              [creationField.name]: nextValue
+                            }
+                          }));
+                        }}
+                      />
+                    ))}
+                    {!creationFields.length && (
+                      <EmptyState title="No fields configured" />
+                    )}
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {activeTab === "create" && (
+              <div className="dialog__footer">
+                <button
+                  type="button"
+                  className="button button--secondary"
+                  disabled={creating}
+                  onClick={closePicker}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="button button--primary"
+                  disabled={
+                    !creationDraft ||
+                    loading ||
+                    Boolean(listError) ||
+                    creating
+                  }
+                  onClick={() => void storeReference()}
+                >
+                  {creating ? "Creating…" : "Create and select"}
+                </button>
+              </div>
+            )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -332,8 +723,13 @@ function Field({
   field,
   value,
   onChange,
+  onPreviewChange,
+  onPreviewEnd,
   idPrefix = "field",
-  collections = []
+  collectionName,
+  collections = [],
+  nodeTypes = {},
+  referenceCreateStack = []
 }) {
   const id = `${idPrefix}-${field.name}`;
   const headingId = `${id}-label`;
@@ -362,9 +758,9 @@ function Field({
     control = (
       <div className="select-wrap">
         <select {...common}>
-          {(resolvedValue === "" || field.required === false) && (
-            <option value="" disabled={field.required !== false}>
-              {field.required === false ? "None" : "Select…"}
+          {(resolvedValue === "" || field.required !== true) && (
+            <option value="" disabled={field.required === true}>
+              {field.required === true ? "Select…" : "None"}
             </option>
           )}
           {(field.options ?? []).map((option) => {
@@ -403,6 +799,11 @@ function Field({
           id={id}
           label={field.label || field.name}
           value={resolvedValue}
+          blocknote={field.blocknote}
+          collections={collections}
+          nodeTypes={nodeTypes}
+          referenceCreateStack={referenceCreateStack}
+          renderReferenceField={(props) => <Field {...props} />}
           placeholder={field.hint || ""}
           readOnly={field.readonly === true}
           onChange={onChange}
@@ -428,6 +829,7 @@ function Field({
         id={id}
         field={field}
         value={resolvedValue}
+        collectionName={collectionName}
         onChange={onChange}
       />
     );
@@ -437,6 +839,7 @@ function Field({
         id={id}
         field={field}
         value={resolvedValue}
+        collectionName={collectionName}
         onChange={onChange}
       />
     );
@@ -446,7 +849,23 @@ function Field({
         field={field}
         value={resolvedValue}
         onChange={onChange}
+        onPreviewChange={onPreviewChange}
+        onPreviewEnd={onPreviewEnd}
         collections={collections}
+        nodeTypes={nodeTypes}
+        referenceCreateStack={referenceCreateStack}
+      />
+    );
+  } else if (field.widget === "tags") {
+    control = (
+      <TagsField
+        id={id}
+        headingId={headingId}
+        field={field}
+        value={resolvedValue}
+        onChange={onChange}
+        collections={collections}
+        nodeTypes={nodeTypes}
       />
     );
   } else {
@@ -468,9 +887,18 @@ function Field({
             ? "date"
             : field.widget === "number"
               ? "number"
-              : "text"
+              : field.widget === "url"
+                ? "url"
+                : "text"
         }
-        placeholder={field.hint || ""}
+        inputMode={field.widget === "url" ? "url" : undefined}
+        autoCapitalize={field.widget === "url" ? "none" : undefined}
+        autoCorrect={field.widget === "url" ? "off" : undefined}
+        spellCheck={field.widget === "url" ? false : undefined}
+        readOnly={field.readonly === true}
+        placeholder={
+          field.hint || (field.widget === "url" ? "https://" : "")
+        }
       />
     );
   }
@@ -489,7 +917,7 @@ function Field({
         >
           {field.label || field.name}
         </label>
-        {field.required === false && <span>Optional</span>}
+        {field.required !== true && <span>Optional</span>}
       </div>
       {control}
       {field.hint && field.widget !== "string" && <small>{field.hint}</small>}

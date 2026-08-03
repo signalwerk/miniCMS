@@ -532,15 +532,18 @@ function referenceItemsForField(items, field) {
 }
 
 function defaultFieldValue(field, generateId = false) {
+  if (field.widget === "tags") {
+    return [];
+  }
   let value = field.default;
   if (value === undefined && isGeneratedIdWidget(field.widget)) {
     value = generateId ? createId() : "";
   }
   if (value === undefined && field.widget === "boolean") value = false;
   if (value === undefined && field.widget === "select") {
-    value = field.required === false
-      ? ""
-      : optionValue(field.options?.[0]) ?? "";
+    value = field.required === true
+      ? optionValue(field.options?.[0]) ?? ""
+      : "";
   }
   return value === undefined ? "" : value;
 }

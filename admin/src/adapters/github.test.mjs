@@ -179,6 +179,16 @@ test("reads repository configuration and collection records", async () => {
     adapter.resolveMediaUrl("/media/hero image.png"),
     /^https:\/\/raw\.githubusercontent\.com\/signalwerk\/example\/main\/content\/media\/hero%20image\.png/
   );
+  assert.equal(
+    adapter.resolveImageUrl("/media/hero image.png", {
+      width: 320,
+      height: 320,
+      fit: "inside",
+      format: "webp",
+      quality: 70
+    }),
+    adapter.resolveMediaUrl("/media/hero image.png")
+  );
 });
 
 test("writes YAML through one atomic Git commit transaction", async () => {
@@ -230,7 +240,7 @@ test("uploads binary media through a blob and commit", async () => {
     }
   };
 
-  const result = await adapter.uploadMedia(file);
+  const result = await adapter.uploadMedia(file, "images");
   assert.equal(result.path, "/media/hero-image.png");
   assert.equal(trees[0][0].path, "content/media/hero-image.png");
   assert.equal(trees[0][0].sha, "uploaded-blob");

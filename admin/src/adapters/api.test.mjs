@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { buildImageServiceUrl } from "../../../core/image-service.js";
 import { createApiAdapter, normalizeApiUrl } from "./api.js";
 import { createAdapter } from "./index.js";
+
+const TEST_SHA = "a".repeat(64);
+const HERO_SOURCE = `/media/images/${TEST_SHA}/hero.png`;
+const HUGE_SOURCE = `/media/images/${TEST_SHA}/huge.jpg`;
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -138,8 +143,153 @@ test("initializes an unauthenticated-free local API session before use", async (
     label: "Local"
   });
   assert.equal(
-    adapter.resolveMediaUrl("/media/hero.png"),
-    "http://127.0.0.1:4321/media/hero.png"
+    adapter.resolveMediaUrl(HERO_SOURCE),
+    `http://127.0.0.1:4321${HERO_SOURCE}`
+  );
+  assert.equal(
+    adapter.resolveImageUrl(HERO_SOURCE, {
+      width: 640,
+      fit: "inside"
+    }),
+    buildImageServiceUrl(HERO_SOURCE, {
+      baseUrl: "http://127.0.0.1:4321",
+      config: null,
+      width: 640,
+      fit: "inside"
+    })
+  );
+});
+
+test("uses the active API capability and its latest config for images and info", async () => {
+  const browser = browserFixture("http://127.0.0.1:4321");
+  const config = {
+    backend: {
+      name: "github",
+      repo: "signalwerk/example",
+      branch: "main",
+      base_url: "https://auth.example.com"
+    },
+    site: {
+      public_folder: "/media",
+      image_processing: {
+        format: "webp",
+        quality: 78
+      }
+    },
+    collections: {},
+    node_types: {}
+  };
+  const information = {
+    format: "jpeg",
+    width: 10000,
+    height: 7500,
+    channels: 3,
+    pages: 1,
+    hasAlpha: false,
+    hasProfile: true,
+    size: 24000000
+  };
+  const calls = [];
+  const adapter = await createApiAdapter({
+    windowObject: browser.windowObject,
+    fetchImpl: async (input, options = {}) => {
+      const url = new URL(input);
+      calls.push({ url, options });
+      if (url.pathname === "/api/auth/session") {
+        return json({
+          authenticated: true,
+          authenticationRequired: false,
+          provider: "local",
+          label: "Local"
+        });
+      }
+      if (url.pathname === "/api/config") return json(config);
+      return json(information);
+    }
+  });
+
+  await adapter.config();
+  const options = { width: 2048, fit: "inside" };
+  assert.equal(
+    adapter.resolveImageUrl(HUGE_SOURCE, options),
+    buildImageServiceUrl(HUGE_SOURCE, {
+      ...options,
+      baseUrl: "http://127.0.0.1:4321",
+      config
+    })
+  );
+  assert.deepEqual(await adapter.getImageInfo(HUGE_SOURCE), information);
+  assert.equal(
+    calls.at(-1).url.toString(),
+    buildImageServiceUrl(HUGE_SOURCE, {
+      baseUrl: "http://127.0.0.1:4321",
+      config,
+      info: true
+    })
+  );
+  assert.equal(calls.at(-1).options.headers, undefined);
+  assert.equal(
+    await adapter.getImageInfo("https://images.example/remote.jpg"),
+    null
+  );
+  assert.equal(
+    await adapter.getImageInfo("  https://images.example/remote.jpg  "),
+    null
+  );
+  assert.equal(await adapter.getImageInfo("   "), null);
+  assert.equal(calls.length, 3);
+});
+
+test("maps a configured public media folder to the fixed service namespace", async () => {
+  const browser = browserFixture("http://127.0.0.1:4321");
+  const config = {
+    site: { public_folder: "/assets/library/" },
+    collections: {},
+    node_types: {}
+  };
+  const adapter = await createApiAdapter({
+    windowObject: browser.windowObject,
+    fetchImpl: async (input) =>
+      new URL(input).pathname === "/api/config"
+        ? json(config)
+        : json({
+            authenticated: true,
+            authenticationRequired: false,
+            provider: "local",
+            label: "Local"
+          })
+  });
+
+  await adapter.config();
+  assert.equal(
+    adapter.resolveMediaUrl(
+      `/assets/library/files/${TEST_SHA}/research-draft.pdf?download=1#page=2`
+    ),
+    `http://127.0.0.1:4321/media/files/${TEST_SHA}/research-draft.pdf?download=1#page=2`
+  );
+  assert.equal(
+    adapter.resolveMediaUrl(
+      `assets/library/files/${TEST_SHA}/report.pdf`
+    ),
+    `http://127.0.0.1:4321/media/files/${TEST_SHA}/report.pdf`
+  );
+  assert.equal(
+    adapter.resolveMediaUrl(
+      `/media/files/${TEST_SHA}/already-normalized.pdf`
+    ),
+    `http://127.0.0.1:4321/media/files/${TEST_SHA}/already-normalized.pdf`
+  );
+  assert.throws(
+    () => adapter.resolveMediaUrl("/downloads/unmanaged.pdf"),
+    /<collection>\/<sha256>\/<filename>/
+  );
+  assert.equal(
+    adapter.resolveMediaUrl("https://cdn.example.com/report.pdf"),
+    "https://cdn.example.com/report.pdf"
+  );
+  assert.equal(
+    adapter.resolveMediaUrl("//cdn.example.com/report.pdf"),
+    "//cdn.example.com/report.pdf"
   );
 });
 
@@ -178,7 +328,10 @@ test("sends the stored service bearer with every API operation", async () => {
   await adapter.save("pages", record);
   await adapter.create("pages", record);
   await adapter.rename("pages", "home", "start");
-  await adapter.uploadMedia({ name: "Hero image.png", type: "image/png" });
+  await adapter.uploadMedia(
+    { name: "Hero image.png", type: "image/png" },
+    "images"
+  );
   await adapter.remove("pages", "home");
 
   assert.equal(calls.length, 10);
@@ -189,7 +342,28 @@ test("sends the stored service bearer with every API operation", async () => {
     );
   }
   assert.equal(calls.at(-2).options.headers.get("content-type"), "image/png");
+  assert.equal(calls.at(-2).url.pathname, "/api/media/images");
+  assert.equal(calls.at(-2).url.searchParams.get("filename"), "Hero image.png");
   assert.equal(calls.at(-1).options.method, "DELETE");
+});
+
+test("requires collection context for API media uploads", async () => {
+  const browser = browserFixture("http://127.0.0.1:4321");
+  const adapter = await createApiAdapter({
+    windowObject: browser.windowObject,
+    fetchImpl: async () =>
+      json({
+        authenticated: true,
+        authenticationRequired: false,
+        provider: "local",
+        label: "Local"
+      })
+  });
+
+  assert.throws(
+    () => adapter.uploadMedia({ name: "hero.png", type: "image/png" }),
+    /collection is required/
+  );
 });
 
 test("clears and publishes an unauthenticated API session after a 401", async () => {

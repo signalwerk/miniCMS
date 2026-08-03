@@ -11,8 +11,6 @@ import {
   Github,
   HardDrive,
   Layers3,
-  Menu,
-  MoreHorizontal,
   Plus,
   RefreshCw,
   Save,
@@ -131,6 +129,7 @@ export default function App({ PreviewComponent = null }) {
   const [authenticating, setAuthenticating] = useState(false);
   const [tableSurface, setTableSurface] = useState("table");
   const [previewRevealRequest, setPreviewRevealRequest] = useState(null);
+  const [previewRecordDraft, setPreviewRecordDraft] = useState(null);
   const [layoutPreferences, setLayoutPreferences] = useState(
     readLayoutPreferences
   );
@@ -167,11 +166,17 @@ export default function App({ PreviewComponent = null }) {
             config,
             listRaw: (collectionName) => api.list(collectionName),
             getRaw: (collectionName, id) => api.record(collectionName, id),
-            resolveMediaUrl: (path) => api.resolveMediaUrl(path)
+            resolveMediaUrl: (path) => api.resolveMediaUrl(path),
+            resolveImageUrl: (path) =>
+              api.resolveImageUrl(path, { fit: "inside" })
           })
         : null,
-    [api, config]
+    // Collection summaries change after editor-owned writes. Recreate the
+    // adapter so cached reference targets never outlive those writes.
+    [api, config, items]
   );
+  const previewRecord =
+    previewRecordDraft?.source === record ? previewRecordDraft.record : record;
   const selectedNode = getNode(record, selectedId);
   const selectedNodePath = getNodePath(record, selectedId);
   const selectedNodeType = selectedNode ? nodeTypes[selectedNode.type] : null;
@@ -900,6 +905,21 @@ export default function App({ PreviewComponent = null }) {
     );
   }
 
+  function previewProperty(nodeId, name, value) {
+    if (!record) return;
+    setPreviewRecordDraft({
+      source: record,
+      record: updateNode(record, nodeId, (node) => ({
+        ...node,
+        properties: { ...(node.properties ?? {}), [name]: value }
+      }))
+    });
+  }
+
+  function clearPropertyPreview() {
+    setPreviewRecordDraft(null);
+  }
+
   async function saveRecord({ throwOnError = false } = {}) {
     if (!record || saving) {
       if (throwOnError) {
@@ -931,6 +951,10 @@ export default function App({ PreviewComponent = null }) {
   useEffect(() => {
     function handleSaveShortcut(event) {
       if (!isSaveShortcut(event) || settingsOpen) return;
+      if (document.querySelector("[data-reference-dialog]")) {
+        event.preventDefault();
+        return;
+      }
       event.preventDefault();
       if (!record || !dirty || saving || confirmation || insertDialog) return;
       void saveRecord();
@@ -1954,7 +1978,7 @@ export default function App({ PreviewComponent = null }) {
         {record ? (
           <Preview
             PreviewComponent={PreviewComponent}
-            record={record}
+            record={previewRecord}
             selectedId={selectedId}
             nodeTypes={nodeTypes}
             collection={collection}
@@ -2222,20 +2246,7 @@ export default function App({ PreviewComponent = null }) {
             <div className="panel-heading">
               <div>
                 <span>Content structure</span>
-                {record && (
-                  <small>
-                    {record.slots
-                      ? Object.values(record.slots).reduce(
-                          (total, children) => total + children.length,
-                          0
-                        )
-                      : 0}
-                  </small>
-                )}
               </div>
-              <button type="button" className="icon-button" title="Structure options">
-                <MoreHorizontal size={16} />
-              </button>
             </div>
             <div className="document-toolbar content-toolbar" aria-label="Content node actions">
               <button
@@ -2354,9 +2365,6 @@ export default function App({ PreviewComponent = null }) {
                 ))}
               </div>
             )}
-            <button type="button" className="icon-button" title="Collapse inspector">
-              <Menu size={16} />
-            </button>
           </div>
           {multipleTreeSelection ? (
             <MultiSelectionNotice
@@ -2381,6 +2389,8 @@ export default function App({ PreviewComponent = null }) {
               onFocus={openInspectorPanelFocus}
               onExitFocus={closeInspectorPanelFocus}
               onPropertyChange={changeProperty}
+              onPropertyPreview={previewProperty}
+              onPropertyPreviewEnd={clearPropertyPreview}
               onMove={moveSelected}
               onDelete={requestDeleteSelectedContent}
               onDuplicate={duplicateSelectedContent}

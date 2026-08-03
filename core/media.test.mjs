@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_IMAGE_ACCEPT,
   acceptTokens,
+  configuredCollectionMediaAccept,
   configuredImageAccept,
   configuredMediaAccept,
   mediaFileMatchesAccept,
@@ -47,6 +48,20 @@ test("matches configurable media MIME types, extensions, and wildcards", () => {
     ),
     true
   );
+  assert.equal(
+    mediaFileMatchesAccept(
+      { name: "scan.tif", type: "application/octet-stream" },
+      ["image/tiff"]
+    ),
+    true
+  );
+  assert.equal(
+    mediaFileMatchesAccept(
+      { name: "scan.tiff", type: "" },
+      ["image/tiff"]
+    ),
+    true
+  );
 });
 
 test("collects accepted image types from configured image fields", () => {
@@ -79,6 +94,61 @@ test("collects image and file upload types from configuration", () => {
       }
     }),
     ["image/png", "application/pdf", ".zip"]
+  );
+});
+
+test("scopes upload types to node types reachable from one collection", () => {
+  const config = {
+    node_types: {
+      page: {
+        slots: { content: { allowed_types: ["gallery"] } }
+      },
+      gallery: {
+        fields: {
+          image: { widget: "image", accept: ["image/png", ".tiff"] }
+        },
+        slots: { nested: { allowed_types: ["page"] } }
+      },
+      download: {
+        fields: { file: { widget: "file", accept: ["*/*"] } }
+      },
+      child: {
+        fields: { attachment: { widget: "file", accept: [".zip"] } }
+      }
+    },
+    collections: {
+      pages: {
+        node_type: "page",
+        allowed_types: ["page"],
+        hierarchy: {
+          enabled: true,
+          allowed_child_types: ["child"]
+        }
+      },
+      files: { node_type: "download", allowed_types: ["download"] },
+      empty: { node_type: "download", allowed_types: [] }
+    }
+  };
+
+  assert.deepEqual(
+    configuredCollectionMediaAccept(config, config.collections.pages),
+    [".zip", "image/png", ".tiff"]
+  );
+  assert.deepEqual(
+    configuredCollectionMediaAccept(
+      config,
+      config.collections.pages,
+      "image"
+    ),
+    ["image/png", ".tiff"]
+  );
+  assert.deepEqual(
+    configuredCollectionMediaAccept(config, config.collections.files),
+    ["*/*"]
+  );
+  assert.deepEqual(
+    configuredCollectionMediaAccept(config, config.collections.empty),
+    []
   );
 });
 

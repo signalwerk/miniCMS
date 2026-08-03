@@ -10,7 +10,16 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import {
+  buildImageServiceMediaUrl,
+  buildImageServiceUrl
+} from "../core/image-service.js";
 import { createFilesystemContentAdapter } from "./fs.js";
+
+const IMAGE_SHA = "a".repeat(64);
+const FILE_SHA = "b".repeat(64);
+const IMAGE_SOURCE = `/media/images/${IMAGE_SHA}/picture.jpg`;
+const FILE_SOURCE = `/media/files/${FILE_SHA}/research.pdf`;
 
 const configuration = `site:
   name: Filesystem fixture
@@ -34,6 +43,7 @@ node_types:
       uuid: {widget: uuid}
       title: {widget: string}
       file: {widget: image}
+      download: {widget: file}
   note:
     kind: document
     fields:
@@ -99,9 +109,10 @@ properties:
   uuid: image-uuid
   title: Picture
   file:
-    src: /media/picture.jpg
+    src: ${IMAGE_SOURCE}
     width: 800
     height: 600
+  download: ${FILE_SOURCE}
 slots: {}
 `,
     "utf8"
@@ -129,7 +140,7 @@ test("loads every configured collection and resolves references from YAML", asyn
   assert.deepEqual(pages.items.map((item) => item.id), ["home", "second"]);
   assert.equal(
     pages.items[0].slots.content[0].properties.asset.record.properties.file.src,
-    "/research/media/picture.jpg"
+    `/research${IMAGE_SOURCE}`
   );
   assert.deepEqual((await adapter.list("notes")).items, []);
   assert.equal((await adapter.list("images")).items.length, 1);
@@ -137,6 +148,98 @@ test("loads every configured collection and resolves references from YAML", asyn
   assert.deepEqual(
     (await adapter.get("pages", "home")).item,
     pages.items[0]
+  );
+});
+
+test("accepts a dedicated image resolver without changing file resolution", async (t) => {
+  const root = await fixture(t);
+  const adapter = await createFilesystemContentAdapter({
+    projectRoot: root,
+    resolveMediaUrl: (value) => `/raw${value}`,
+    resolveImageUrl: (value) => `/image-service${value}`
+  });
+
+  const page = await adapter.get("pages", "home");
+  assert.equal(
+    page.item.slots.content[0].properties.asset.record.properties.file.src,
+    `/image-service${IMAGE_SOURCE}`
+  );
+});
+
+test("can use the image service independently from content persistence", async (t) => {
+  const root = await fixture(t);
+  const adapter = await createFilesystemContentAdapter({
+    projectRoot: root,
+    imageServiceBaseUrl: "https://images.example.test"
+  });
+  const imageRecord = (await adapter.get("pages", "home"))
+    .item.slots.content[0].properties.asset.record;
+
+  assert.equal(
+    imageRecord.properties.file.src,
+    buildImageServiceUrl(IMAGE_SOURCE, {
+      baseUrl: "https://images.example.test",
+      config: adapter.config(),
+      fit: "inside"
+    })
+  );
+  assert.equal(imageRecord.properties.download, FILE_SOURCE);
+});
+
+test("keeps GitHub-backed images and files on public media URLs", async (t) => {
+  const root = await fixture(t);
+  const githubConfig = `backend:
+  name: github
+  repo: signalwerk/example
+  base_url: https://auth.example.test
+  branch: main
+${configuration}`;
+  await writeFile(path.join(root, "cms.config.yml"), githubConfig, "utf8");
+  const adapter = await createFilesystemContentAdapter({
+    projectRoot: root,
+    publicBase: "/project/"
+  });
+  const imageRecord = (await adapter.get("pages", "home"))
+    .item.slots.content[0].properties.asset.record;
+
+  assert.equal(
+    imageRecord.properties.file.src,
+    `/project${IMAGE_SOURCE}`
+  );
+  assert.equal(
+    imageRecord.properties.download,
+    `/project${FILE_SOURCE}`
+  );
+});
+
+test("uses the shared media service defaults for an explicit API backend", async (t) => {
+  const root = await fixture(t);
+  const apiConfig = `backend:
+  name: api
+  api_url: https://content.example.test
+${configuration.replace(
+  "site:\n  name: Filesystem fixture",
+  "site:\n  name: Filesystem fixture\n  image_processing:\n    fit: cover"
+)}`;
+  await writeFile(path.join(root, "cms.config.yml"), apiConfig, "utf8");
+  const adapter = await createFilesystemContentAdapter({ projectRoot: root });
+  const imageRecord = (await adapter.get("pages", "home"))
+    .item.slots.content[0].properties.asset.record;
+
+  assert.equal(
+    imageRecord.properties.file.src,
+    buildImageServiceUrl(IMAGE_SOURCE, {
+      baseUrl: "https://content.example.test",
+      config: adapter.config(),
+      fit: "inside"
+    })
+  );
+  assert.equal(
+    imageRecord.properties.download,
+    buildImageServiceMediaUrl(FILE_SOURCE, {
+      baseUrl: "https://content.example.test",
+      config: adapter.config()
+    })
   );
 });
 
@@ -150,7 +253,7 @@ test("supports an absolute public base without changing external media URLs", as
   const page = await adapter.get("pages", "home");
   assert.equal(
     page.item.slots.content[0].properties.asset.record.properties.file.src,
-    "https://example.test/project/media/picture.jpg"
+    `https://example.test/project${IMAGE_SOURCE}`
   );
 });
 

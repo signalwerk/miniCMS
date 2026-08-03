@@ -1,3 +1,10 @@
+import {
+  buildImageServiceMediaUrl,
+  buildImageServiceUrl,
+  isExternalImageSource,
+  normalizeHttpOrigin
+} from "../../../core/image-service.js";
+
 function browserWindow(windowObject) {
   const candidate = windowObject ?? globalThis.window;
   if (!candidate?.location?.origin || candidate.location.origin === "null") {
@@ -9,32 +16,18 @@ function browserWindow(windowObject) {
 function normalizeApiUrl(apiUrl = "", { windowObject } = {}) {
   const browser = browserWindow(windowObject);
   const pageOrigin = new URL(browser.location.origin).origin;
-  let parsed;
-  try {
-    parsed = new URL(String(apiUrl || "") || pageOrigin, `${pageOrigin}/`);
-  } catch {
-    throw new Error("The miniCMS API URL must be a valid URL.");
-  }
-
-  if (!["http:", "https:"].includes(parsed.protocol)) {
-    throw new Error("The miniCMS API URL must use HTTP or HTTPS.");
-  }
-  if (parsed.username || parsed.password) {
-    throw new Error("The miniCMS API URL must not contain credentials.");
-  }
-  if (parsed.search || parsed.hash) {
-    throw new Error("The miniCMS API URL must not contain a query or hash.");
-  }
-  if (parsed.pathname && parsed.pathname !== "/") {
-    throw new Error("The miniCMS API URL must contain only an origin.");
-  }
+  const apiOrigin = normalizeHttpOrigin(
+    String(apiUrl || "").trim() || pageOrigin,
+    "The miniCMS API URL"
+  );
+  const parsed = new URL(apiOrigin);
   if (parsed.origin !== pageOrigin && parsed.protocol !== "https:") {
     throw new Error("A remote miniCMS API URL must use HTTPS.");
   }
 
   return Object.freeze({
-    apiOrigin: parsed.origin,
-    apiUrl: parsed.origin,
+    apiOrigin,
+    apiUrl: apiOrigin,
     pageOrigin
   });
 }
@@ -105,6 +98,7 @@ async function createApiAdapter({
   const listeners = new Set();
   let bearer = storage?.getItem(storageKey) || "";
   let loginPromise = null;
+  let currentConfig = null;
   let currentSession = normalizeSession({
     authenticated: false,
     authenticationRequired: true,
@@ -290,6 +284,71 @@ async function createApiAdapter({
     return currentSession;
   }
 
+  async function loadConfig() {
+    const config = await request("/api/config");
+    currentConfig = config;
+    return config;
+  }
+
+  async function saveConfig(config) {
+    const result = await request("/api/config", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(config)
+    });
+    currentConfig = result?.config ?? config;
+    return result;
+  }
+
+  function resolveImageUrl(source, options = {}) {
+    return buildImageServiceUrl(source, {
+      ...options,
+      baseUrl: apiOrigin,
+      config: currentConfig
+    });
+  }
+
+  async function getImageInfo(source) {
+    const normalizedSource = typeof source === "string" ? source.trim() : "";
+    if (!normalizedSource || isExternalImageSource(normalizedSource)) {
+      return null;
+    }
+    const response = await fetchImpl(
+      buildImageServiceUrl(normalizedSource, {
+        baseUrl: apiOrigin,
+        config: currentConfig,
+        info: true
+      })
+    );
+    const body = await parseResponseBody(response);
+    if (!response.ok) {
+      const error = new Error(
+        body?.message ||
+          `Image information failed with status ${response.status}.`
+      );
+      error.status = response.status;
+      error.body = body;
+      throw error;
+    }
+    return body;
+  }
+
+  function uploadMedia(file, collectionName) {
+    if (typeof collectionName !== "string" || !collectionName) {
+      throw new Error("A collection is required when uploading media.");
+    }
+    return request(
+      `/api/media/${encodeURIComponent(collectionName)}?filename=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": file.type || "application/octet-stream"
+        },
+        body: file
+      }
+    );
+  }
+
   const adapter = {
     name: "api",
     label: `miniCMS API · ${apiOrigin}`,
@@ -301,17 +360,15 @@ async function createApiAdapter({
     login,
     logout,
     resolveMediaUrl(path) {
-      if (!path) return "";
-      if (/^(?:https?:|blob:|data:)/i.test(path)) return path;
-      return new URL(path.startsWith("/") ? path : `/${path}`, apiOrigin).toString();
+      return buildImageServiceMediaUrl(path, {
+        baseUrl: apiOrigin,
+        config: currentConfig
+      });
     },
-    config: () => request("/api/config"),
-    saveConfig: (config) =>
-      request("/api/config", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(config)
-      }),
+    resolveImageUrl,
+    getImageInfo,
+    config: loadConfig,
+    saveConfig,
     list: (collection) =>
       request(`/api/collections/${encodeURIComponent(collection)}`),
     record: (collection, id) =>
@@ -342,14 +399,7 @@ async function createApiAdapter({
           body: JSON.stringify({ id: nextId })
         }
       ),
-    uploadMedia: (file) =>
-      request(`/api/media?filename=${encodeURIComponent(file.name)}`, {
-        method: "POST",
-        headers: {
-          "content-type": file.type || "application/octet-stream"
-        },
-        body: file
-      }),
+    uploadMedia,
     remove: (collection, id) =>
       request(
         `/api/collections/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`,

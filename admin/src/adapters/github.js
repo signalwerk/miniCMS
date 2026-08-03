@@ -660,6 +660,10 @@ function createGitHubAdapter({
     return `https://raw.githubusercontent.com/${rawPath}${cacheKey}`;
   }
 
+  function resolveImageUrl(path) {
+    return resolveMediaUrl(path);
+  }
+
   return {
     name: "github",
     label: `${backend.repo} · ${branch}`,
@@ -671,6 +675,7 @@ function createGitHubAdapter({
     login,
     logout,
     resolveMediaUrl,
+    resolveImageUrl,
     config: loadConfig,
     saveConfig,
     list,
