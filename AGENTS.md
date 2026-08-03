@@ -126,6 +126,8 @@ changing shared core modules it has imported.
   boundary so existing URLs survive later default changes. Legacy cache
   `strategy` and `max_age` settings normalize away when project configuration
   is validated or saved. GitHub image URL behavior must remain unchanged.
+  JPEG output accepts distinct `jpg` and `jpeg` format values and preserves
+  the selected extension in canonical derivative URLs.
 - Non-empty API origins are normalized and validated as credential-free HTTPS
   origins in shared config before browser or static adapters use them.
 - Fields use a compact, intentionally custom declarative schema.

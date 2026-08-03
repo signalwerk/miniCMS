@@ -957,9 +957,7 @@ function SiteEditor({ site, backend = {}, update }) {
     ...DEFAULT_IMAGE_PROCESSING,
     ...configuredImageProcessing,
     format:
-      configuredImageProcessing.format === "jpg"
-        ? "jpeg"
-        : configuredImageProcessing.format ?? DEFAULT_IMAGE_PROCESSING.format,
+      configuredImageProcessing.format ?? DEFAULT_IMAGE_PROCESSING.format,
     cache: {
       schema:
         configuredImageCache.schema ?? DEFAULT_IMAGE_PROCESSING.cache.schema

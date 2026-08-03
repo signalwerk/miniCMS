@@ -47,6 +47,30 @@ test("builds a readable canonical URL for content-addressed media", () => {
   );
 });
 
+test("preserves both JPEG output extensions", () => {
+  const source = imageSource("photo.png");
+  for (const format of ["jpg", "jpeg"]) {
+    const route = imageServicePath(source, {
+      width: 320,
+      height: 240,
+      format
+    });
+    assert.match(route, new RegExp(`/photo\\.${format}$`));
+    assert.equal(parseImageServiceUrl(route)?.format, format);
+    assert.equal(normalizeImageProcessingConfig({ format }).format, format);
+    assert.equal(
+      normalizeImageProcessingConfig({ format: format.toUpperCase() }).format,
+      format
+    );
+    const cropped = prependImageServiceOperations(route, [{
+      type: "crop",
+      options: { left: 0, top: 0, width: 100, height: 80 }
+    }]);
+    assert.match(cropped, new RegExp(`/photo\\.${format}$`));
+    assert.equal(parseImageServiceUrl(cropped)?.format, format);
+  }
+});
+
 test("parses canonical relative and absolute derivative URLs", () => {
   const source = imageSource("big-picture.jpg");
   const relative = buildImageServiceUrl(source, {

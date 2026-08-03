@@ -25,7 +25,7 @@ export interface NormalizedImageProcessingConfig {
   readonly width: number;
   readonly height: number;
   readonly fit: ImageFit;
-  readonly format: Exclude<ImageFormat, "jpg">;
+  readonly format: ImageFormat;
   readonly quality: number;
   readonly cache: Readonly<Required<ImageCacheConfig>>;
 }
@@ -77,7 +77,7 @@ export interface ImageServiceOptions {
 
 export const DEFAULT_IMAGE_PROCESSING: Readonly<NormalizedImageProcessingConfig>;
 export const IMAGE_FITS: readonly ImageFit[];
-export const IMAGE_FORMATS: readonly Exclude<ImageFormat, "jpg">[];
+export const IMAGE_FORMATS: readonly ImageFormat[];
 
 export function buildImageServiceUrl(
   value: ImageSource,

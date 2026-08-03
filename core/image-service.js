@@ -7,6 +7,7 @@ const IMAGE_FITS = Object.freeze([
 const IMAGE_FORMATS = Object.freeze([
   "avif",
   "gif",
+  "jpg",
   "jpeg",
   "png",
   "tiff",
@@ -79,13 +80,12 @@ function finiteInteger(value, name, { minimum, maximum }) {
 
 function normalizedFormat(value, name = "Image output format") {
   const format = String(value || "").toLowerCase();
-  const normalized = format === "jpg" ? "jpeg" : format;
-  if (!IMAGE_FORMATS.includes(normalized)) {
+  if (!IMAGE_FORMATS.includes(format)) {
     throw imageServiceError(
       `${name} must be one of: ${IMAGE_FORMATS.join(", ")}.`
     );
   }
-  return normalized;
+  return format;
 }
 
 function validateImageProcessingConfig(config) {
