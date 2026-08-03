@@ -26,7 +26,7 @@ page loads both, registers its component, and then starts the editor:
   </head>
   <body>
     <div id="root"></div>
-    <script src="https://rawcdn.githack.com/signalwerk/miniCMS/f52d1f4/minicms.js"></script>
+    <script src="https://rawcdn.githack.com/signalwerk/miniCMS/0000000/minicms.js"></script>
     <script src="./preview.js"></script>
     <script>
       miniCMS.registerPreview(window.SitePreview.ProjectPreview);
@@ -148,8 +148,8 @@ backend:
   branch: main
 ```
 
-`name: api` uses the same-origin `/api` routes and may optionally define an
-HTTPS `api_url`. It discovers whether that API is local or requires a GitHub
+`name: api` uses the configured API origin, or the page origin when omitted,
+and may optionally define an HTTPS `api_url`. It discovers whether that API is local or requires a GitHub
 identity login, then sends the API's opaque bearer with every protected
 request. The legacy `name: node` value is normalized to the same adapter. `name: github`
 uses the GitHub REST API and the popup protocol at
@@ -187,7 +187,7 @@ build system. miniCMS owns the React root, renders the component inside its
 isolated preview document, and passes exactly two props:
 
 ```html
-<script src="https://rawcdn.githack.com/signalwerk/miniCMS/f52d1f4/minicms.js"></script>
+<script src="https://rawcdn.githack.com/signalwerk/miniCMS/0000000/minicms.js"></script>
 <script src="./preview.js"></script>
 <script>
   miniCMS.registerPreview(window.SitePreview.ProjectPreview);

@@ -361,6 +361,9 @@ function finalizeReferencedRecordDraft({
     renderedId,
     new Set((Array.isArray(items) ? items : []).map((item) => item.id))
   );
+  if (Object.hasOwn(properties, "slug") && !properties.slug) {
+    properties.slug = id;
+  }
   return {
     id,
     type: creation.typeName,

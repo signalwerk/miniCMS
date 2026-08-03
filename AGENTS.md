@@ -223,8 +223,9 @@ the permitted primary record type and renders every currently applicable
 declared field through the normal field widgets, even when a configured
 Inspector panel omits that field.
 Its stable full-record draft carries defaults, collision-aware generated IDs,
-root hierarchy/order, and empty slots; visible required fields validate before
-the active adapter writes it. A successful adapter result is selected
+root hierarchy/order, and empty slots; an empty declared `slug` receives the
+final collision-safe record ID. Visible required fields validate before the
+active adapter writes it. A successful adapter result is selected
 automatically, while a failed write leaves the complete draft mounted. One
 filename conflict refresh rebuilds storage identity without reusing an
 exact-label record or discarding entered fields. Nested creation cycles are

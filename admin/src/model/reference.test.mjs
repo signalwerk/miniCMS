@@ -305,6 +305,7 @@ test("persists every edited reference field and exposes the saved item for immed
       fields: {
         content_id: { widget: "id", readonly: true, required: true },
         title: { widget: "string", required: true },
+        slug: { widget: "string" },
         summary: { widget: "text" },
         body: { widget: "markdown" },
         archive: { widget: "url" },
@@ -390,6 +391,7 @@ test("persists every edited reference field and exposes the saved item for immed
   assert.deepEqual(finalized.properties, {
     content_id: finalized.properties.content_id,
     title: "Complete source",
+    slug: "complete-source-2026-08-2",
     summary: "Full inspector value",
     body: "A **rich** description.",
     archive: "https://example.com/source",

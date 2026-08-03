@@ -28,6 +28,7 @@ import {
 } from "@blocknote/react";
 import { Code2, Link2, PenLine, Search, X } from "lucide-react";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useId,
@@ -362,7 +363,11 @@ function InlineReferenceDialog({
                     {createError}
                   </p>
                 )}
-                {creationFields.map((field) => renderCreationField(field))}
+                {creationFields.map((field) => (
+                  <Fragment key={field.name}>
+                    {renderCreationField(field)}
+                  </Fragment>
+                ))}
                 {!creationFields.length && (
                   <p className="markdown-reference-dialog__message">
                     No fields configured.
@@ -843,7 +848,6 @@ function MarkdownField({
           creationFields={referenceCreationFields}
           renderCreationField={(field) =>
             renderReferenceField?.({
-              key: field.name,
               field,
               value: referenceDraft?.properties?.[field.name],
               idPrefix: `${id}-reference-create`,
