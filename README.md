@@ -202,6 +202,12 @@ authentication, the editor remains behind the sign-in gate until every used
 connector has a session. Each click authenticates one pending connector so
 browser popup blocking cannot interrupt a multi-service sign-in.
 
+Settings preflights every imported type and collection before writing
+`cms.config.yml`. A newly added or changed connector can be saved while it is
+unused; reload the editor from that new bootstrap configuration before adding
+aliases to it. This keeps runtime origins pinned to the consumer page while
+ensuring a missing remote target is never persisted.
+
 Raw files use `resolveMediaUrl`; images use the separate `resolveImageUrl`
 capability. The owning local collection accompanies every media request so the
 composite can choose the right connector. API mode builds image-service URLs

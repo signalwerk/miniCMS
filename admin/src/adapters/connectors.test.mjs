@@ -300,6 +300,159 @@ test("saves collapsed source config only through the active default connector", 
   assert.equal(result.config.node_types.shared_image.fields.file.widget, "image");
 });
 
+test("preflights remote aliases before writing the default connector", async () => {
+  const calls = [];
+  const adapter = await createConnectorAdapter({
+    sourceConfig: sourceConfig(),
+    connectorFactory: async ({ key }) =>
+      fakeConnector(
+        key,
+        key === "central" ? remoteConfig() : sourceConfig(),
+        calls
+      )
+  });
+  const effective = await adapter.config();
+  effective.collections.shared_images.remote_collection = "missing";
+
+  await assert.rejects(adapter.saveConfig(effective), /has no collection/);
+  assert.equal(
+    calls.filter((entry) => entry.method === "saveConfig").length,
+    0
+  );
+  assert.equal((await adapter.list("shared_images")).collection, "shared_images");
+});
+
+test("activates a trusted unused connector when a draft first references it", async () => {
+  const calls = [];
+  const created = [];
+  const adapter = await createConnectorAdapter({
+    sourceConfig: sourceConfig(),
+    connectorFactory: async ({ key }) => {
+      created.push(key);
+      return fakeConnector(
+        key,
+        ["central", "unused"].includes(key) ? remoteConfig() : sourceConfig(),
+        calls,
+        key === "unused"
+          ? {
+              authenticated: false,
+              authenticationRequired: true,
+              provider: "github",
+              label: "Unused sign in"
+            }
+          : {}
+      );
+    }
+  });
+  const effective = await adapter.config();
+
+  assert.deepEqual(created, ["default", "central"]);
+  assert.equal(adapter.session().authenticated, true);
+
+  effective.node_types.library_image = {
+    connector: "unused",
+    remote_type: "image"
+  };
+  effective.collections.library_images = {
+    connector: "unused",
+    remote_collection: "images"
+  };
+  const result = await adapter.saveConfig(effective);
+
+  assert.deepEqual(created, ["default", "central", "unused"]);
+  assert.equal(result.config.node_types.library_image.fields.file.widget, "image");
+  assert.equal(result.config.collections.library_images.node_type, "library_image");
+  assert.equal(adapter.session().pendingConnector, "unused");
+  await adapter.login();
+  const listed = await adapter.list("library_images");
+  assert.equal(listed.collection, "library_images");
+  assert.equal(listed.items[0].type, "library_image");
+  assert.ok(
+    calls.some(
+      (entry) =>
+        entry.key === "unused" &&
+        entry.method === "list" &&
+        entry.args[0] === "images"
+    )
+  );
+});
+
+test("keeps newly added and changed connectors after an unreferenced save", async () => {
+  const calls = [];
+  const created = [];
+  const adapter = await createConnectorAdapter({
+    sourceConfig: sourceConfig(),
+    connectorFactory: async ({ key }) => {
+      created.push(key);
+      return fakeConnector(
+        key,
+        key === "central" ? remoteConfig() : sourceConfig(),
+        calls
+      );
+    }
+  });
+  const effective = await adapter.config();
+  effective.connectors.unused.api_url = "https://changed.example.com";
+  effective.connectors.later = {
+    name: "api",
+    api_url: "https://later.example.com"
+  };
+
+  const result = await adapter.saveConfig(effective);
+  assert.equal(
+    result.config.connectors.unused.api_url,
+    "https://changed.example.com"
+  );
+  assert.deepEqual(result.config.connectors.later, {
+    name: "api",
+    api_url: "https://later.example.com"
+  });
+  assert.deepEqual(created, ["default", "central"]);
+  assert.equal(
+    calls.filter((entry) => entry.method === "saveConfig").length,
+    1
+  );
+});
+
+test("rejects a new referenced connector before writing", async () => {
+  const calls = [];
+  const created = [];
+  const adapter = await createConnectorAdapter({
+    sourceConfig: sourceConfig(),
+    connectorFactory: async ({ key }) => {
+      created.push(key);
+      return fakeConnector(
+        key,
+        key === "central" ? remoteConfig() : sourceConfig(),
+        calls
+      );
+    }
+  });
+  const effective = await adapter.config();
+  effective.connectors.new_media = {
+    name: "api",
+    api_url: "https://new-media.example.com"
+  };
+  effective.node_types.new_image = {
+    connector: "new_media",
+    remote_type: "image"
+  };
+  effective.collections.new_images = {
+    connector: "new_media",
+    remote_collection: "images"
+  };
+
+  await assert.rejects(
+    adapter.saveConfig(effective),
+    /added or changed.*reload miniCMS/
+  );
+  assert.deepEqual(created, ["default", "central"]);
+  assert.equal(
+    calls.filter((entry) => entry.method === "saveConfig").length,
+    0
+  );
+});
+
 test("aggregates authentication only across connectors used by the project", async () => {
   const calls = [];
   const created = [];

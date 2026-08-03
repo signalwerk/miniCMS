@@ -11,6 +11,35 @@ function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
 }
 
+function sameValue(left, right) {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => sameValue(value, right[index]))
+    );
+  }
+  if (
+    !left ||
+    !right ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  ) {
+    return false;
+  }
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) =>
+        key === rightKeys[index] && sameValue(left[key], right[key])
+    )
+  );
+}
+
 function translatedRecord(value, connectorRoutes, direction) {
   return value && typeof value === "object" && typeof value.type === "string"
     ? translateRecord(value, connectorRoutes, direction)
@@ -191,15 +220,54 @@ async function createConnectorAdapter({
   ]);
   const adapters = new Map(adapterEntries);
   const listeners = new Set();
-  const unsubscribe = adapterEntries.map(([, adapter]) =>
-    adapter.subscribeSession(() => {
-      const session = aggregateSession(adapterEntries);
-      for (const listener of listeners) listener(session);
-    })
-  );
+  const unsubscribe = [];
+  const activations = new Map();
   let routes = null;
   let remoteConfigs = null;
   let configPromise = null;
+
+  function emitSession() {
+    const session = aggregateSession(adapterEntries);
+    for (const listener of listeners) listener(session);
+  }
+
+  function subscribeAdapter(adapter) {
+    unsubscribe.push(adapter.subscribeSession(emitSession));
+  }
+
+  adapterEntries.forEach(([, adapter]) => subscribeAdapter(adapter));
+
+  function activateNamedConnector(key) {
+    if (adapters.has(key)) return Promise.resolve(adapters.get(key));
+    if (activations.has(key)) return activations.get(key);
+    const connector = trustedConnectors[key];
+    if (!connector) {
+      throw new Error(
+        `Connector "${key}" was added in Settings. Save it without remote aliases, reload miniCMS, and then add the aliases.`
+      );
+    }
+    const activation = Promise.resolve()
+      .then(() =>
+        connectorFactory({
+          key,
+          connector,
+          sourceConfig: trustedSourceConfig,
+          fetchImpl,
+          options: connectorOptions[key] ?? {},
+          active: false
+        })
+      )
+      .then((adapter) => {
+        adapters.set(key, adapter);
+        adapterEntries.push([key, adapter]);
+        subscribeAdapter(adapter);
+        emitSession();
+        return adapter;
+      })
+      .finally(() => activations.delete(key));
+    activations.set(key, activation);
+    return activation;
+  }
 
   function withTrustedConnectors(config) {
     return validateSourceConfig({
@@ -216,6 +284,31 @@ async function createConnectorAdapter({
       ])
     );
     return Object.fromEntries(entries);
+  }
+
+  function assertTrustedReferences(config) {
+    const referenced = referencedConnectorNames(config);
+    for (const key of referenced) {
+      if (
+        !trustedConnectors[key] ||
+        !sameValue(config.connectors[key], trustedConnectors[key])
+      ) {
+        throw new Error(
+          `Connector "${key}" was added or changed in Settings. Save it without remote aliases, reload miniCMS, and then add the aliases.`
+        );
+      }
+    }
+    return referenced;
+  }
+
+  async function preflightRemoteConfigs(referenced) {
+    const nextRemoteConfigs = { ...(remoteConfigs ?? {}) };
+    for (const key of referenced) {
+      if (Object.hasOwn(nextRemoteConfigs, key)) continue;
+      const adapter = await activateNamedConnector(key);
+      nextRemoteConfigs[key] = await adapter.config();
+    }
+    return nextRemoteConfigs;
   }
 
   function materialize(nextSource, nextRemoteConfigs = remoteConfigs ?? {}) {
@@ -271,12 +364,17 @@ async function createConnectorAdapter({
 
   async function saveConfig(config) {
     const collapsed = collapseConfig(config);
+    const referenced = assertTrustedReferences(collapsed);
+    const nextRemoteConfigs = await preflightRemoteConfigs(referenced);
+    const preflight = materializeConfig({
+      sourceConfig: collapsed,
+      remoteConfigs: nextRemoteConfigs
+    });
     const result = await adapters.get("default").saveConfig(collapsed);
-    configPromise = null;
-    const nextSource = result?.config ?? collapsed;
-    const next = materialize(nextSource);
-    configPromise = Promise.resolve(next.config);
-    return { ...result, config: next.config };
+    routes = preflight.routes;
+    remoteConfigs = nextRemoteConfigs;
+    configPromise = Promise.resolve(preflight.config);
+    return { ...result, config: preflight.config };
   }
 
   const composite = {

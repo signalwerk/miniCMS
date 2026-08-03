@@ -175,6 +175,11 @@ changing shared core modules it has imported.
 - The deployed browser bootstrap's connector definitions are the trust
   boundary; configuration returned by an active connector cannot redirect an
   already deployed editor to another origin.
+- Configuration saves materialize and validate all referenced remote schema
+  before the default connector writes. A trusted but initially unused bootstrap
+  connector may activate lazily when first referenced. A newly added or changed
+  connector must be saved unused and loaded by a fresh bootstrap before an
+  alias can reference it.
 - Composite authentication advances one pending connector per login action;
   never open a second OAuth popup after awaiting the first user gesture.
 - GitHub supplies the latest path commit for `$updated_at`, but not file birth
