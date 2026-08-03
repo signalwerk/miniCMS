@@ -26,10 +26,10 @@ Preserve useful guidance and remove stale information.
   repository paths, and record summaries. `media.js` owns upload accept-list
   parsing and matching; `image-service.js` owns the shared processing config,
   content-addressed media-path parser, readable operation-stack grammar,
-  derivative URL builder and canonical URL parser under the collision-free
-  `/media/_image/` namespace,
+  derivative URL builder and canonical URL parser for
+  `/<schema>/media/<collection>/<sha256>/<operations>/<filename>.<format>`,
   and the strict content-addressed API raw-media URL mapper. It has no
-  encoded/flat-path compatibility route;
+  encoded, flat-path, or previous-route compatibility parser;
   `slug.js` owns
   filename templates; `inline-reference.js` owns the strict canonical
   `minicms://reference/<collection>/<encoded-value>` URI grammar plus the
@@ -42,8 +42,9 @@ Preserve useful guidance and remove stale information.
   coordinates may be decimal or negative, dimensions are decimal values of at
   least one source pixel, and optional `rotation` is clockwise. Crop is always
   first and cannot coexist with whole-image `rotate`. The helper preserves the
-  derivative's origin, source, schema, resize, quality, slug, and format; raw,
-  GitHub, info, noop, and SVG URLs intentionally return `null`.
+  derivative's origin, schema, collection, SHA-256, output filename, resize,
+  quality, and format; raw, GitHub, info, noop, and SVG URLs intentionally
+  return `null`.
 - `content/`: the complete project-facing read contract. `index.js` resolves
   references, configured Markdown inline references, and media over an
   abstract raw source; `fs.js` loads validated YAML
@@ -80,6 +81,11 @@ Preserve useful guidance and remove stale information.
   pin update; the GitHub Pages URL remains the stable latest-build URL.
 - Consumer repositories own `cms.config.yml` and `content/`; miniCMS must not
   contain project-specific models or records.
+
+The website, editor, and API service are one controlled pre-release stack.
+When the shared image contract changes, update every consumer atomically and
+remove the replaced route/parser; do not add redirects, dual reads, or legacy
+image compatibility unless the user explicitly requests it.
 
 The package is normally linked from a Git submodule with
 `"@signalwerk/minicms": "file:./miniCMS"`. It is not a consumer workspace and

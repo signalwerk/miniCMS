@@ -42,8 +42,10 @@ const DEFAULT_IMAGE_PROCESSING = Object.freeze({
 const MAX_EDGE = 8192;
 const MAX_COORDINATE = 1_000_000;
 const MAX_OPERATIONS = IMAGE_OPERATION_TYPES.length;
+const MAX_OPERATION_BYTES = 255;
 const CACHE_SCHEMA_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const CONTENT_SHA_PATTERN = /^[a-f0-9]{64}$/;
+const IMAGE_SERVICE_FILENAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MEDIA_SEGMENT_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
 const IMAGE_SERVICE_OUTPUT_FORMATS = new Set([
   ...IMAGE_FORMATS,
@@ -432,7 +434,11 @@ function normalizedOperation(operation) {
 }
 
 function parseImageOperations(value) {
-  if (typeof value !== "string" || !value || value.length > 1024) {
+  if (
+    typeof value !== "string" ||
+    !value ||
+    utf8Bytes(value).length > MAX_OPERATION_BYTES
+  ) {
     throw operationError("the operation stack is missing or too long.");
   }
   const segments = value.split(";");
@@ -530,7 +536,7 @@ function serializeImageOperations(operations) {
     return operation;
   });
   validateOperationStack(normalized);
-  return normalized.map((operation) => {
+  const serialized = normalized.map((operation) => {
     const values = OPERATION_OPTION_ORDER[operation.type]
       .filter((key) => operation.options[key] !== undefined)
       .map((key) => `${key}:${operation.options[key]}`);
@@ -540,6 +546,10 @@ function serializeImageOperations(operations) {
     }
     return `${operation.type}@${values.join(",")}`;
   }).join(";");
+  if (utf8Bytes(serialized).length > MAX_OPERATION_BYTES) {
+    throw operationError("the operation stack is too long.");
+  }
+  return serialized;
 }
 
 function configuredOperations(processing, overrides) {
@@ -608,12 +618,10 @@ function imageServicePath(value, options = {}) {
       : normalizedFormat(options.format ?? processing.format);
   return [
     "",
-    "media",
-    "_image",
     processing.cache.schema,
+    "media",
     addressedSource.collection,
     addressedSource.sha,
-    addressedSource.filename,
     stack,
     `${imageServiceSlug(source)}.${format}`
   ].join("/");
@@ -649,9 +657,8 @@ function buildImageServiceUrl(value, options = {}) {
 }
 
 /**
- * Recovers the immutable source identifier from one canonical image-service
- * URL. This lets a renderer replace a generic derivative with its own
- * operation stack without widening the content-preview contract.
+ * Parses the canonical derivative identity so renderers can replace its
+ * operation stack without needing the original media filename.
  */
 function parseImageServiceUrl(value) {
   const source = mediaSource(value);
@@ -681,24 +688,27 @@ function parseImageServiceUrl(value) {
 
   const segments = url.pathname.slice(1).split("/");
   if (
-    segments.length !== 8 ||
-    segments[0] !== "media" ||
-    segments[1] !== "_image" ||
-    !CACHE_SCHEMA_PATTERN.test(segments[2])
+    segments.length !== 6 ||
+    !CACHE_SCHEMA_PATTERN.test(segments[0]) ||
+    segments[1] !== "media"
   ) {
     return null;
   }
 
-  const [, , schema, collection, sha, filename, stack, output] = segments;
-  const addressed = parseContentAddressedMediaPath(
-    `/media/${collection}/${sha}/${filename}`
-  );
+  const [schema, , collection, sha, stack, output] = segments;
   const extensionIndex = output.lastIndexOf(".");
-  if (!addressed || extensionIndex <= 0) return null;
-  const slug = output.slice(0, extensionIndex);
+  if (
+    !safeMediaSegment(collection) ||
+    collection === "_image" ||
+    !CONTENT_SHA_PATTERN.test(sha) ||
+    extensionIndex <= 0
+  ) {
+    return null;
+  }
+  const filename = output.slice(0, extensionIndex);
   const format = output.slice(extensionIndex + 1);
   if (
-    slug !== imageServiceSlug(addressed.path) ||
+    !IMAGE_SERVICE_FILENAME_PATTERN.test(filename) ||
     !IMAGE_SERVICE_OUTPUT_FORMATS.has(format)
   ) {
     return null;
@@ -714,23 +724,22 @@ function parseImageServiceUrl(value) {
 
   const canonicalPath = [
     "",
-    "media",
-    "_image",
     schema,
-    addressed.collection,
-    addressed.sha,
-    addressed.filename,
+    "media",
+    collection,
+    sha,
     stack,
-    `${slug}.${format}`
+    `${filename}.${format}`
   ].join("/");
   if (url.pathname !== canonicalPath) return null;
 
   return Object.freeze({
     baseUrl,
-    source: addressed.path,
     schema,
+    collection,
+    sha,
     operations: Object.freeze(operations),
-    slug,
+    filename,
     format
   });
 }
@@ -740,7 +749,6 @@ function prependImageServiceOperations(value, operations) {
   if (
     !derivative ||
     !IMAGE_FORMATS.includes(derivative.format) ||
-    isSvgImageSource(derivative.source) ||
     derivative.operations.some(
       (operation) => !["resize", "quality"].includes(operation.type)
     )
@@ -750,21 +758,18 @@ function prependImageServiceOperations(value, operations) {
   if (!Array.isArray(operations) || !operations.length) {
     throw operationError("prepend at least one operation.");
   }
-  const addressed = parseContentAddressedMediaPath(derivative.source);
   const stack = serializeImageOperations([
     ...operations,
     ...derivative.operations
   ]);
   const route = [
     "",
-    "media",
-    "_image",
     derivative.schema,
-    addressed.collection,
-    addressed.sha,
-    addressed.filename,
+    "media",
+    derivative.collection,
+    derivative.sha,
     stack,
-    `${derivative.slug}.${derivative.format}`
+    `${derivative.filename}.${derivative.format}`
   ].join("/");
   return `${derivative.baseUrl}${route}`;
 }

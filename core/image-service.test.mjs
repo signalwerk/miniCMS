@@ -43,11 +43,11 @@ test("builds a readable canonical URL for content-addressed media", () => {
         }
       }
     }),
-    `/media/_image/photos_2/images/${CONTENT_SHA}/big-picture.jpg/resize@width:1600,height:900,fit:inside;quality@75/big-picture.avif`
+    `/photos_2/media/images/${CONTENT_SHA}/resize@width:1600,height:900,fit:inside;quality@75/big-picture.avif`
   );
 });
 
-test("recovers the source from canonical relative and absolute service URLs", () => {
+test("parses canonical relative and absolute derivative URLs", () => {
   const source = imageSource("big-picture.jpg");
   const relative = buildImageServiceUrl(source, {
     width: 800,
@@ -63,8 +63,9 @@ test("recovers the source from canonical relative and absolute service URLs", ()
 
   assert.deepEqual(parseImageServiceUrl(relative), {
     baseUrl: "",
-    source,
     schema: "v1",
+    collection: "images",
+    sha: CONTENT_SHA,
     operations: [
       {
         type: "resize",
@@ -72,7 +73,7 @@ test("recovers the source from canonical relative and absolute service URLs", ()
       },
       { type: "quality", options: { value: "82" } }
     ],
-    slug: "big-picture",
+    filename: "big-picture",
     format: "webp"
   });
   assert.deepEqual(parseImageServiceUrl(absolute), {
@@ -97,6 +98,17 @@ test("recovers the source from canonical relative and absolute service URLs", ()
     null
   );
   assert.equal(parseImageServiceUrl(`${absolute}?download=1`), null);
+  assert.equal(
+    parseImageServiceUrl(
+      `/media/_image/v1/images/${CONTENT_SHA}/big-picture.jpg/` +
+        "resize@width:800,height:600,fit:inside;quality@82/big-picture.webp"
+    ),
+    null
+  );
+  assert.equal(
+    parseImageServiceUrl(relative.replace("/big-picture.webp", "/Big_Picture.webp")),
+    null
+  );
 });
 
 test("rejects image-service sources outside the content-addressed layout", () => {
@@ -110,13 +122,13 @@ test("uses exact SVG passthrough and preserves external image URLs", () => {
   const source = imageSource("vector.svg");
   assert.equal(
     imageServicePath(source),
-    `/media/_image/v1/images/${CONTENT_SHA}/vector.svg/noop/vector.svg`
+    `/v1/media/images/${CONTENT_SHA}/noop/vector.svg`
   );
   assert.equal(
     buildImageServiceUrl(source, {
       baseUrl: "https://images.example.com"
     }),
-    `https://images.example.com/media/_image/v1/images/${CONTENT_SHA}/vector.svg/noop/vector.svg`
+    `https://images.example.com/v1/media/images/${CONTENT_SHA}/noop/vector.svg`
   );
   assert.equal(
     buildImageServiceUrl("https://cdn.example.com/already.webp", {
@@ -136,7 +148,7 @@ test("builds an info route for the original source metadata", () => {
   const source = `content/media/images/${CONTENT_SHA}/photo.png`;
   assert.equal(
     buildImageServiceUrl(source, { info: true }),
-    `/media/_image/v1/images/${CONTENT_SHA}/photo.png/noop/photo.json`
+    `/v1/media/images/${CONTENT_SHA}/noop/photo.json`
   );
   assert.equal(
     buildImageServiceUrl(source, {
@@ -145,7 +157,7 @@ test("builds an info route for the original source metadata", () => {
       height: 180,
       quality: 25
     }),
-    `/media/_image/v1/images/${CONTENT_SHA}/photo.png/noop/photo.json`
+    `/v1/media/images/${CONTENT_SHA}/noop/photo.json`
   );
 });
 
@@ -196,7 +208,7 @@ test("maps API-backed raw media into the fixed service namespace", () => {
       `/assets/library/images/${CONTENT_SHA}/photo.jpg`,
       { config }
     ),
-    `/media/_image/v1/images/${CONTENT_SHA}/photo.jpg/resize@width:2400,height:2400,fit:inside;quality@82/photo.webp`
+    `/v1/media/images/${CONTENT_SHA}/resize@width:2400,height:2400,fit:inside;quality@82/photo.webp`
   );
   const sha = "5211e169283f43ab8ad7ea7998d917d5fbb3c568ac85c1a0217e86792822684d";
   assert.deepEqual(
@@ -289,11 +301,15 @@ test("strictly parses and canonicalizes image operations", () => {
   ]) {
     assert.throws(() => parseImageOperations(invalid), /Invalid image operations/);
   }
+  assert.throws(
+    () => parseImageOperations(`resize@width:1,${"x".repeat(256)}`),
+    /too long/
+  );
 });
 
 test("prepends source-space operations to canonical raster derivatives", () => {
   const relative =
-    `/media/_image/photos_2/images/${CONTENT_SHA}/big-picture.jpg/` +
+    `/photos_2/media/images/${CONTENT_SHA}/` +
     "resize@width:1600,height:900,fit:inside;quality@75/big-picture.avif";
   const operations = [{
     type: "crop",
@@ -327,16 +343,16 @@ test("does not prepend operations to passthrough or non-service URLs", () => {
   for (const source of [
     imageSource("photo.jpg"),
     "https://github.example.test/photo.jpg",
-    `/media/_image/v1/images/${CONTENT_SHA}/vector.svg/noop/vector.svg`,
-    `/media/_image/v1/images/${CONTENT_SHA}/photo.jpg/noop/photo.json`,
-    `/media/_image/v1/images/${CONTENT_SHA}/photo.jpg/noop/photo.webp`,
-    `/media/_image/v1/images/${CONTENT_SHA}/photo.jpg/rotate@angle:90;quality@82/photo.webp`
+    `/v1/media/images/${CONTENT_SHA}/noop/vector.svg`,
+    `/v1/media/images/${CONTENT_SHA}/noop/photo.json`,
+    `/v1/media/images/${CONTENT_SHA}/noop/photo.webp`,
+    `/v1/media/images/${CONTENT_SHA}/rotate@angle:90;quality@82/photo.webp`
   ]) {
     assert.equal(prependImageServiceOperations(source, crop), null);
   }
   assert.throws(
     () => prependImageServiceOperations(
-      `/media/_image/v1/images/${CONTENT_SHA}/photo.jpg/resize@width:20,fit:inside/photo.webp`,
+      `/v1/media/images/${CONTENT_SHA}/resize@width:20,fit:inside/photo.webp`,
       []
     ),
     /prepend/

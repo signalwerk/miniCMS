@@ -657,21 +657,23 @@ already resolved canonical raster derivative. Crop geometry may use decimal
 coordinates; `left` and `top` may be negative when all four corners remain
 inside the source. Dimensions must cover at least one source pixel, and an
 optional `rotation` is clockwise. Crop must be first and cannot be combined
-with whole-image `rotate`. The helper keeps the derivative's origin/source and
-existing resize/quality suffix. It returns `null` for GitHub/raw URLs,
+with whole-image `rotate`. The helper keeps the derivative's origin, schema,
+collection, SHA-256, output filename, and existing resize/quality suffix. It
+returns `null` for GitHub/raw URLs,
 metadata/noop routes, and byte-preserved SVGs so renderers can retain their
 non-service fallback.
 
 New API uploads use a readable, content-addressed route. For example:
 
 ```text
-/media/_image/v1/images/<sha256>/photo.png/resize@width:1600,height:900,fit:inside;quality@82/photo.webp
+/v1/media/images/<sha256>/resize@width:1600,height:900,fit:inside;quality@82/photo.webp
 ```
 
 The API route builder accepts only
 `/media/<collection>/<sha256>/<filename>` sources. Encoded identifiers and flat
-service paths are rejected, so generated URLs always expose the same readable
-source hierarchy used by storage.
+service paths are rejected. The configured cache schema is the first path
+segment; generated raster files mirror the remaining canonical URL hierarchy
+below the service cache root.
 
 A collection can own those uploaded files. When enabled, record deletion names
 the affected files in its confirmation and removes upload values from `file`
@@ -740,7 +742,7 @@ contains only the browser adapter for this contract:
 - `DELETE /api/collections/:collection/:id`
 - `POST /api/media/:collection?filename=<name>`
 - `GET|HEAD /media/:collection/:sha256/:filename`
-- `GET|HEAD /media/_image/:schema/:collection/:sha256/:filename/:operations/:slug.:format`
+- `GET|HEAD /:schema/media/:collection/:sha256/:operations/:filename.:format`
 
 The browser sends an opaque service bearer on protected API routes. Media URLs
 and the safe `.json` info variant remain public so they work in ordinary image

@@ -47,10 +47,11 @@ export interface ContentAddressedMediaPath {
 
 export interface ParsedImageServiceUrl {
   readonly baseUrl: string;
-  readonly source: string;
   readonly schema: string;
+  readonly collection: string;
+  readonly sha: string;
   readonly operations: readonly ImageOperation[];
-  readonly slug: string;
+  readonly filename: string;
   readonly format: ImageFormat | "json" | "svg";
 }
 
