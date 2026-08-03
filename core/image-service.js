@@ -661,8 +661,12 @@ function buildImageServiceUrl(value, options = {}) {
  * operation stack without needing the original media filename.
  */
 function parseImageServiceUrl(value) {
-  const source = mediaSource(value);
-  if (!source) return null;
+  const source = typeof value === "string"
+    ? value
+    : isMapping(value) && typeof value.src === "string"
+      ? value.src
+      : "";
+  if (!source || source !== source.trim()) return null;
 
   let url;
   let baseUrl = "";
@@ -699,7 +703,6 @@ function parseImageServiceUrl(value) {
   const extensionIndex = output.lastIndexOf(".");
   if (
     !safeMediaSegment(collection) ||
-    collection === "_image" ||
     !CONTENT_SHA_PATTERN.test(sha) ||
     extensionIndex <= 0
   ) {
@@ -708,6 +711,7 @@ function parseImageServiceUrl(value) {
   const filename = output.slice(0, extensionIndex);
   const format = output.slice(extensionIndex + 1);
   if (
+    filename.length > 80 ||
     !IMAGE_SERVICE_FILENAME_PATTERN.test(filename) ||
     !IMAGE_SERVICE_OUTPUT_FORMATS.has(format)
   ) {
@@ -731,7 +735,7 @@ function parseImageServiceUrl(value) {
     stack,
     `${filename}.${format}`
   ].join("/");
-  if (url.pathname !== canonicalPath) return null;
+  if (source !== `${baseUrl}${canonicalPath}`) return null;
 
   return Object.freeze({
     baseUrl,
@@ -816,7 +820,6 @@ function parseContentAddressedMediaPath(value, config) {
   if (segments.length !== 3) return null;
   const [collection, sha, filename] = segments;
   if (
-    collection === "_image" ||
     !safeMediaSegment(collection) ||
     !CONTENT_SHA_PATTERN.test(sha) ||
     !safeMediaSegment(filename)

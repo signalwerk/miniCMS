@@ -98,6 +98,12 @@ test("parses canonical relative and absolute derivative URLs", () => {
     null
   );
   assert.equal(parseImageServiceUrl(`${absolute}?download=1`), null);
+  assert.equal(parseImageServiceUrl(`${relative}?`), null);
+  assert.equal(parseImageServiceUrl(`${relative}#`), null);
+  assert.equal(
+    parseImageServiceUrl(relative.replace("/resize@", "/ignored/../resize@")),
+    null
+  );
   assert.equal(
     parseImageServiceUrl(
       `/media/_image/v1/images/${CONTENT_SHA}/big-picture.jpg/` +
@@ -107,6 +113,12 @@ test("parses canonical relative and absolute derivative URLs", () => {
   );
   assert.equal(
     parseImageServiceUrl(relative.replace("/big-picture.webp", "/Big_Picture.webp")),
+    null
+  );
+  assert.equal(
+    parseImageServiceUrl(
+      relative.replace("/big-picture.webp", `/${"a".repeat(81)}.webp`)
+    ),
     null
   );
 });
@@ -422,12 +434,6 @@ test("rejects unsafe or non-canonical content-addressed paths", () => {
   assert.equal(
     parseContentAddressedMediaPath(
       "/media/images/ABCDEF/not-content-addressed.png"
-    ),
-    null
-  );
-  assert.equal(
-    parseContentAddressedMediaPath(
-      `/media/_image/${"a".repeat(64)}/reserved.png`
     ),
     null
   );
