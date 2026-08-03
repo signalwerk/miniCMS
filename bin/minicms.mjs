@@ -112,7 +112,7 @@ Usage:
 Environment:
   ADMIN_PORT       Vite development port (default: 5173)
   HOST             Listening host (default: 127.0.0.1)
-  MINICMS_API_URL  API proxy target (default: http://127.0.0.1:8787)`);
+  MINICMS_API_URL  Direct API origin (default: http://127.0.0.1:8787)`);
       if (command) process.exitCode = 1;
   }
 }

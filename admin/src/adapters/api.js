@@ -13,6 +13,19 @@ function browserWindow(windowObject) {
   return candidate;
 }
 
+function loopbackHostname(hostname) {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (host === "localhost" || host === "::1") return true;
+  const parts = host.split(".").map(Number);
+  return (
+    parts.length === 4 &&
+    parts[0] === 127 &&
+    parts.every(
+      (part) => Number.isInteger(part) && part >= 0 && part <= 255
+    )
+  );
+}
+
 function normalizeApiUrl(apiUrl = "", { windowObject } = {}) {
   const browser = browserWindow(windowObject);
   const pageOrigin = new URL(browser.location.origin).origin;
@@ -21,7 +34,15 @@ function normalizeApiUrl(apiUrl = "", { windowObject } = {}) {
     "The miniCMS API URL"
   );
   const parsed = new URL(apiOrigin);
-  if (parsed.origin !== pageOrigin && parsed.protocol !== "https:") {
+  const directLoopbackDevelopment =
+    parsed.protocol === "http:" &&
+    loopbackHostname(parsed.hostname) &&
+    loopbackHostname(new URL(pageOrigin).hostname);
+  if (
+    parsed.origin !== pageOrigin &&
+    parsed.protocol !== "https:" &&
+    !directLoopbackDevelopment
+  ) {
     throw new Error("A remote miniCMS API URL must use HTTPS.");
   }
 

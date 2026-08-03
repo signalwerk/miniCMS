@@ -10,21 +10,19 @@ const apiPort = Number(process.env.PORT || 8787);
 const adminPort = Number(process.env.ADMIN_PORT || 5173);
 const host = process.env.HOST || "127.0.0.1";
 const apiUrl = process.env.MINICMS_API_URL || `http://127.0.0.1:${apiPort}`;
+process.env.MINICMS_PUBLIC_API_URL = apiUrl;
 
 export default defineConfig({
   root: adminRoot,
   base: "./",
+  envPrefix: "MINICMS_PUBLIC_",
   plugins: [react(), inlineCssPlugin()],
   resolve: {
     dedupe: ["react", "react-dom"]
   },
   server: {
     host,
-    port: adminPort,
-    proxy: {
-      "/api": apiUrl,
-      "/media": apiUrl
-    }
+    port: adminPort
   },
   build: {
     outDir: path.join(packageRoot, "dist"),

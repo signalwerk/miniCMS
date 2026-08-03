@@ -99,9 +99,22 @@ test("validates and normalizes miniCMS API origins", () => {
     }).apiOrigin,
     "https://content.example.com"
   );
+  for (const apiUrl of [
+    "http://127.0.0.1:8787",
+    "http://localhost:8787",
+    "http://[::1]:8787"
+  ]) {
+    assert.equal(
+      normalizeApiUrl(apiUrl, {
+        windowObject: localBrowser.windowObject
+      }).apiOrigin,
+      apiUrl
+    );
+  }
 
   for (const invalidUrl of [
-    "http://127.0.0.1:8787",
+    "http://content.example.com",
+    "http://192.168.1.10:8787",
     "https://user:secret@content.example.com",
     "https://content.example.com?project=test",
     "https://content.example.com#session",
@@ -115,12 +128,21 @@ test("validates and normalizes miniCMS API origins", () => {
       /miniCMS API URL|remote miniCMS API URL/
     );
   }
+
+  assert.throws(
+    () =>
+      normalizeApiUrl("http://127.0.0.1:8787", {
+        windowObject: browserFixture("https://admin.example.com").windowObject
+      }),
+    /remote miniCMS API URL/
+  );
 });
 
-test("initializes an unauthenticated-free local API session before use", async () => {
+test("uses the direct local API origin for requests and media", async () => {
   const browser = browserFixture("http://127.0.0.1:4321");
   const calls = [];
   const adapter = await createApiAdapter({
+    apiUrl: "http://127.0.0.1:8787",
     windowObject: browser.windowObject,
     fetchImpl: async (input, options) => {
       calls.push({ input, options });
@@ -134,6 +156,7 @@ test("initializes an unauthenticated-free local API session before use", async (
   });
 
   assert.equal(calls.length, 1);
+  assert.equal(new URL(calls[0].input).origin, "http://127.0.0.1:8787");
   assert.equal(new URL(calls[0].input).pathname, "/api/auth/session");
   assert.equal(adapter.name, "api");
   assert.deepEqual(adapter.session(), {
@@ -144,7 +167,7 @@ test("initializes an unauthenticated-free local API session before use", async (
   });
   assert.equal(
     adapter.resolveMediaUrl(HERO_SOURCE),
-    `http://127.0.0.1:4321${HERO_SOURCE}`
+    `http://127.0.0.1:8787${HERO_SOURCE}`
   );
   assert.equal(
     adapter.resolveImageUrl(HERO_SOURCE, {
@@ -152,7 +175,7 @@ test("initializes an unauthenticated-free local API session before use", async (
       fit: "inside"
     }),
     buildImageServiceUrl(HERO_SOURCE, {
-      baseUrl: "http://127.0.0.1:4321",
+      baseUrl: "http://127.0.0.1:8787",
       config: null,
       width: 640,
       fit: "inside"

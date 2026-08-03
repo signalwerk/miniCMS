@@ -79,10 +79,11 @@ npm install --prefix miniCMS
 npm run dev:cms
 ```
 
-The editor development server contains no content server. It proxies `/api`
-and `/media` to `MINICMS_API_URL` (by default
+The editor development server contains no content server. Its API calls and
+media URLs point directly to `MINICMS_API_URL` (by default
 `http://127.0.0.1:8787`). Run the independent `miniCMS-api` package when local
-filesystem persistence is needed.
+filesystem persistence is needed. Cross-origin HTTP is allowed only between
+loopback hosts; a remote API address must use HTTPS.
 
 For an existing checkout:
 
@@ -102,7 +103,7 @@ minicms test      # editor, adapter, and shared-core tests
 
 Node.js 24 or newer is required. The included `.nvmrc` selects that major
 version. `ADMIN_PORT` and `HOST` control the Vite listener;
-`MINICMS_API_URL` controls its content-service proxy.
+`MINICMS_API_URL` controls the direct content-service origin.
 
 ## Consumer structure
 

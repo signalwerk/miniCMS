@@ -60,8 +60,9 @@ Preserve useful guidance and remove stale information.
   CSS, assets, and dynamic modules inlined. `admin/index.html` is development
   scaffolding, not a deployment template.
 - `bin/minicms.mjs`: package CLI. `build` is project-independent and `dev`
-  starts only the Vite editor, proxying API/media requests to
-  `MINICMS_API_URL`. The API has its own package and process.
+  starts only the Vite editor. Its development bootstrap sends API and media
+  requests directly to `MINICMS_API_URL`; the API has its own package and
+  process.
 - The shared media helper can scope accepted upload types to one collection by
   traversing its allowed record types and nested slot types cycle-safely. The
   filesystem API uses that scope; the GitHub adapter retains its established
@@ -101,8 +102,10 @@ npm run dev
 `minicms build` always writes the package-owned standalone bundle; it does not
 accept project or static-deployment build options. `minicms dev` serves only
 the development editor; the development HTML selects the API adapter.
-`ADMIN_PORT`, `HOST`, and `MINICMS_API_URL` are supported. Restart the separate
-API service after changing shared core modules it has imported.
+`ADMIN_PORT`, `HOST`, and `MINICMS_API_URL` are supported. Direct cross-origin
+HTTP is accepted only when both the editor and API use loopback hosts; every
+remote API origin must use HTTPS. Restart the separate API service after
+changing shared core modules it has imported.
 
 ## Model and persistence
 
