@@ -261,8 +261,9 @@ slots: {}
           collection: collectionName,
           items: [remoteImage]
         }),
-        record: (_collectionName, id) =>
-          id === remoteImage.id ? remoteImage : null,
+        get: (_collectionName, id) => ({
+          record: id === remoteImage.id ? remoteImage : null
+        }),
         resolveMediaUrl: (value, context) => {
           mediaCalls.push({ kind: "file", value, context });
           return `https://media.example.test${value}`;
@@ -285,6 +286,10 @@ slots: {}
     `https://media.example.test/derived/media/images/${IMAGE_SHA}/hero.jpg`
   );
   assert.deepEqual(mediaCalls.at(-1).context, { collection: "images" });
+  assert.equal(
+    (await adapter.get("shared_images", "hero")).item.type,
+    "shared_image"
+  );
 
   const requests = [];
   const automatic = await createFilesystemContentAdapter({

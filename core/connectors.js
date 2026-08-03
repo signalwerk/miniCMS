@@ -408,7 +408,7 @@ function materializeConfig({ sourceConfig, remoteConfigs = {}, status = 500 } = 
       );
     }
     const remoteConfig = cloneValue(remoteConfigs[connector]);
-    validateConfig(remoteConfig, status);
+    validateSourceConfig(remoteConfig, status);
     validatedRemoteConfigs[connector] = remoteConfig;
   }
 

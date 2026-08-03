@@ -88,6 +88,13 @@ function connectorAuthorization(options = {}) {
   return {};
 }
 
+function sourceRecord(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  if (Object.hasOwn(value, "item")) return value.item ?? null;
+  if (Object.hasOwn(value, "record")) return value.record ?? null;
+  return value;
+}
+
 function createApiContentSource({
   connectorName,
   connector,
@@ -133,10 +140,16 @@ function createApiContentSource({
     config,
     list: (collectionName) =>
       request(`/api/collections/${encodeURIComponent(collectionName)}`),
-    record: (collectionName, id) =>
-      request(
-        `/api/collections/${encodeURIComponent(collectionName)}/${encodeURIComponent(id)}`
-      ),
+    async record(collectionName, id) {
+      try {
+        return await request(
+          `/api/collections/${encodeURIComponent(collectionName)}/${encodeURIComponent(id)}`
+        );
+      } catch (error) {
+        if (error.status === 404) return null;
+        throw error;
+      }
+    },
     async resolveMediaUrl(value) {
       return buildImageServiceMediaUrl(value, {
         baseUrl: apiOrigin,
@@ -230,9 +243,14 @@ async function createFilesystemContentAdapter({
           })
         : null
     );
-    if (!source || typeof source.config !== "function") {
+    if (
+      !source ||
+      typeof source.config !== "function" ||
+      typeof source.list !== "function" ||
+      (typeof source.get !== "function" && typeof source.record !== "function")
+    ) {
       throw connectorError(
-        `Connector "${connectorName}" needs a content source for filesystem builds.`
+        `Connector "${connectorName}" needs a complete content source for filesystem builds.`
       );
     }
     sources[connectorName] = source;
@@ -370,7 +388,10 @@ async function createFilesystemContentAdapter({
     const route = routeFor(collectionName);
     if (route.connector === "default") return readRecord(collectionName, id);
     const source = sources[route.connector];
-    const record = await source.record(route.remote_collection, id);
+    const getter = source.get ?? source.record;
+    const record = sourceRecord(
+      await getter.call(source, route.remote_collection, id)
+    );
     return record
       ? translateRecord(
           record,

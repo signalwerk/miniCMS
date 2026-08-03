@@ -277,6 +277,35 @@ test("translates recursive record types and canonical inline-reference links", (
   );
 });
 
+test("ignores unrelated aliases declared by a remote project", () => {
+  const remote = remoteConfig();
+  remote.connectors.archive = {
+    name: "api",
+    api_url: "https://archive.example.test"
+  };
+  remote.node_types.archived_asset = {
+    connector: "archive",
+    remote_type: "asset"
+  };
+  remote.collections.archived_assets = {
+    connector: "archive",
+    remote_collection: "assets"
+  };
+
+  const materialized = materializeConfig({
+    sourceConfig: sourceConfig(),
+    remoteConfigs: { central: remote }
+  });
+  assert.equal(
+    materialized.config.collections.central_images.node_type,
+    "central_image"
+  );
+  assert.equal(
+    Object.hasOwn(materialized.config.collections, "archived_assets"),
+    false
+  );
+});
+
 test("fails closed for missing, ambiguous, and incomplete remote dependencies", () => {
   assert.throws(
     () => materializeConfig({ sourceConfig: sourceConfig() }),
