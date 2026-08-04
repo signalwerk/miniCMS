@@ -75,7 +75,8 @@ test("accepts secure API connectors and rejects the removed backend contract", (
   const apiConfig = fixtureConfig();
   apiConfig.connectors.default = {
     name: "api",
-    api_url: "https://content.example.com"
+    api_url: "https://content.example.com",
+    auth_url: "https://auth.example.com"
   };
   assert.equal(validateConfig(apiConfig).connectors.default.name, "api");
   assert.equal(
@@ -88,14 +89,22 @@ test("accepts secure API connectors and rejects the removed backend contract", (
   assert.throws(() => validateConfig(legacyConfig), /singular backend/);
 
   const whitespaceConfig = fixtureConfig();
-  whitespaceConfig.connectors.default = { name: "api", api_url: "   " };
+  whitespaceConfig.connectors.default = {
+    name: "api",
+    api_url: "   ",
+    auth_url: "https://auth.example.com"
+  };
   assert.equal(
     validateConfig(whitespaceConfig).connectors.default.api_url,
     ""
   );
 
   const invalidConfig = fixtureConfig();
-  invalidConfig.connectors.default = { name: "api", api_url: 42 };
+  invalidConfig.connectors.default = {
+    name: "api",
+    api_url: 42,
+    auth_url: "https://auth.example.com"
+  };
   assert.throws(
     () => validateConfig(invalidConfig, 400),
     /miniCMS API URL must be a string/
@@ -109,7 +118,11 @@ test("accepts secure API connectors and rejects the removed backend contract", (
     "https://content.example.com?project=other"
   ]) {
     const invalidOrigin = fixtureConfig();
-    invalidOrigin.connectors.default = { name: "api", api_url: apiUrl };
+    invalidOrigin.connectors.default = {
+      name: "api",
+      api_url: apiUrl,
+      auth_url: "https://auth.example.com"
+    };
     assert.throws(
       () => validateConfig(invalidOrigin, 400),
       /miniCMS API URL/
@@ -125,7 +138,8 @@ test("validates source connectors and remote declaration stubs", () => {
   };
   config.connectors.central = {
     name: "api",
-    api_url: "https://content.example.com/"
+    api_url: "https://content.example.com/",
+    auth_url: "https://auth.example.com/"
   };
   config.node_types.central_image = {
     connector: "central",
@@ -145,6 +159,32 @@ test("validates source connectors and remote declaration stubs", () => {
     validated.connectors.central.api_url,
     "https://content.example.com"
   );
+  assert.equal(
+    validated.connectors.central.auth_url,
+    "https://auth.example.com"
+  );
+
+  const missingAuth = structuredClone(config);
+  delete missingAuth.connectors.central.auth_url;
+  assert.throws(
+    () => validateSourceConfig(missingAuth),
+    /must define an HTTPS auth_url/
+  );
+
+  for (const authUrl of [
+    "",
+    42,
+    "http://auth.example.com",
+    "https://auth.example.com/path",
+    "https://user@auth.example.com"
+  ]) {
+    const invalidAuth = structuredClone(config);
+    invalidAuth.connectors.central.auth_url = authUrl;
+    assert.throws(
+      () => validateSourceConfig(invalidAuth),
+      /authentication URL/
+    );
+  }
 
   const noDefault = structuredClone(config);
   delete noDefault.connectors.default;
@@ -172,6 +212,14 @@ test("validates source connectors and remote declaration stubs", () => {
     /loopback HTTP origin/
   );
 
+  const authenticatedDevelopment = structuredClone(config);
+  authenticatedDevelopment.connectors.development.api_url =
+    "https://content.example.com";
+  assert.throws(
+    () => validateSourceConfig(authenticatedDevelopment),
+    /must define an HTTPS auth_url/
+  );
+
   const reservedAlias = structuredClone(config);
   reservedAlias.node_types.central_image.connector = "development";
   assert.throws(
@@ -191,7 +239,8 @@ test("source validation remains strict for local definitions beside aliases", ()
   const config = fixtureConfig();
   config.connectors.central = {
     name: "api",
-    api_url: "https://content.example.com"
+    api_url: "https://content.example.com",
+    auth_url: "https://auth.example.com"
   };
   config.node_types.central_image = {
     connector: "central",

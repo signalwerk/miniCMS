@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildImageServiceUrl } from "../../../core/image-service.js";
-import { createApiAdapter, normalizeApiUrl } from "./api.js";
+import {
+  createApiAdapter,
+  normalizeApiUrl,
+  normalizeAuthUrl
+} from "./api.js";
 import { createAdapter } from "./index.js";
 
 const TEST_SHA = "a".repeat(64);
@@ -17,23 +21,27 @@ function json(body, status = 200) {
 
 function memoryStorage(entries = []) {
   const values = new Map(entries);
+  const writes = [];
   return {
     getItem(key) {
       return values.get(key) ?? null;
     },
     setItem(key, value) {
+      writes.push({ key, value: String(value) });
       values.set(key, String(value));
     },
     removeItem(key) {
       values.delete(key);
     },
-    values
+    values,
+    writes
   };
 }
 
 function browserFixture(origin = "https://admin.example.com") {
   const listeners = new Map();
   const popups = [];
+  const popupMessages = [];
   const openedUrls = [];
   const storage = memoryStorage();
   const windowObject = {
@@ -49,6 +57,9 @@ function browserFixture(origin = "https://admin.example.com") {
       openedUrls.push(url);
       const popup = {
         closed: false,
+        postMessage(data, targetOrigin) {
+          popupMessages.push({ data, targetOrigin, popup: this });
+        },
         close() {
           this.closed = true;
         }
@@ -74,6 +85,7 @@ function browserFixture(origin = "https://admin.example.com") {
     windowObject,
     storage,
     popups,
+    popupMessages,
     openedUrls,
     dispatchMessage(event) {
       listeners.get("message")?.(event);
@@ -136,6 +148,22 @@ test("validates and normalizes miniCMS API origins", () => {
       }),
     /remote miniCMS API URL/
   );
+
+  assert.equal(
+    normalizeAuthUrl("https://auth.example.com/"),
+    "https://auth.example.com"
+  );
+  assert.equal(normalizeAuthUrl(""), "");
+  for (const authUrl of [
+    "http://auth.example.com",
+    "https://auth.example.com/path",
+    "https://user@auth.example.com"
+  ]) {
+    assert.throws(
+      () => normalizeAuthUrl(authUrl),
+      /authentication URL/
+    );
+  }
 });
 
 test("uses the direct local API origin for requests and media", async () => {
@@ -418,16 +446,17 @@ test("clears and publishes an unauthenticated API session after a 401", async ()
   assert.equal(sessions.at(-1).provider, "github");
 });
 
-test("exchanges only an exact popup message for an opaque API bearer", async () => {
+test("hands one ephemeral GitHub token to the API for an opaque bearer", async () => {
   const browser = browserFixture();
   const apiOrigin = "https://content.example.com";
-  const nonce = "fixed-auth-nonce";
+  const authOrigin = "https://auth.example.com";
+  const githubToken = "github-token-for-one-exchange";
   let authenticated = false;
   const calls = [];
   const adapter = await createApiAdapter({
     apiUrl: apiOrigin,
+    authUrl: authOrigin,
     windowObject: browser.windowObject,
-    nonceFactory: () => nonce,
     fetchImpl: async (input, options = {}) => {
       const url = new URL(input);
       calls.push({ url, options });
@@ -438,8 +467,8 @@ test("exchanges only an exact popup message for an opaque API bearer", async () 
                 authenticated: true,
                 authenticationRequired: true,
                 provider: "github",
-                label: "signalwer",
-                login: "signalwer"
+                label: "signalwerk",
+                login: "signalwerk"
               }
             : {
                 authenticated: false,
@@ -449,7 +478,7 @@ test("exchanges only an exact popup message for an opaque API bearer", async () 
               }
         );
       }
-      if (url.pathname === "/api/auth/exchange") {
+      if (url.pathname === "/api/auth/github") {
         authenticated = true;
         return json({ token: "opaque-service-bearer" });
       }
@@ -463,60 +492,73 @@ test("exchanges only an exact popup message for an opaque API bearer", async () 
 
   const firstLogin = adapter.login();
   const firstPopup = browser.popups[0];
-  const successMessage = {
-    type: "minicms:api-auth",
-    status: "success",
-    code: "single-use-code",
-    nonce
-  };
+  const successMessage = `authorization:github:success:${JSON.stringify({
+    token: githubToken,
+    provider: "github"
+  })}`;
+
   browser.dispatchMessage({
     origin: "https://attacker.example.com",
     source: firstPopup,
     data: successMessage
   });
   browser.dispatchMessage({
-    origin: apiOrigin,
+    origin: authOrigin,
     source: {},
     data: successMessage
   });
-  browser.dispatchMessage({
-    origin: apiOrigin,
-    source: firstPopup,
-    data: { ...successMessage, nonce: "wrong-nonce" }
-  });
   assert.equal(
-    calls.filter((call) => call.url.pathname === "/api/auth/exchange").length,
+    calls.filter((call) => call.url.pathname === "/api/auth/github").length,
     0
   );
 
   browser.dispatchMessage({
-    origin: apiOrigin,
+    origin: authOrigin,
+    source: firstPopup,
+    data: "authorizing:github"
+  });
+  assert.deepEqual(browser.popupMessages, [
+    { data: "ready", targetOrigin: authOrigin, popup: firstPopup }
+  ]);
+  browser.dispatchMessage({
+    origin: authOrigin,
     source: firstPopup,
     data: successMessage
   });
-  assert.equal((await firstLogin).login, "signalwer");
+  assert.equal((await firstLogin).login, "signalwerk");
 
   const openedUrl = new URL(browser.openedUrls[0]);
-  assert.equal(openedUrl.origin, apiOrigin);
-  assert.equal(openedUrl.pathname, "/api/auth/github/start");
-  assert.equal(openedUrl.searchParams.get("origin"), "https://admin.example.com");
-  assert.equal(openedUrl.searchParams.get("nonce"), nonce);
-  const exchange = calls.find(
-    (call) => call.url.pathname === "/api/auth/exchange"
+  assert.equal(openedUrl.origin, authOrigin);
+  assert.equal(openedUrl.pathname, "/auth");
+  const exchangeCalls = calls.filter(
+    (call) => call.url.pathname === "/api/auth/github"
   );
-  assert.deepEqual(JSON.parse(exchange.options.body), {
-    code: "single-use-code",
-    origin: "https://admin.example.com",
-    nonce
+  assert.equal(exchangeCalls.length, 1);
+  assert.deepEqual(JSON.parse(exchangeCalls[0].options.body), {
+    token: githubToken
   });
-  assert.equal(exchange.options.headers.get("authorization"), null);
+  assert.equal(exchangeCalls[0].options.headers.get("authorization"), null);
   assert.equal(
     browser.storage.getItem(`minicms:api:${apiOrigin}:session`),
     "opaque-service-bearer"
   );
   assert.equal(
+    browser.storage.writes.some(({ value }) => value === githubToken),
+    false
+  );
+  assert.equal(
     calls.at(-1).options.headers.get("authorization"),
     "Bearer opaque-service-bearer"
+  );
+
+  browser.dispatchMessage({
+    origin: authOrigin,
+    source: firstPopup,
+    data: successMessage
+  });
+  assert.equal(
+    calls.filter((call) => call.url.pathname === "/api/auth/github").length,
+    1
   );
 
   await adapter.logout();
@@ -534,24 +576,29 @@ test("exchanges only an exact popup message for an opaque API bearer", async () 
 
   const deniedLogin = adapter.login();
   browser.dispatchMessage({
-    origin: apiOrigin,
+    origin: authOrigin,
     source: browser.popups[1],
-    data: {
-      type: "minicms:api-auth",
-      status: "error",
-      message: "This GitHub account is not allowed.",
-      nonce
-    }
+    data: 'authorization:github:error:{"error_description":"This GitHub account is not allowed."}'
   });
   await assert.rejects(deniedLogin, /GitHub account is not allowed/);
+});
 
-  const secondLogin = adapter.login();
-  browser.dispatchMessage({
-    origin: apiOrigin,
-    source: browser.popups[2],
-    data: { ...successMessage, code: "second-single-use-code" }
+test("requires auth_url only when an API session needs authentication", async () => {
+  const browser = browserFixture();
+  const adapter = await createApiAdapter({
+    apiUrl: "https://content.example.com",
+    windowObject: browser.windowObject,
+    fetchImpl: async () =>
+      json({
+        authenticated: false,
+        authenticationRequired: true,
+        provider: "github",
+        label: "Sign in"
+      })
   });
-  assert.equal((await secondLogin).authenticated, true);
+
+  await assert.rejects(adapter.login(), /requires an HTTPS auth_url/);
+  assert.equal(browser.popups.length, 0);
 });
 
 test("uses the reserved development connector when requested", async () => {

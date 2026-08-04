@@ -5,7 +5,10 @@ import {
   createGitHubAdapter,
   encodeBase64
 } from "./github.js";
-import { parseAuthorizationMessage } from "./github-auth.js";
+import {
+  createGitHubAuth,
+  parseAuthorizationMessage
+} from "./github-auth.js";
 import { createAdapter } from "./index.js";
 
 function fixtureConfig() {
@@ -289,6 +292,66 @@ test("parses the auth worker postMessage protocol", () => {
     parseAuthorizationMessage('authorization:github:error:"Denied"').error,
     "Denied"
   );
+});
+
+test("keeps direct GitHub connector tokens in its established storage", async () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key)
+  };
+  let messageListener = null;
+  const posted = [];
+  const popup = {
+    closed: false,
+    postMessage(data, targetOrigin) {
+      posted.push({ data, targetOrigin });
+    },
+    close() {
+      this.closed = true;
+    }
+  };
+  const windowObject = {
+    open: () => popup,
+    setInterval: () => 1,
+    clearInterval() {},
+    addEventListener(_type, listener) {
+      messageListener = listener;
+    },
+    removeEventListener(_type, listener) {
+      if (messageListener === listener) messageListener = null;
+    }
+  };
+  const auth = createGitHubAuth({
+    baseUrl: "https://auth.example.com",
+    repository: "signalwerk/example",
+    windowObject,
+    storage
+  });
+  const login = auth.login();
+  messageListener({
+    origin: "https://auth.example.com",
+    source: popup,
+    data: "authorizing:github"
+  });
+  assert.deepEqual(posted, [
+    { data: "ready", targetOrigin: "https://auth.example.com" }
+  ]);
+  messageListener({
+    origin: "https://auth.example.com",
+    source: popup,
+    data: 'authorization:github:success:{"token":"github-token","provider":"github"}'
+  });
+  assert.equal((await login).token, "github-token");
+  assert.equal(auth.getToken(), "github-token");
+  assert.equal(
+    values.get("minicms:github:signalwerk/example:token"),
+    "github-token"
+  );
+  auth.logout();
+  assert.equal(auth.getToken(), "");
+  assert.equal(values.size, 0);
 });
 
 test("clears a rejected stored GitHub session", async () => {

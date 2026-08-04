@@ -11,8 +11,9 @@ Preserve useful guidance and remove stale information.
   `model/` contains shared content/layout/view helpers.
 - `admin/src/adapters/`: browser persistence boundary. `api.js` consumes the
   independent miniCMS API and discovers whether its session needs GitHub
-  identity authentication; `github.js` reads and atomically commits repository
-  files directly. `connectors.js` exposes them as one composite adapter, routes
+  authentication through the configured central auth worker; `github.js` reads
+  and atomically commits repository files directly. `connectors.js` exposes
+  them as one composite adapter, routes
   collection operations through hydrated local aliases, translates remote
   record/type names, and aggregates only the connector sessions the project
   uses. `AdapterContext.jsx` is the only UI access path to that composite.
@@ -154,8 +155,14 @@ changing shared core modules it has imported.
   the selected extension in canonical derivative URLs.
 - Named API connectors require a credential-free HTTPS `api_url`. The reserved
   default and development connectors may omit it for same-origin/runtime
-  selection; development alone may configure a loopback HTTP origin. GitHub
-  auth and API roots are credential-free HTTPS origins too.
+  selection; development alone may configure a loopback HTTP origin. Every API
+  connector outside loopback development requires an exact HTTPS `auth_url`.
+  When its session requires authentication, the adapter uses the central
+  worker's established string popup protocol, posts the ephemeral GitHub token
+  exactly once as `{token}` to `/api/auth/github` without generic bearer
+  injection, discards it, and stores only the returned opaque service bearer.
+  Direct GitHub connectors retain their established token storage behavior.
+  GitHub auth and API roots are credential-free HTTPS origins.
 - Fields use a compact, intentionally custom declarative schema.
 - Fields are optional by default. Omit `required` for optional fields and
   persist only `required: true`; legacy `required: false` input normalizes away
@@ -464,8 +471,10 @@ collection-scoped media (currently GitHub).
 Deployed browser bundles load
 `cms.config.yml` relative to the consumer-owned admin document and then use the
 configured adapter. API bearers are opaque service credentials stored only in
-session storage and sent on protected requests; GitHub OAuth access tokens for
-the API never enter the browser. Media URLs remain anonymous because ordinary
+session storage and sent on protected requests. A GitHub token obtained for an
+API connector remains browser-memory-only for its single `/api/auth/github`
+exchange and must never enter storage, URLs, logs, or generic authorization
+headers. Media URLs remain anonymous because ordinary
 `<img>` and download requests cannot attach the bearer.
 
 The independent service owns API integration/auth tests. Keep adapter mock

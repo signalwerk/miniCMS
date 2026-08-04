@@ -16,6 +16,7 @@ export type ReferenceScalar = string | number | boolean;
 export interface CmsConnector extends UnknownMapping {
   name: "api" | "github";
   api_url?: string;
+  auth_url?: string;
 }
 
 export interface ContentNode {

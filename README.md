@@ -154,6 +154,7 @@ connectors:
   central_media:
     name: api
     api_url: https://media.example.com
+    auth_url: https://auth.signalwerk.workers.dev
 
 node_types:
   shared_image:
@@ -175,10 +176,16 @@ schema remains owned by the remote project; saving Settings writes only the
 two-key aliases back through the active default connector.
 
 `name: api` uses `api_url`, or the page origin when it is omitted on a reserved
-connector. Named API connectors require HTTPS. An API connector discovers
-whether it is local or requires GitHub identity, then sends its opaque bearer
-on protected requests. `name: github` uses the GitHub REST API and the popup
-protocol at `<base_url>/auth`; the optional `api_root` defaults to
+connector. Named API connectors require HTTPS. Production API connectors also
+define an exact HTTPS `auth_url`; only the loopback `development` connector may
+omit it. When the service reports that authentication is required, miniCMS uses
+the established string popup protocol at `<auth_url>/auth`, keeps the returned
+GitHub token only in memory long enough to send one JSON `{token}` request to
+`<api_url>/api/auth/github`, and immediately discards it. Only the opaque bearer
+returned by that service is kept in sessionStorage and attached to protected
+API requests. `name: github` uses the GitHub REST API and the same popup
+protocol at `<base_url>/auth`; its established GitHub-token sessionStorage
+behavior is unchanged. The optional `api_root` defaults to
 `https://api.github.com`. The legacy root `backend` and connector name `node`
 are not accepted.
 
@@ -778,8 +785,7 @@ writes, local development mode, and production GitHub identity gate. miniCMS
 contains only the browser adapter for this contract:
 
 - `GET /api/auth/session`
-- `GET /api/auth/github/start`
-- `POST /api/auth/exchange`
+- `POST /api/auth/github`
 - `POST /api/auth/logout`
 - `GET /api/config`
 - `PUT /api/config`
@@ -794,7 +800,10 @@ contains only the browser adapter for this contract:
 - `GET|HEAD /media/:collection/:sha256/:filename`
 - `GET|HEAD /:schema/media/:collection/:sha256/:operations/:filename.:format`
 
-The browser sends an opaque service bearer on protected API routes. Media URLs
-and the safe `.json` info variant remain public so they work in ordinary image
-elements and cross-origin project previews. See the API
-package for its OAuth environment, deployment, persistence, and route tests.
+`POST /api/auth/github` receives exactly `{token}` without an existing service
+bearer. The service validates that ephemeral token through GitHub, discards it,
+and returns its own opaque bearer. The browser sends only that service bearer
+on subsequent protected API routes. Media URLs and the safe `.json` info
+variant remain public so they work in ordinary image elements and cross-origin
+project previews. See the API package for its authentication, deployment,
+persistence, and route tests.

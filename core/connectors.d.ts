@@ -3,6 +3,7 @@ export type ConnectorName = "api" | "github";
 export interface ApiConnector {
   name: "api";
   api_url?: string;
+  auth_url?: string;
   [key: string]: unknown;
 }
 

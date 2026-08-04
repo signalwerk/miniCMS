@@ -4,6 +4,7 @@ import {
   isExternalImageSource,
   normalizeHttpOrigin
 } from "../../../core/image-service.js";
+import { requestGitHubAuthorization } from "./github-auth.js";
 
 function browserWindow(windowObject) {
   const candidate = windowObject ?? globalThis.window;
@@ -62,16 +63,17 @@ function availableSessionStorage(windowObject, suppliedStorage) {
   }
 }
 
-function randomNonce(windowObject) {
-  const cryptoObject = windowObject.crypto ?? globalThis.crypto;
-  if (!cryptoObject?.getRandomValues) {
-    throw new Error("Secure random values are unavailable for GitHub sign-in.");
-  }
-  const bytes = new Uint8Array(24);
-  cryptoObject.getRandomValues(bytes);
-  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join(
-    ""
+function normalizeAuthUrl(authUrl = "") {
+  const source = String(authUrl || "").trim();
+  if (!source) return "";
+  const authOrigin = normalizeHttpOrigin(
+    source,
+    "The miniCMS API authentication URL"
   );
+  if (new URL(authOrigin).protocol !== "https:") {
+    throw new Error("The miniCMS API authentication URL must use HTTPS.");
+  }
+  return authOrigin;
 }
 
 function normalizeSession(value) {
@@ -105,15 +107,16 @@ function parseResponseBody(response) {
 
 async function createApiAdapter({
   apiUrl = "",
+  authUrl = "",
   fetchImpl = fetch,
   windowObject,
-  storage: suppliedStorage,
-  nonceFactory
+  storage: suppliedStorage
 } = {}) {
   const browser = browserWindow(windowObject);
-  const { apiOrigin, pageOrigin } = normalizeApiUrl(apiUrl, {
+  const { apiOrigin } = normalizeApiUrl(apiUrl, {
     windowObject: browser
   });
+  const authOrigin = normalizeAuthUrl(authUrl);
   const storage = availableSessionStorage(browser, suppliedStorage);
   const storageKey = `minicms:api:${apiOrigin}:session`;
   const listeners = new Set();
@@ -181,107 +184,61 @@ async function createApiAdapter({
     }
   }
 
-  function beginLogin() {
-    return new Promise((resolve, reject) => {
-      const nonce = (nonceFactory || (() => randomNonce(browser)))();
-      if (typeof nonce !== "string" || !nonce) {
-        reject(new Error("Could not create a GitHub sign-in nonce."));
-        return;
+  async function exchangeGitHubToken(token) {
+    const response = await fetchImpl(
+      new URL("/api/auth/github", `${apiOrigin}/`).toString(),
+      {
+        method: "POST",
+        headers: new Headers({ "content-type": "application/json" }),
+        body: JSON.stringify({ token })
       }
-      const authUrl = new URL("/api/auth/github/start", apiOrigin);
-      authUrl.searchParams.set("origin", pageOrigin);
-      authUrl.searchParams.set("nonce", nonce);
-      const popup = browser.open(
-        authUrl.toString(),
-        "minicms-api-github-oauth",
-        "popup=yes,width=700,height=800"
+    );
+    const body = await parseResponseBody(response);
+    if (!response.ok) {
+      const error = new Error(
+        body?.message || `Request failed with status ${response.status}.`
       );
-      if (!popup) {
-        reject(new Error("Allow popups to sign in with GitHub."));
-        return;
+      error.status = response.status;
+      error.body = body;
+      throw error;
+    }
+    return body;
+  }
+
+  async function beginLogin() {
+    if (!authOrigin) {
+      throw new Error(
+        "This miniCMS API connector requires an HTTPS auth_url to sign in."
+      );
+    }
+    let githubToken = "";
+    try {
+      githubToken = (
+        await requestGitHubAuthorization({
+          baseUrl: authOrigin,
+          windowObject: browser,
+          popupName: "minicms-api-github-oauth"
+        })
+      ).token;
+      if (typeof githubToken !== "string" || !githubToken) {
+        throw new Error("GitHub authorization returned no token.");
       }
-
-      let settled = false;
-      const closePoll = browser.setInterval(() => {
-        if (settled || !popup.closed) return;
-        cleanup(false);
-        reject(new Error("GitHub sign-in was closed."));
-      }, 400);
-
-      function cleanup(closePopup = true) {
-        settled = true;
-        browser.clearInterval(closePoll);
-        browser.removeEventListener("message", onMessage);
-        if (closePopup) {
-          try {
-            popup.close();
-          } catch {
-            // A completed cross-origin popup may already be unavailable.
-          }
-        }
+      const exchange = await exchangeGitHubToken(githubToken);
+      if (typeof exchange?.token !== "string" || !exchange.token) {
+        throw new Error("The miniCMS API returned no session token.");
       }
-
-      async function onMessage(event) {
-        if (settled || event.origin !== apiOrigin || event.source !== popup) {
-          return;
-        }
-        const message = event.data;
-        if (
-          !message ||
-          typeof message !== "object" ||
-          message.type !== "minicms:api-auth" ||
-          message.nonce !== nonce
-        ) {
-          return;
-        }
-
-        if (message.status === "error") {
-          cleanup();
-          reject(
-            new Error(
-              typeof message.message === "string" && message.message
-                ? message.message
-                : "GitHub sign-in failed."
-            )
-          );
-          return;
-        }
-        if (
-          message.status !== "success" ||
-          typeof message.code !== "string" ||
-          !message.code
-        ) {
-          return;
-        }
-
-        cleanup();
-        try {
-          const exchange = await request("/api/auth/exchange", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              code: message.code,
-              origin: pageOrigin,
-              nonce
-            })
-          });
-          if (typeof exchange?.token !== "string" || !exchange.token) {
-            throw new Error("The miniCMS API returned no session token.");
-          }
-          storeBearer(exchange.token);
-          const session = await refreshSession();
-          if (!session.authenticated) {
-            throw new Error("The miniCMS API did not establish a session.");
-          }
-          resolve(session);
-        } catch (error) {
-          rejectSession();
-          reject(error);
-        }
+      storeBearer(exchange.token);
+      const session = await refreshSession();
+      if (!session.authenticated) {
+        throw new Error("The miniCMS API did not establish a session.");
       }
-
-      browser.addEventListener("message", onMessage);
-    });
+      return session;
+    } catch (error) {
+      rejectSession();
+      throw error;
+    } finally {
+      githubToken = "";
+    }
   }
 
   function login() {
@@ -432,4 +389,9 @@ async function createApiAdapter({
   return adapter;
 }
 
-export { createApiAdapter, normalizeApiUrl, normalizeSession };
+export {
+  createApiAdapter,
+  normalizeApiUrl,
+  normalizeAuthUrl,
+  normalizeSession
+};

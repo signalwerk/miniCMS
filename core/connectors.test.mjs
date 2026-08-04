@@ -13,11 +13,12 @@ import { buildInlineReferenceUrl } from "./inline-reference.js";
 function sourceConfig() {
   return {
     connectors: {
-      default: { name: "api" },
+      default: { name: "api", auth_url: "https://auth.example.test" },
       development: { name: "api" },
       central: {
         name: "api",
-        api_url: "https://content.example.test"
+        api_url: "https://content.example.test",
+        auth_url: "https://auth.example.test"
       }
     },
     site: {
@@ -61,7 +62,11 @@ function sourceConfig() {
 function remoteConfig() {
   return {
     connectors: {
-      default: { name: "api", api_url: "https://content.example.test" }
+      default: {
+        name: "api",
+        api_url: "https://content.example.test",
+        auth_url: "https://auth.example.test"
+      }
     },
     site: {
       media_folder: "content/media",
@@ -281,7 +286,8 @@ test("ignores unrelated aliases declared by a remote project", () => {
   const remote = remoteConfig();
   remote.connectors.archive = {
     name: "api",
-    api_url: "https://archive.example.test"
+    api_url: "https://archive.example.test",
+    auth_url: "https://auth.example.test"
   };
   remote.node_types.archived_asset = {
     connector: "archive",

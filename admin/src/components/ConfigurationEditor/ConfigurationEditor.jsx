@@ -990,11 +990,14 @@ function ConnectorEditor({ connectorKey, connector = {}, used, updateConnector, 
                     name: "github",
                     repo: previous.repo || "",
                     branch: previous.branch || "main",
-                    base_url: previous.base_url || ""
+                    base_url: previous.base_url || previous.auth_url || ""
                   }
                 : {
                     name: "api",
-                    ...(previous.api_url ? { api_url: previous.api_url } : {})
+                    ...(previous.api_url ? { api_url: previous.api_url } : {}),
+                    ...((previous.auth_url || previous.base_url)
+                      ? { auth_url: previous.auth_url || previous.base_url }
+                      : {})
                   }
             );
           })}
@@ -1004,21 +1007,35 @@ function ConnectorEditor({ connectorKey, connector = {}, used, updateConnector, 
         </SelectInput>
       </FormField>
       {connectorName === "api" ? (
-        <FormField label="API URL" optional={reserved}>
-          <TextInput
-            value={connector.api_url}
-            placeholder={
-              connectorKey === "development"
-                ? "Local API origin"
-                : connectorKey === "default"
-                  ? "Same origin"
-                  : "https://content.example.com"
-            }
-            onChange={(value) => updateConnector((next) => {
-              setOptional(next, "api_url", value);
-            })}
-          />
-        </FormField>
+        <>
+          <FormField label="API URL" optional={reserved}>
+            <TextInput
+              value={connector.api_url}
+              placeholder={
+                connectorKey === "development"
+                  ? "Local API origin"
+                  : connectorKey === "default"
+                    ? "Same origin"
+                    : "https://content.example.com"
+              }
+              onChange={(value) => updateConnector((next) => {
+                setOptional(next, "api_url", value);
+              })}
+            />
+          </FormField>
+          <FormField
+            label="Authentication URL"
+            optional={connectorKey === "development"}
+          >
+            <TextInput
+              value={connector.auth_url}
+              placeholder="https://auth.example.com"
+              onChange={(value) => updateConnector((next) => {
+                setOptional(next, "auth_url", value);
+              })}
+            />
+          </FormField>
+        </>
       ) : (
         <>
           <div className="configuration-entry-card__grid">
@@ -1178,7 +1195,8 @@ function SiteEditor({ site, connectors = {}, connectorUse = [], update }) {
                 next.connectors ??= {};
                 next.connectors[normalizedConnectorKey] = {
                   name: "api",
-                  api_url: ""
+                  api_url: "",
+                  auth_url: ""
                 };
               });
               setNewConnectorKey("");

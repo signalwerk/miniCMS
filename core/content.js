@@ -278,6 +278,25 @@ function validateConnector(connector, connectorName, status) {
         }
       );
     }
+    const developmentLoopback =
+      connectorName === "development" &&
+      (connector.api_url === undefined ||
+        connector.api_url === "" ||
+        loopbackHostname(new URL(connector.api_url).hostname));
+    if (connector.auth_url === undefined) {
+      if (!developmentLoopback) {
+        throw contentError(
+          status,
+          `API connector "${connectorName}" must define an HTTPS auth_url.`
+        );
+      }
+    } else {
+      connector.auth_url = normalizeConnectorOrigin(
+        connector.auth_url,
+        `Connector "${connectorName}" authentication URL`,
+        status
+      );
+    }
     return;
   }
   if (

@@ -41,15 +41,66 @@ function browserStorage() {
   }
 }
 
+function requestGitHubAuthorization({
+  baseUrl,
+  windowObject = window,
+  popupName = "minicms-github-oauth"
+}) {
+  const normalizedBaseUrl = `${String(baseUrl).replace(/\/+$/, "")}/`;
+  const authUrl = new URL("auth", normalizedBaseUrl);
+  const authOrigin = authUrl.origin;
+
+  return new Promise((resolve, reject) => {
+    const popup = windowObject.open(
+      authUrl.toString(),
+      popupName,
+      "popup=yes,width=700,height=800"
+    );
+    if (!popup) {
+      reject(new Error("Allow popups to sign in with GitHub."));
+      return;
+    }
+
+    let settled = false;
+    const closePoll = windowObject.setInterval(() => {
+      if (!popup.closed || settled) return;
+      cleanup();
+      reject(new Error("GitHub sign-in was closed."));
+    }, 400);
+
+    function cleanup() {
+      settled = true;
+      windowObject.clearInterval(closePoll);
+      windowObject.removeEventListener("message", onMessage);
+      popup.close();
+    }
+
+    function onMessage(event) {
+      if (event.origin !== authOrigin || event.source !== popup) return;
+      const authorization = parseAuthorizationMessage(event.data);
+      if (!authorization) return;
+      if (authorization.status === "authorizing") {
+        popup.postMessage("ready", authOrigin);
+        return;
+      }
+      cleanup();
+      if (authorization.status === "error") {
+        reject(new Error(authorization.error));
+        return;
+      }
+      resolve(authorization.result);
+    }
+
+    windowObject.addEventListener("message", onMessage);
+  });
+}
+
 function createGitHubAuth({
   baseUrl,
   repository,
   windowObject = window,
   storage = browserStorage()
 }) {
-  const normalizedBaseUrl = `${String(baseUrl).replace(/\/+$/, "")}/`;
-  const authUrl = new URL("auth", normalizedBaseUrl);
-  const authOrigin = authUrl.origin;
   const storageKey = `minicms:github:${repository}:token`;
   let token = storage?.getItem(storageKey) || "";
 
@@ -60,52 +111,13 @@ function createGitHubAuth({
     else storage.removeItem(storageKey);
   }
 
-  function login() {
-    return new Promise((resolve, reject) => {
-      const popup = windowObject.open(
-        authUrl.toString(),
-        "minicms-github-oauth",
-        "popup=yes,width=700,height=800"
-      );
-      if (!popup) {
-        reject(new Error("Allow popups to sign in with GitHub."));
-        return;
-      }
-
-      let settled = false;
-      const closePoll = windowObject.setInterval(() => {
-        if (!popup.closed || settled) return;
-        cleanup();
-        reject(new Error("GitHub sign-in was closed."));
-      }, 400);
-
-      function cleanup() {
-        settled = true;
-        windowObject.clearInterval(closePoll);
-        windowObject.removeEventListener("message", onMessage);
-        popup.close();
-      }
-
-      function onMessage(event) {
-        if (event.origin !== authOrigin) return;
-        if (event.source !== popup) return;
-        const authorization = parseAuthorizationMessage(event.data);
-        if (!authorization) return;
-        if (authorization.status === "authorizing") {
-          popup.postMessage("ready", authOrigin);
-          return;
-        }
-        cleanup();
-        if (authorization.status === "error") {
-          reject(new Error(authorization.error));
-          return;
-        }
-        storeToken(authorization.result.token);
-        resolve(authorization.result);
-      }
-
-      windowObject.addEventListener("message", onMessage);
+  async function login() {
+    const authorization = await requestGitHubAuthorization({
+      baseUrl,
+      windowObject
     });
+    storeToken(authorization.token);
+    return authorization;
   }
 
   return {
@@ -115,4 +127,8 @@ function createGitHubAuth({
   };
 }
 
-export { createGitHubAuth, parseAuthorizationMessage };
+export {
+  createGitHubAuth,
+  parseAuthorizationMessage,
+  requestGitHubAuthorization
+};

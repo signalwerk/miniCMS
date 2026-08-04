@@ -187,6 +187,7 @@ test("hydrates and resolves a remote collection through its named connector", as
   central_media:
     name: api
     api_url: https://media.example.test
+    auth_url: https://auth.example.test
 site: {}
 node_types:
   page:
@@ -218,7 +219,11 @@ slots: {}
   );
   const remoteConfig = {
     connectors: {
-      default: { name: "api", api_url: "https://media.example.test" }
+      default: {
+        name: "api",
+        api_url: "https://media.example.test",
+        auth_url: "https://auth.example.test"
+      }
     },
     site: {},
     node_types: {
@@ -380,7 +385,8 @@ test("uses the shared media service defaults for an API default connector", asyn
     branch: main`,
   `default:
     name: api
-    api_url: https://content.example.test`
+    api_url: https://content.example.test
+    auth_url: https://auth.example.test`
 ).replace(
   "site:\n  name: Filesystem fixture",
   "site:\n  name: Filesystem fixture\n  image_processing:\n    fit: cover"

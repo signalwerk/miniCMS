@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createConnectorAdapter } from "./connectors.js";
 
+function json(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" }
+  });
+}
+
 function sourceConfig() {
   return {
     connectors: {
@@ -12,8 +19,16 @@ function sourceConfig() {
         base_url: "https://auth.example.com"
       },
       development: { name: "api", api_url: "" },
-      central: { name: "api", api_url: "https://media.example.com" },
-      unused: { name: "api", api_url: "https://unused.example.com" }
+      central: {
+        name: "api",
+        api_url: "https://media.example.com",
+        auth_url: "https://auth.example.com"
+      },
+      unused: {
+        name: "api",
+        api_url: "https://unused.example.com",
+        auth_url: "https://auth.example.com"
+      }
     },
     site: {},
     node_types: {
@@ -41,7 +56,11 @@ function sourceConfig() {
 function remoteConfig() {
   return {
     connectors: {
-      default: { name: "api", api_url: "https://media.example.com" }
+      default: {
+        name: "api",
+        api_url: "https://media.example.com",
+        auth_url: "https://auth.example.com"
+      }
     },
     site: {},
     node_types: {
@@ -170,6 +189,71 @@ test("accepts only explicit production and development environments", async () =
     }),
     /environment/
   );
+});
+
+test("passes the trusted API auth_url to the central popup", async () => {
+  let listener = null;
+  let openedUrl = "";
+  const popup = {
+    closed: false,
+    postMessage() {},
+    close() {
+      this.closed = true;
+    }
+  };
+  const windowObject = {
+    location: { origin: "https://admin.example.com" },
+    sessionStorage: {
+      getItem: () => null,
+      setItem() {},
+      removeItem() {}
+    },
+    open(url) {
+      openedUrl = url;
+      return popup;
+    },
+    setInterval: () => 1,
+    clearInterval() {},
+    addEventListener(_type, nextListener) {
+      listener = nextListener;
+    },
+    removeEventListener(_type, nextListener) {
+      if (listener === nextListener) listener = null;
+    }
+  };
+  const adapter = await createConnectorAdapter({
+    sourceConfig: {
+      connectors: {
+        default: {
+          name: "api",
+          api_url: "https://content.example.com",
+          auth_url: "https://auth.example.com"
+        }
+      },
+      site: {},
+      node_types: { page: { fields: { title: { widget: "string" } } } },
+      collections: {
+        pages: { folder: "content/pages", node_type: "page" }
+      }
+    },
+    connectorOptions: { default: { windowObject } },
+    fetchImpl: async () =>
+      json({
+        authenticated: false,
+        authenticationRequired: true,
+        provider: "github",
+        label: "Sign in"
+      })
+  });
+
+  const login = adapter.login();
+  assert.equal(openedUrl, "https://auth.example.com/auth");
+  listener({
+    origin: "https://auth.example.com",
+    source: popup,
+    data: 'authorization:github:error:"Denied"'
+  });
+  await assert.rejects(login, /Denied/);
 });
 
 test("selects development and routes collection operations through remote aliases", async () => {
@@ -395,7 +479,8 @@ test("keeps newly added and changed connectors after an unreferenced save", asyn
   effective.connectors.unused.api_url = "https://changed.example.com";
   effective.connectors.later = {
     name: "api",
-    api_url: "https://later.example.com"
+    api_url: "https://later.example.com",
+    auth_url: "https://auth.example.com"
   };
 
   const result = await adapter.saveConfig(effective);
@@ -405,7 +490,8 @@ test("keeps newly added and changed connectors after an unreferenced save", asyn
   );
   assert.deepEqual(result.config.connectors.later, {
     name: "api",
-    api_url: "https://later.example.com"
+    api_url: "https://later.example.com",
+    auth_url: "https://auth.example.com"
   });
   assert.deepEqual(created, ["default", "central"]);
   assert.equal(
@@ -431,7 +517,8 @@ test("rejects a new referenced connector before writing", async () => {
   const effective = await adapter.config();
   effective.connectors.new_media = {
     name: "api",
-    api_url: "https://new-media.example.com"
+    api_url: "https://new-media.example.com",
+    auth_url: "https://auth.example.com"
   };
   effective.node_types.new_image = {
     connector: "new_media",
@@ -522,6 +609,7 @@ test("keeps connector origins locked to the bootstrap configuration", async () =
   const bootstrap = sourceConfig();
   const live = sourceConfig();
   live.connectors.central.api_url = "https://redirect.example.com";
+  live.connectors.central.auth_url = "https://redirect-auth.example.com";
   const adapter = await createConnectorAdapter({
     sourceConfig: bootstrap,
     connectorFactory: async ({ key }) =>
@@ -536,5 +624,9 @@ test("keeps connector origins locked to the bootstrap configuration", async () =
   assert.equal(
     config.connectors.central.api_url,
     "https://media.example.com"
+  );
+  assert.equal(
+    config.connectors.central.auth_url,
+    "https://auth.example.com"
   );
 });

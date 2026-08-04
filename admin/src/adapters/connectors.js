@@ -144,7 +144,8 @@ async function defaultConnectorFactory({
       apiUrl:
         (key === "development" && suppliedApiUrl !== undefined
           ? suppliedApiUrl
-          : connector.api_url) ?? ""
+          : connector.api_url) ?? "",
+      authUrl: connector.auth_url ?? ""
     });
   }
   if (connector.name === "github") {
