@@ -613,6 +613,61 @@ The website decides how each resolved record becomes a public link or another
 inline presentation. Markdown fields without this configuration remain plain
 strings in the read contract.
 
+Inline references may also join a named document-level reference set. The set
+defines which target collections share numbering and how a website formats the
+corresponding list; miniCMS keeps numbers and anchors out of stored Markdown:
+
+```yaml
+site:
+  reference_sets:
+    footnotes:
+      label: Footnotes
+      collections: [sources]
+      deduplicate: true
+      number_style: decimal
+      item_template: "{{record.properties.title}}"
+      link_field: record.properties.archive
+      backlinks: all
+
+node_types:
+  text:
+    fields:
+      body:
+        widget: markdown
+        blocknote:
+          inline_reference:
+            collection: sources
+            preview_field: title
+            reference_set: footnotes
+```
+
+`collections` and `item_template` are required. Omitted behavior stays concise
+and defaults to document scope, first-occurrence order, deduplication, decimal
+numbers, and backlinks from every occurrence. Supported number styles are
+`decimal`, `lower-alpha`, `upper-alpha`, `lower-roman`, and `upper-roman`;
+backlinks may be `all`, `first`, or `none`. Templates accept ordinary text plus
+only `{{number}}`, `{{collection}}`, `{{ref}}`, `{{record.id}}`, and
+`{{record.properties.<field>}}`. `link_field`, when present, must be exactly a
+`record.properties.<field>` path. Blocks, helpers, triple braces, dynamic
+paths, and unmatched braces are rejected.
+
+Settings creates and edits these sets and offers only compatible sets on each
+Markdown field. A set key is immutable after creation because stored content
+may refer to it; its label remains editable. Removing a collection from a set
+clears newly incompatible field bindings. Deleting a set explicitly warns that
+arbitrary stored content values cannot be migrated automatically.
+
+Consumer renderers can import
+`inlineReferenceOccurrencesInMarkdown(markdown, {collection})` from
+`@signalwerk/minicms/content`. It returns every actual canonical Markdown-link
+occurrence in source order as `{href, collection, ref, offset}`, preserving
+duplicates while ignoring images and code spans/fences. `offset` is the
+zero-based Markdown source position of the link's opening `[`. The resolved
+`references` map remains keyed once per canonical destination. A website can
+therefore assign display numbers from the occurrence array, look up each full
+record in the map, and render its own accessible markers, list entries,
+anchors, and backlinks without widening the miniCMS preview contract.
+
 Image fields keep their compact path-string value until a region or point is
 added. Annotated values expand without losing backwards compatibility:
 

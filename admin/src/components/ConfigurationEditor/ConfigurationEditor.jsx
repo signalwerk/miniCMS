@@ -60,6 +60,13 @@ import {
   acceptTokens,
   validateMediaAccept
 } from "../../../../core/media.js";
+import {
+  REFERENCE_SET_DEFAULTS,
+  compatibleReferenceSetEntries,
+  reconcileInlineReferenceSet,
+  removeReferenceSet,
+  setReferenceSetCollections
+} from "../../model/referenceSets.js";
 import { ConfirmationDialog } from "../Dialogs/Dialogs.jsx";
 import { DeploymentControl } from "../DeploymentControl/DeploymentControl.jsx";
 import { Spinner } from "../Common/Common.jsx";
@@ -107,6 +114,20 @@ const INLINE_REFERENCE_PREVIEW_WIDGETS = new Set([
   "id",
   "uuid"
 ]);
+
+const REFERENCE_SET_NUMBER_STYLE_OPTIONS = [
+  ["decimal", "1, 2, 3"],
+  ["lower-alpha", "a, b, c"],
+  ["upper-alpha", "A, B, C"],
+  ["lower-roman", "i, ii, iii"],
+  ["upper-roman", "I, II, III"]
+];
+
+const REFERENCE_SET_BACKLINK_OPTIONS = [
+  ["all", "Every occurrence"],
+  ["first", "First occurrence"],
+  ["none", "No backlinks"]
+];
 
 const FIELD_DISPLAY_OPTIONS = [
   ["", "Automatic"],
@@ -1144,7 +1165,230 @@ function ConnectorEditor({ connectorKey, connector = {}, used, updateConnector, 
   );
 }
 
-function SiteEditor({ site, connectors = {}, connectorUse = [], update }) {
+function ReferenceSetEditor({
+  setKey,
+  referenceSet,
+  collections,
+  updateReferenceSet,
+  updateCollections,
+  onDelete
+}) {
+  const configured = { ...REFERENCE_SET_DEFAULTS, ...referenceSet };
+  const collectionOptions = Object.entries(collections).map(
+    ([key, collection]) => [key, collection.label || key]
+  );
+
+  function setDefaultAware(key, value) {
+    updateReferenceSet((nextReferenceSet) => {
+      if (value === REFERENCE_SET_DEFAULTS[key]) delete nextReferenceSet[key];
+      else nextReferenceSet[key] = value;
+    });
+  }
+
+  return (
+    <section className="configuration-card configuration-card--form">
+      <div className="configuration-subheading">
+        <div>
+          <strong>{referenceSet.label || labelFromKey(setKey)}</strong>
+          <small><code>{setKey}</code></small>
+        </div>
+        <button
+          type="button"
+          className="configuration-small-button danger"
+          onClick={onDelete}
+        >
+          <Trash2 size={13} /> Delete
+        </button>
+      </div>
+      <div className="configuration-entry-card__grid">
+        <FormField label="Label" optional>
+          <TextInput
+            value={referenceSet.label}
+            onChange={(value) => updateReferenceSet((nextReferenceSet) => {
+              setOptional(nextReferenceSet, "label", value);
+            })}
+          />
+        </FormField>
+        <FormField label="Key">
+          <code>{setKey}</code>
+        </FormField>
+      </div>
+      <FormField label="Included collections">
+        <MultiChoice
+          options={collectionOptions}
+          value={referenceSet.collections ?? []}
+          emptyLabel="Add a collection before configuring a reference set."
+          onChange={(value) => {
+            if (value.length) updateCollections(value);
+          }}
+        />
+      </FormField>
+      <FormField
+        label="Item template"
+        hint="Use text and safe values such as {{number}}, {{ref}}, or {{record.properties.title}}."
+      >
+        <TextInput
+          value={referenceSet.item_template}
+          placeholder="{{record.properties.title}}"
+          onChange={(value) => updateReferenceSet((nextReferenceSet) => {
+            nextReferenceSet.item_template = value;
+          })}
+        />
+      </FormField>
+      <div className="configuration-entry-card__grid">
+        <FormField label="Number style">
+          <SelectInput
+            value={configured.number_style}
+            onChange={(value) => setDefaultAware("number_style", value)}
+          >
+            {REFERENCE_SET_NUMBER_STYLE_OPTIONS.map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </SelectInput>
+        </FormField>
+        <FormField
+          label="Link field"
+          optional
+          hint="A safe path such as record.properties.archive."
+        >
+          <TextInput
+            value={referenceSet.link_field}
+            placeholder="record.properties.archive"
+            onChange={(value) => updateReferenceSet((nextReferenceSet) => {
+              setOptional(nextReferenceSet, "link_field", value);
+            })}
+          />
+        </FormField>
+        <FormField label="Backlinks">
+          <SelectInput
+            value={configured.backlinks}
+            onChange={(value) => setDefaultAware("backlinks", value)}
+          >
+            {REFERENCE_SET_BACKLINK_OPTIONS.map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </SelectInput>
+        </FormField>
+      </div>
+      <div className="configuration-inline-setting">
+        <span><strong>Reuse one number per item</strong></span>
+        <Switch
+          checked={configured.deduplicate}
+          label={`${referenceSet.label || setKey} deduplicate references`}
+          onChange={(value) => setDefaultAware("deduplicate", value)}
+        />
+      </div>
+      <div className="configuration-inline-setting">
+        <span>
+          <strong>Scope and order</strong>
+          <small>Whole document, by first occurrence</small>
+        </span>
+        <code>document</code>
+      </div>
+    </section>
+  );
+}
+
+function ReferenceSetsEditor({ site, collections, update, onDelete }) {
+  const [newName, setNewName] = useState("");
+  const [newKey, setNewKey] = useState("");
+  const [keyEdited, setKeyEdited] = useState(false);
+  const referenceSets = site.reference_sets ?? {};
+  const normalizedKey = slugifyKey(newKey, "");
+  const keyTaken = Boolean(
+    normalizedKey && Object.hasOwn(referenceSets, normalizedKey)
+  );
+  const firstCollection = Object.keys(collections)[0] ?? "";
+
+  return (
+    <>
+      <div className="configuration-subheading configuration-subheading--major">
+        <div>
+          <strong>Reference sets</strong>
+          <small>Collect inline references for document-level lists.</small>
+        </div>
+      </div>
+      {Object.entries(referenceSets).map(([setKey, referenceSet]) => (
+        <ReferenceSetEditor
+          key={setKey}
+          setKey={setKey}
+          referenceSet={referenceSet}
+          collections={collections}
+          updateReferenceSet={(change) => update((next) => {
+            change(next.site.reference_sets[setKey]);
+          })}
+          updateCollections={(value) => update((next) => {
+            setReferenceSetCollections(next, setKey, value);
+          })}
+          onDelete={() => onDelete(setKey, referenceSet)}
+        />
+      ))}
+      <section className="configuration-card configuration-card--form">
+        <div className="configuration-subheading">
+          <div><strong>Add reference set</strong></div>
+        </div>
+        <div className="configuration-entry-card__grid">
+          <FormField label="Name">
+            <TextInput
+              value={newName}
+              placeholder="Footnotes"
+              onChange={(value) => {
+                setNewName(value);
+                if (!keyEdited) setNewKey(slugifyKey(value, ""));
+              }}
+            />
+          </FormField>
+          <FormField label="Key">
+            <TextInput
+              value={newKey}
+              placeholder="footnotes"
+              onChange={(value) => {
+                setKeyEdited(true);
+                setNewKey(value);
+              }}
+            />
+          </FormField>
+          <button
+            type="button"
+            className="button button--secondary"
+            disabled={
+              !newName.trim() || !normalizedKey || keyTaken || !firstCollection
+            }
+            onClick={() => {
+              update((next) => {
+                next.site.reference_sets ??= {};
+                next.site.reference_sets[normalizedKey] = {
+                  label: newName.trim(),
+                  collections: [firstCollection],
+                  item_template: "{{record.properties.title}}"
+                };
+              });
+              setNewName("");
+              setNewKey("");
+              setKeyEdited(false);
+            }}
+          >
+            <Plus size={14} /> Add reference set
+          </button>
+        </div>
+        {keyTaken && (
+          <p className="configuration-inline-error">
+            <CircleAlert size={14} /> “{normalizedKey}” already exists.
+          </p>
+        )}
+      </section>
+    </>
+  );
+}
+
+function SiteEditor({
+  site,
+  connectors = {},
+  connectorUse = [],
+  collections = {},
+  onDeleteReferenceSet,
+  update
+}) {
   const [newConnectorKey, setNewConnectorKey] = useState("");
   const normalizedConnectorKey = slugifyKey(newConnectorKey, "");
   const connectorKeyTaken = Boolean(
@@ -1273,6 +1517,12 @@ function SiteEditor({ site, connectors = {}, connectorUse = [], update }) {
           </p>
         )}
       </section>
+      <ReferenceSetsEditor
+        site={site}
+        collections={collections}
+        update={update}
+        onDelete={onDeleteReferenceSet}
+      />
       <AdvancedSection
         title="Media paths"
       >
@@ -1548,6 +1798,7 @@ function FieldEditor({
   count,
   collections,
   nodeTypes,
+  referenceSets = {},
   onChange,
   onDuplicate,
   onDelete,
@@ -1598,6 +1849,10 @@ function FieldEditor({
       INLINE_REFERENCE_PREVIEW_WIDGETS.has(targetField.widget)
     )
     .map(([key, targetField]) => [key, targetField.label || key]);
+  const compatibleReferenceSets = compatibleReferenceSetEntries(
+    referenceSets,
+    inlineReference?.collection
+  );
 
   function defaultConditionValue(sourceField) {
     if (sourceField?.default !== undefined) return sourceField.default;
@@ -1751,9 +2006,16 @@ function FieldEditor({
                 <SelectInput
                   value={inlineReference.collection}
                   onChange={(value) => onChange((nextField) => {
+                    const referenceSet =
+                      nextField.blocknote.inline_reference.reference_set;
                     nextField.blocknote.inline_reference = {
-                      collection: value
+                      collection: value,
+                      ...(referenceSet ? { reference_set: referenceSet } : {})
                     };
+                    reconcileInlineReferenceSet(
+                      nextField.blocknote.inline_reference,
+                      referenceSets
+                    );
                   })}
                 >
                   {Object.entries(collections).map(([key, collection]) => (
@@ -1785,6 +2047,25 @@ function FieldEditor({
                   </SelectInput>
                 </FormField>
               )}
+              <FormField label="Reference set" optional>
+                <SelectInput
+                  value={inlineReference.reference_set ?? ""}
+                  onChange={(value) => onChange((nextField) => {
+                    setOptional(
+                      nextField.blocknote.inline_reference,
+                      "reference_set",
+                      value
+                    );
+                  })}
+                >
+                  <option value="">No collected list</option>
+                  {compatibleReferenceSets.map(([key, referenceSet]) => (
+                    <option key={key} value={key}>
+                      {referenceSet.label || labelFromKey(key)}
+                    </option>
+                  ))}
+                </SelectInput>
+              </FormField>
             </div>
           )}
         </div>
@@ -2508,6 +2789,7 @@ function TypeEditor({
   type,
   nodeTypes,
   collections,
+  referenceSets,
   updateType,
   onMoveType,
   onDeleteType,
@@ -2648,6 +2930,7 @@ function TypeEditor({
             count={Object.keys(fields).length}
             collections={fieldCollections}
             nodeTypes={nodeTypes}
+            referenceSets={connector === "default" ? referenceSets : {}}
             dragHandleProps={dragHandleProps}
             onChange={(change) => updateType((nextType) => {
               change(nextType.fields[fieldKey]);
@@ -3926,9 +4209,16 @@ export default function ConfigurationEditor({
             field.blocknote?.inline_reference?.collection === collectionKey)
       )
     );
-    if (referenceUse) {
+    const referenceSetUse = Object.entries(
+      draft.site?.reference_sets ?? {}
+    ).find(([, referenceSet]) =>
+      referenceSet.collections?.includes(collectionKey)
+    );
+    if (referenceUse || referenceSetUse) {
       setError(
-        `This collection is used by ${referenceUse[1].label || referenceUse[0]}. Remove that relation field first.`
+        referenceUse
+          ? `This collection is used by ${referenceUse[1].label || referenceUse[0]}. Remove that relation field first.`
+          : `This collection is used by the ${referenceSetUse[1].label || referenceSetUse[0]} reference set. Remove that connection first.`
       );
       return;
     }
@@ -4251,6 +4541,19 @@ export default function ConfigurationEditor({
             <SiteEditor
               site={draft.site ?? {}}
               connectors={draft.connectors ?? {}}
+              collections={draft.collections ?? {}}
+              onDeleteReferenceSet={(setKey, referenceSet) => {
+                setConfirmation({
+                  title: `Delete ${referenceSet.label || labelFromKey(setKey)}?`,
+                  description:
+                    "This clears its Markdown field bindings. Existing content values are not rewritten and must be removed or reassigned separately.",
+                  confirmLabel: "Delete reference set",
+                  danger: true,
+                  onConfirm: () => update((next) => {
+                    removeReferenceSet(next, setKey);
+                  })
+                });
+              }}
               connectorUse={[
                 ...Object.values(draft.collections ?? {}),
                 ...Object.values(draft.node_types ?? {})
@@ -4281,6 +4584,7 @@ export default function ConfigurationEditor({
               type={selectedType}
               nodeTypes={draft.node_types}
               collections={draft.collections}
+              referenceSets={draft.site?.reference_sets ?? {}}
               updateType={(change) => updateType(selection.key, change)}
               onMoveType={(direction) => update((next) => {
                 next.node_types = moveMappingEntry(next.node_types, selection.key, direction);

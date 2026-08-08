@@ -68,6 +68,18 @@ const INLINE_REFERENCE_PREVIEW_WIDGETS = new Set([
   "boolean",
   "number"
 ]);
+const REFERENCE_SET_NUMBER_STYLES = new Set([
+  "decimal",
+  "lower-alpha",
+  "upper-alpha",
+  "lower-roman",
+  "upper-roman"
+]);
+const REFERENCE_SET_BACKLINKS = new Set(["all", "first", "none"]);
+const REFERENCE_SET_TEMPLATE_TOKEN =
+  /\{\{\s*(?:number|collection|ref|record\.id|record\.properties\.[A-Za-z0-9][A-Za-z0-9_-]*)\s*\}\}/g;
+const REFERENCE_SET_LINK_FIELD =
+  /^record\.properties\.[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const REFERENCE_SELECTION_KINDS = new Set([
   "image_region",
   "image_point"
@@ -91,6 +103,14 @@ function isWebUrl(value) {
   } catch {
     return false;
   }
+}
+
+function isReferenceSetTemplate(value) {
+  return (
+    typeof value === "string" &&
+    Boolean(value.trim()) &&
+    !/[{}]/.test(value.replace(REFERENCE_SET_TEMPLATE_TOKEN, ""))
+  );
 }
 
 function assertSafeName(value, label, status = 400) {
@@ -496,6 +516,104 @@ function validateConfig(config, status = 500, { source = false } = {}) {
 
   validateConfigRoot(config, status, { allowHydratedRemote: !source });
 
+  if (config.site !== undefined && !isMapping(config.site)) {
+    fail("site must be a mapping.");
+  }
+  const referenceSets = config.site?.reference_sets;
+  if (referenceSets !== undefined && !isMapping(referenceSets)) {
+    fail("site.reference_sets must be a keyed mapping.");
+  }
+  for (const [setName, referenceSet] of Object.entries(referenceSets ?? {})) {
+    assertKey(setName, `Reference set "${setName}"`);
+    if (!isMapping(referenceSet)) {
+      fail(`Reference set "${setName}" must be a mapping.`);
+    }
+    if (
+      referenceSet.label !== undefined &&
+      (typeof referenceSet.label !== "string" || !referenceSet.label.trim())
+    ) {
+      fail(`Reference set "${setName}" label must be non-empty.`);
+    }
+    if (
+      !Array.isArray(referenceSet.collections) ||
+      !referenceSet.collections.length
+    ) {
+      fail(`Reference set "${setName}" must define at least one collection.`);
+    }
+    const seenCollections = new Set();
+    for (const collectionName of referenceSet.collections ?? []) {
+      if (
+        typeof collectionName !== "string" ||
+        !collectionName ||
+        !config.collections[collectionName]
+      ) {
+        fail(
+          `Reference set "${setName}" uses unknown collection "${collectionName ?? ""}".`
+        );
+      }
+      if (seenCollections.has(collectionName)) {
+        fail(
+          `Reference set "${setName}" repeats collection "${collectionName}".`
+        );
+      }
+      seenCollections.add(collectionName);
+    }
+    if (
+      referenceSet.scope !== undefined &&
+      referenceSet.scope !== "document"
+    ) {
+      fail(`Reference set "${setName}" scope must be "document".`);
+    }
+    if (
+      referenceSet.order !== undefined &&
+      referenceSet.order !== "first_occurrence"
+    ) {
+      fail(
+        `Reference set "${setName}" order must be "first_occurrence".`
+      );
+    }
+    if (
+      referenceSet.deduplicate !== undefined &&
+      typeof referenceSet.deduplicate !== "boolean"
+    ) {
+      fail(`Reference set "${setName}" deduplicate must be boolean.`);
+    }
+    if (
+      referenceSet.number_style !== undefined &&
+      !REFERENCE_SET_NUMBER_STYLES.has(referenceSet.number_style)
+    ) {
+      fail(
+        `Reference set "${setName}" number_style must be one of: ${[
+          ...REFERENCE_SET_NUMBER_STYLES
+        ].join(", ")}.`
+      );
+    }
+    if (!isReferenceSetTemplate(referenceSet.item_template)) {
+      fail(
+        `Reference set "${setName}" item_template may use only safe double-brace scalar paths.`
+      );
+    }
+    if (
+      referenceSet.link_field !== undefined &&
+      (typeof referenceSet.link_field !== "string" ||
+        !REFERENCE_SET_LINK_FIELD.test(referenceSet.link_field))
+    ) {
+      fail(
+        `Reference set "${setName}" link_field must use record.properties.<field>.`
+      );
+    }
+    if (
+      referenceSet.backlinks !== undefined &&
+      !REFERENCE_SET_BACKLINKS.has(referenceSet.backlinks)
+    ) {
+      fail(
+        `Reference set "${setName}" backlinks must be one of: ${[
+          ...REFERENCE_SET_BACKLINKS
+        ].join(", ")}.`
+      );
+    }
+  }
+
   for (const [typeName, type] of Object.entries(config.node_types)) {
     if (source && Object.hasOwn(type, "remote_type")) continue;
     assertKey(typeName, `Node type "${typeName}"`);
@@ -553,6 +671,15 @@ function validateConfig(config, status = 500, { source = false } = {}) {
           ) {
             fail(
               `Markdown field "${typeName}.${fieldName}" inline reference preview_field must be a non-empty field name.`
+            );
+          }
+          if (
+            inlineReference.reference_set !== undefined &&
+            (typeof inlineReference.reference_set !== "string" ||
+              !inlineReference.reference_set.trim())
+          ) {
+            fail(
+              `Markdown field "${typeName}.${fieldName}" inline reference reference_set must be a non-empty set name.`
             );
           }
         }
@@ -994,6 +1121,19 @@ function validateConfig(config, status = 500, { source = false } = {}) {
           fail(
             `Node type "${typeName}" markdown field "${fieldName}" inline reference uses unknown collection "${inlineReference.collection}".`
           );
+        }
+        if (inlineReference.reference_set) {
+          const referenceSet = referenceSets?.[inlineReference.reference_set];
+          if (!referenceSet) {
+            fail(
+              `Node type "${typeName}" markdown field "${fieldName}" inline reference uses unknown reference set "${inlineReference.reference_set}".`
+            );
+          }
+          if (!referenceSet.collections.includes(inlineReference.collection)) {
+            fail(
+              `Node type "${typeName}" markdown field "${fieldName}" inline reference collection "${inlineReference.collection}" is not included in reference set "${inlineReference.reference_set}".`
+            );
+          }
         }
         if (source && Object.hasOwn(targetCollection, "remote_collection")) {
           continue;

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   INLINE_REFERENCE_PREFIX,
   buildInlineReferenceUrl,
+  inlineReferenceOccurrencesInMarkdown,
   isAllowedMarkdownLink,
   isInlineReferenceUrl,
   parseInlineReferenceUrl
@@ -75,4 +76,93 @@ test("allows ordinary safe links and strict inline references", () => {
   ]) {
     assert.equal(isAllowedMarkdownLink(value), false, value);
   }
+});
+
+test("scans duplicate inline-reference occurrences in Markdown source order", () => {
+  const first = buildInlineReferenceUrl("sources", "First source / ä");
+  const second = buildInlineReferenceUrl("notes", "second");
+  const markdown = [
+    `Read [one](${first} "Source title")`,
+    `then [another](<${second}>),`,
+    `then [one again](${first}).`
+  ].join(" ");
+
+  assert.deepEqual(inlineReferenceOccurrencesInMarkdown(markdown), [
+    {
+      href: first,
+      collection: "sources",
+      ref: "First source / ä",
+      offset: markdown.indexOf("[one]")
+    },
+    {
+      href: second,
+      collection: "notes",
+      ref: "second",
+      offset: markdown.indexOf("[another]")
+    },
+    {
+      href: first,
+      collection: "sources",
+      ref: "First source / ä",
+      offset: markdown.indexOf("[one again]")
+    }
+  ]);
+  assert.deepEqual(
+    inlineReferenceOccurrencesInMarkdown(markdown, {
+      collection: "sources"
+    }).map(({ href, offset }) => ({ href, offset })),
+    [
+      { href: first, offset: markdown.indexOf("[one]") },
+      { href: first, offset: markdown.indexOf("[one again]") }
+    ]
+  );
+  assert.deepEqual(inlineReferenceOccurrencesInMarkdown(null), []);
+});
+
+test("scans only actual Markdown links outside code and images", () => {
+  const href = buildInlineReferenceUrl("sources", "source-id");
+  const escapedLink = `\\[escaped](${href})`;
+  const inlineCode = `\`[inline code](${href})\``;
+  const image = `![image](${href})`;
+  const nestedInExternalLink = `[[nested](${href})](https://example.com)`;
+  const backtickFence = [
+    "````md",
+    `[backtick fence](${href})`,
+    "```",
+    "````"
+  ].join("\n");
+  const tildeFence = [
+    "~~~md",
+    `[tilde fence](${href})`,
+    "~~~"
+  ].join("\n");
+  const escapedImageMarker = `\\![link after escaped bang](${href})`;
+  const actual = `[actual](${href})`;
+  const plain = href;
+  const markdown = [
+    escapedLink,
+    inlineCode,
+    image,
+    nestedInExternalLink,
+    backtickFence,
+    tildeFence,
+    escapedImageMarker,
+    actual,
+    plain
+  ].join("\n\n");
+
+  assert.deepEqual(inlineReferenceOccurrencesInMarkdown(markdown), [
+    {
+      href,
+      collection: "sources",
+      ref: "source-id",
+      offset: markdown.indexOf("[link after escaped bang]")
+    },
+    {
+      href,
+      collection: "sources",
+      ref: "source-id",
+      offset: markdown.indexOf("[actual]")
+    }
+  ]);
 });

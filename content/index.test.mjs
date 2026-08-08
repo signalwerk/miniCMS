@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildInlineReferenceUrl,
-  createContentAdapter
+  createContentAdapter,
+  inlineReferenceOccurrencesInMarkdown
 } from "./index.js";
 
 const config = {
@@ -87,6 +88,14 @@ const config = {
     }
   }
 };
+
+test("exports the inline-reference occurrence scanner", () => {
+  const href = buildInlineReferenceUrl("sources", "source-id");
+  assert.deepEqual(
+    inlineReferenceOccurrencesInMarkdown(`[source](${href})`),
+    [{ href, collection: "sources", ref: "source-id", offset: 0 }]
+  );
+});
 
 const image = {
   id: "hero-file",
@@ -357,14 +366,24 @@ test("get accepts an unsaved record without caching over later drafts", async ()
 
 function markdownReferenceFixture() {
   const fixtureConfig = {
-    site: {},
+    site: {
+      reference_sets: {
+        footnotes: {
+          collections: ["sources"],
+          item_template: "{{number}}. {{record.properties.title}}"
+        }
+      }
+    },
     node_types: {
       article: {
         fields: {
           body: {
             widget: "markdown",
             blocknote: {
-              inline_reference: { collection: "sources" }
+              inline_reference: {
+                collection: "sources",
+                reference_set: "footnotes"
+              }
             }
           },
           plain: { widget: "markdown" }
@@ -847,6 +866,7 @@ test("publishes one project-facing content entry", async () => {
     "INLINE_REFERENCE_PREFIX",
     "buildInlineReferenceUrl",
     "createContentAdapter",
+    "inlineReferenceOccurrencesInMarkdown",
     "isAllowedMarkdownLink",
     "isInlineReferenceUrl",
     "parseInlineReferenceUrl",

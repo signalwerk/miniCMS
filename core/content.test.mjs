@@ -491,6 +491,95 @@ test("validates markdown BlockNote inline reference configuration", () => {
   );
 });
 
+test("validates named inline-reference sets and safe item templates", () => {
+  const config = fixtureConfig();
+  config.site.reference_sets = {
+    footnotes: {
+      label: "Footnotes",
+      collections: ["pages"],
+      scope: "document",
+      order: "first_occurrence",
+      deduplicate: true,
+      number_style: "lower-roman",
+      item_template:
+        "{{ number }}. {{record.properties.title}} ({{collection}}/{{ref}})",
+      link_field: "record.properties.website",
+      backlinks: "all"
+    }
+  };
+  config.node_types.page.fields.body = {
+    widget: "markdown",
+    blocknote: {
+      inline_reference: {
+        collection: "pages",
+        reference_set: "footnotes"
+      }
+    }
+  };
+
+  assert.deepEqual(validateConfig(config).site.reference_sets, {
+    footnotes: config.site.reference_sets.footnotes
+  });
+
+  const concise = structuredClone(config);
+  for (const key of [
+    "label",
+    "scope",
+    "order",
+    "deduplicate",
+    "number_style",
+    "link_field",
+    "backlinks"
+  ]) {
+    delete concise.site.reference_sets.footnotes[key];
+  }
+  assert.deepEqual(validateConfig(concise).site.reference_sets.footnotes, {
+    collections: ["pages"],
+    item_template:
+      "{{ number }}. {{record.properties.title}} ({{collection}}/{{ref}})"
+  });
+
+  for (const [change, expected] of [
+    [(set) => { set.collections = []; }, /at least one collection/],
+    [(set) => { set.collections = ["missing"]; }, /unknown collection "missing"/],
+    [(set) => { set.collections = ["pages", "pages"]; }, /repeats collection/],
+    [(set) => { set.scope = "site"; }, /scope must be "document"/],
+    [(set) => { set.order = "alphabetical"; }, /order must be "first_occurrence"/],
+    [(set) => { set.deduplicate = "yes"; }, /deduplicate must be boolean/],
+    [(set) => { set.number_style = "ordinal"; }, /number_style must be one of/],
+    [(set) => { set.item_template = "{{record.properties}}"; }, /item_template may use only/],
+    [(set) => { set.item_template = "{{Record.id}}"; }, /item_template may use only/],
+    [(set) => { set.item_template = "{{{record.id}}}"; }, /item_template may use only/],
+    [(set) => { set.item_template = "{{#each record}}x{{/each}}"; }, /item_template may use only/],
+    [(set) => { set.item_template = "Source {"; }, /item_template may use only/],
+    [(set) => { set.link_field = "record.id"; }, /link_field must use record\.properties/],
+    [(set) => { set.backlinks = "last"; }, /backlinks must be one of/]
+  ]) {
+    const invalid = structuredClone(config);
+    change(invalid.site.reference_sets.footnotes);
+    assert.throws(() => validateConfig(invalid, 400), expected);
+  }
+
+  const unknownSet = structuredClone(config);
+  unknownSet.node_types.page.fields.body.blocknote.inline_reference.reference_set =
+    "citations";
+  assert.throws(
+    () => validateConfig(unknownSet, 400),
+    /uses unknown reference set "citations"/
+  );
+
+  const incompatibleSet = structuredClone(config);
+  incompatibleSet.collections.sources = {
+    folder: "content/sources",
+    node_type: "page"
+  };
+  incompatibleSet.site.reference_sets.footnotes.collections = ["sources"];
+  assert.throws(
+    () => validateConfig(incompatibleSet, 400),
+    /collection "pages" is not included in reference set "footnotes"/
+  );
+});
+
 test("validates URL fields and tag collection relations", () => {
   const config = fixtureConfig();
   config.node_types.page.fields.website = {

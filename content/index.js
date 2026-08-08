@@ -1,4 +1,4 @@
-import { parseInlineReferenceUrl } from "../core/inline-reference.js";
+import { inlineReferenceOccurrencesInMarkdown } from "../core/inline-reference.js";
 
 function isMapping(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -8,96 +8,11 @@ export { prependImageServiceOperations } from "../core/image-service.js";
 export {
   INLINE_REFERENCE_PREFIX,
   buildInlineReferenceUrl,
+  inlineReferenceOccurrencesInMarkdown,
   isAllowedMarkdownLink,
   isInlineReferenceUrl,
   parseInlineReferenceUrl
 } from "../core/inline-reference.js";
-
-function skipCodeSpan(markdown, start) {
-  let size = 1;
-  while (markdown[start + size] === "`") size += 1;
-  const delimiter = "`".repeat(size);
-  const end = markdown.indexOf(delimiter, start + size);
-  return end === -1 ? markdown.length : end + size;
-}
-
-function closingLabelBracket(markdown, start) {
-  let depth = 1;
-  for (let cursor = start; cursor < markdown.length; cursor += 1) {
-    if (markdown[cursor] === "\\") {
-      cursor += 1;
-      continue;
-    }
-    if (markdown[cursor] === "`") {
-      cursor = skipCodeSpan(markdown, cursor) - 1;
-      continue;
-    }
-    if (markdown[cursor] === "[") depth += 1;
-    if (markdown[cursor] !== "]") continue;
-    depth -= 1;
-    if (depth === 0) return cursor;
-  }
-  return -1;
-}
-
-function inlineReferencesInMarkdown(markdown, collectionName) {
-  const references = new Map();
-  let cursor = 0;
-
-  while (cursor < markdown.length) {
-    if (markdown[cursor] === "\\") {
-      cursor += 2;
-      continue;
-    }
-    if (markdown[cursor] === "`") {
-      cursor = skipCodeSpan(markdown, cursor);
-      continue;
-    }
-    if (markdown[cursor] !== "[" || markdown[cursor - 1] === "!") {
-      cursor += 1;
-      continue;
-    }
-
-    const labelEnd = closingLabelBracket(markdown, cursor + 1);
-    if (labelEnd === -1 || markdown[labelEnd + 1] !== "(") {
-      cursor += 1;
-      continue;
-    }
-    let destinationStart = labelEnd + 2;
-    while (/[ \t\n\r]/.test(markdown[destinationStart] ?? "")) {
-      destinationStart += 1;
-    }
-    const angled = markdown[destinationStart] === "<";
-    if (angled) destinationStart += 1;
-    let destinationEnd = destinationStart;
-    while (
-      destinationEnd < markdown.length &&
-      (angled
-        ? markdown[destinationEnd] !== ">"
-        : !/[\s)]/.test(markdown[destinationEnd]))
-    ) {
-      destinationEnd += 1;
-    }
-    const afterDestination = angled ? destinationEnd + 1 : destinationEnd;
-    if (
-      destinationEnd === destinationStart ||
-      (angled && markdown[destinationEnd] !== ">") ||
-      markdown[afterDestination] !== ")"
-    ) {
-      cursor = labelEnd + 1;
-      continue;
-    }
-
-    const href = markdown.slice(destinationStart, destinationEnd);
-    const reference = parseInlineReferenceUrl(href);
-    if (reference?.collection === collectionName && !references.has(href)) {
-      references.set(href, reference);
-    }
-    cursor = afterDestination + 1;
-  }
-
-  return references;
-}
 
 function cloneValue(value) {
   if (Array.isArray(value)) return value.map(cloneValue);
@@ -480,7 +395,14 @@ function createContentAdapter({
   async function resolvedMarkdown(field, value, ancestors) {
     const markdown = typeof value === "string" ? value : String(value ?? "");
     const collectionName = field.blocknote.inline_reference.collection;
-    const references = inlineReferencesInMarkdown(markdown, collectionName);
+    const references = new Map(
+      inlineReferenceOccurrencesInMarkdown(markdown, {
+        collection: collectionName
+      }).map(({ href, collection, ref }) => [
+        href,
+        { collection, ref }
+      ])
+    );
     const resolvedEntries = await Promise.all(
       [...references].map(async ([href, reference]) => {
         const resolved = await resolvedReference(

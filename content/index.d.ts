@@ -4,11 +4,16 @@ export type { ImageOperation } from "../core/image-service.js";
 export {
   INLINE_REFERENCE_PREFIX,
   buildInlineReferenceUrl,
+  inlineReferenceOccurrencesInMarkdown,
   isAllowedMarkdownLink,
   isInlineReferenceUrl,
   parseInlineReferenceUrl
 } from "../core/inline-reference.js";
-export type { InlineReference } from "../core/inline-reference.js";
+export type {
+  InlineReference,
+  InlineReferenceOccurrence,
+  InlineReferenceOccurrenceOptions
+} from "../core/inline-reference.js";
 
 export type UnknownMapping = Record<string, unknown>;
 export type ReferenceScalar = string | number | boolean;
@@ -59,6 +64,25 @@ export interface ResolvedMarkdown<T extends ContentRecord = ContentRecord> {
 export type ResolvedTags<T extends ContentRecord = ContentRecord> =
   ResolvedReference<T>[];
 
+export type ReferenceSetNumberStyle =
+  | "decimal"
+  | "lower-alpha"
+  | "upper-alpha"
+  | "lower-roman"
+  | "upper-roman";
+
+export interface ReferenceSetConfig extends UnknownMapping {
+  label?: string;
+  collections: string[];
+  scope?: "document";
+  order?: "first_occurrence";
+  deduplicate?: boolean;
+  number_style?: ReferenceSetNumberStyle;
+  item_template: string;
+  link_field?: `record.properties.${string}`;
+  backlinks?: "all" | "first" | "none";
+}
+
 export interface CmsConfig extends UnknownMapping {
   connectors: Record<string, CmsConnector> & {
     default: CmsConnector;
@@ -70,6 +94,7 @@ export interface CmsConfig extends UnknownMapping {
     media_folder?: string;
     public_folder?: string;
     image_processing?: ImageProcessingConfig;
+    reference_sets?: Record<string, ReferenceSetConfig>;
     [key: string]: unknown;
   };
   collections: Record<string, UnknownMapping>;

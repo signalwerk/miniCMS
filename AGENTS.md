@@ -41,7 +41,10 @@ Preserve useful guidance and remove stale information.
   `slug.js` owns
   filename templates; `inline-reference.js` owns the strict canonical
   `minicms://reference/<collection>/<encoded-value>` URI grammar plus the
-  Markdown-safe link predicate; `id.js` owns the opaque
+  Markdown-safe link predicate and the duplicate-preserving Markdown occurrence
+  scanner exported through the public content entry. Content resolution uses
+  that scanner so actual-link/code/image parsing has one implementation;
+  `id.js` owns the opaque
   generated-ID format and collision-aware generator. These helpers are
   exported as `@signalwerk/minicms/core/*` for infrastructure packages and the
   independent API service; miniCMS contains no HTTP server.
@@ -349,6 +352,20 @@ never stringified into link text. Configured properties resolve for consumers to
 unconfigured Markdown stays a string, and stored Markdown is never rewritten
 by resolution. BlockNote normalizes Markdown only after a visual edit and
 cannot represent every source construct losslessly.
+
+`site.reference_sets` is a keyed document-level presentation contract for
+collecting configured Markdown inline references. Each set requires unique
+known `collections` and a non-empty safe `item_template`; optional behavior is
+document scope, first-occurrence order, deduplication, decimal numbering, and
+all backlinks. Templates permit only ordinary brace-free text plus scalar
+double-brace paths `number`, `collection`, `ref`, `record.id`, and
+`record.properties.<safe field>`; `link_field` is restricted to the latter
+property path. A Markdown inline reference may name one compatible set through
+`reference_set`. Set keys are immutable after creation because miniCMS cannot
+migrate arbitrary stored reference-list values. Settings edits labels and
+behavior, clears bindings made incompatible by collection changes, and warns
+before deletion. Consumer renderers derive numbers, anchors, and backlinks from
+`inlineReferenceOccurrencesInMarkdown`; neither numbers nor anchors are stored.
 
 Detail layout belongs under
 `node_types.<type>.views.detail.panels.<panel>.groups.<group>.fields`.
