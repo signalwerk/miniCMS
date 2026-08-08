@@ -17,6 +17,10 @@ Preserve useful guidance and remove stale information.
   collection operations through hydrated local aliases, translates remote
   record/type names, and aggregates only the connector sessions the project
   uses. `AdapterContext.jsx` is the only UI access path to that composite.
+  The worker token-delivery allowlist may contain exact HTTP origins only for
+  loopback development hosts. A standalone local editor can still need that
+  authorization when the project imports a production API connector; its
+  exact host and port must therefore be configured by the worker.
 - `admin/src/components/<Feature>/`: cohesive feature components with a
   colocated `<Feature>.scss`. Keep related small components together instead
   of creating a folder for every button or row.
@@ -45,10 +49,13 @@ Preserve useful guidance and remove stale information.
   contain exact remote stubs, while materialized configs retain those source
   keys beside hydrated definitions. `materializeConfig` returns the effective
   config, its normalized collapsible source form, and bidirectional plain-object
-  collection/type route maps. `translateRecord` uses one connector route to
-  clone and recursively translate node types and canonical Markdown inline
-  references. Service, browser, and static adapters must share these helpers
-  instead of duplicating remote-stub tests or name translation.
+  collection/type route maps. `planConfigWrites` reverses edited hydrated
+  definitions into concrete owner configs, preserves unrelated remote schema,
+  and returns the exact default aliases plus changed connector list.
+  `translateRecord` uses one connector route to clone and recursively translate
+  node types and canonical Markdown inline references. Service, browser, and
+  static adapters must share these helpers instead of duplicating remote-stub
+  tests or name translation.
 - Consumer renderers may prepend a validated source-space crop to an existing
   canonical raster derivative with `prependImageServiceOperations`. Crop
   coordinates may be decimal or negative, dimensions are decimal values of at
@@ -139,11 +146,15 @@ changing shared core modules it has imported.
   from the consumer-owned bootstrap config.
 - Remote node types are exact `{connector, remote_type}` source declarations;
   remote collections are exact `{connector, remote_collection}` declarations.
-  They may reference named connectors only. Imported definitions stay owned by
-  the remote project and collapse back to those stubs before the active default
-  connector saves configuration. Because records are complete atomic units,
-  connector persistence boundaries are collections; remote node-type aliases
-  import and translate schema identity but do not create partial-node writes.
+  They may reference named connectors only. Materialized definitions remain
+  owned by that connector: Settings may edit them or create a new remote type
+  and collection, then the composite writes concrete owner schema before it
+  publishes the exact aliases through the active default connector. Removing
+  an alias never deletes its remote schema or records, and a new hydrated alias
+  must not overwrite an unaliased remote definition. Because records are
+  complete atomic units, connector persistence boundaries are collections;
+  remote node-type aliases translate schema identity but do not create
+  partial-node writes.
 - `site.image_processing` configures only the API image-service capability:
   default raster dimensions, fit, output format/quality, and the derivative
   schema embedded in generated URLs. Project dimensions constrain newly
@@ -168,7 +179,10 @@ changing shared core modules it has imported.
   persist only `required: true`; legacy `required: false` input normalizes away
   when configuration is validated or saved.
 - Records contain `id`, `type`, `order`, `properties`, and typed `slots`.
-- Collection folders and media folders must remain inside consumer `content/`.
+- Collection folders and media folders must be strict descendants of consumer
+  `content/`. Concrete collections owned by one connector may not use equal or
+  nested folders, and default collection folders may not overlap the media
+  folder.
 - YAML uses `js-yaml`’s JSON schema so dates remain strings.
 - Saving Settings normalizes YAML formatting and does not preserve source
   comments; keep important project knowledge in `AGENTS.md`, not YAML comments.
@@ -176,19 +190,42 @@ changing shared core modules it has imported.
 - API uploads are collection-scoped. The service computes SHA-256 while
   streaming and returns `/media/<collection>/<sha256>/<filename>`; the browser
   never supplies the hash. GitHub upload paths remain unchanged.
-- GitHub writes use one Git tree/commit/ref transaction per editor operation;
-  preserve non-force branch conflict detection and never expose tokens in
-  config, URLs, logs, or persistent local storage.
+- GitHub writes are serialized per adapter and use one Git tree/commit/ref
+  transaction per editor operation, so overlapping actions in one editor do
+  not race the branch against each other;
+  configuration saves first match the loaded `cms.config.yml` blob SHA against
+  the exact parent tree before creating Git objects, then preserve non-force
+  branch conflict detection through publication. Never expose tokens in config,
+  URLs, logs, or persistent local storage.
+- If any trusted bootstrap connector is GitHub, expose the persistent
+  deployment-skip dropdown beside both Save buttons. Key the project-specific
+  browser preference by the stable default connector identity, and propagate
+  it to active and lazy GitHub leaves. Every GitHub
+  commit boundary appends `[ci skip]` while active, including config, records,
+  uploads, renames, and deletes; API adapters ignore it. Disabling the option
+  publishes the current Git tree through one marker-free `Resume deployments`
+  commit per affected GitHub branch so CI runs against all accumulated changes
+  without another content edit. Runtime connector keys must target unique
+  GitHub repository branches; separate leaf queues may not write the same
+  branch.
 - The deployed browser bootstrap's connector definitions are the trust
   boundary; configuration returned by an active connector cannot redirect an
   already deployed editor to another origin.
 - Configuration saves materialize and validate all referenced remote schema
   before the default connector writes. A trusted but initially unused bootstrap
-  connector may activate lazily when first referenced. A newly added or changed
-  connector must be saved unused and loaded by a fresh bootstrap before an
-  alias can reference it.
+  connector may activate lazily when first referenced. Its leaf adapter stays
+  private when the first Settings save prepares it. If authentication is
+  required, return the typed connector-auth signal and let the existing action
+  become Sign in and save. That second user gesture must invoke the cached leaf
+  adapter's login synchronously before its first await. Publish it into the
+  composite session only after authentication and config loading succeed so the
+  root gate cannot unmount Settings or discard its draft. A newly added or
+  changed connector must be saved unused and loaded by a fresh bootstrap before
+  an alias can reference it.
 - Composite authentication advances one pending connector per login action;
-  never open a second OAuth popup after awaiting the first user gesture.
+  lazy Settings activation likewise opens at most one new connector login per
+  Save interaction. Never open a second OAuth popup after awaiting the first
+  user gesture.
 - GitHub supplies the latest path commit for `$updated_at`, but not file birth
   time; existing GitHub records expose `$created_at` as empty after reload.
 - Deletion must not orphan hierarchy children.
@@ -415,6 +452,13 @@ grip, and delete action visible while collapsed.
   compact disclosure rows; technical controls stay collapsed by default.
   Communicate through labels, state, hierarchy, and interaction rather than
   instructional paragraphs, and never expose a raw YAML/source editor.
+- New collections and content types choose their owning trusted connector at
+  creation time. Collection creation offers only content types owned by that
+  connector. Existing ownership and remote identity are read-only in the
+  ordinary editor; moving data between connectors is not implied by editing
+  schema. Remote-owned collections and types use the same full forms as local
+  definitions, with remote type slots and relations limited to aliases owned by
+  that connector.
 - Settings must retain visible keyboard focus, trap focus within the active
   modal, restore focus on close, expose selected/expanded states to assistive
   technology, support reduced motion, and remain usable in its stacked
@@ -455,8 +499,22 @@ grip, and delete action visible while collapsed.
 Every storage adapter implements config read/write, collection list, record
 read/create/save/rename/delete, media upload, media URL resolution, and session
 methods. The composite routes CRUD and uploads by local collection, while
-configuration writes always go to the active default connector and collapse
-hydrated remote definitions back to their two-key source stubs.
+configuration writes are planned by owner: changed named connectors save first
+and the active default connector publishes changed exact two-key aliases last.
+Remote-only schema edits do not write the default connector. A partial
+cross-connector failure retains private provisional ownership for successful
+owner writes so retry skips them, without changing live routes or exposing
+aliases before default publication; cross-service atomicity is not implied.
+Changing a concrete collection's `folder` is part of its leaf adapter's
+configuration save, never a separate operation. GitHub reuses existing blob
+SHAs and publishes paths plus config in one non-force commit; empty Git folders
+appear only with the first record. The API uses its versioned configuration
+transaction contract.
+The composite exposes deployment suppression only when its trusted bootstrap
+contains GitHub. It propagates the current choice to every active and lazily
+created GitHub leaf, whose single commit boundary owns the `[ci skip]` marker.
+The initiating browser tab owns the resume commit; storage synchronization
+updates other tabs without publishing duplicate commits.
 `resolveMediaUrl` remains the raw file/download path;
 `resolveImageUrl` is a separate capability. The API implementation builds
 transformed routes from the latest loaded config and exposes public curated

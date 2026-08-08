@@ -91,7 +91,13 @@ function record(id, type, title = id) {
   };
 }
 
-function fakeConnector(key, config, calls, sessionOverrides = {}) {
+function fakeConnector(
+  key,
+  config,
+  calls,
+  sessionOverrides = {},
+  behavior = {}
+) {
   let currentConfig = structuredClone(config);
   let session = {
     authenticated: true,
@@ -114,6 +120,7 @@ function fakeConnector(key, config, calls, sessionOverrides = {}) {
     },
     async login() {
       call("login");
+      if (behavior.loginError) throw behavior.loginError;
       session = { ...session, authenticated: true };
       listeners.forEach((listener) => listener(session));
       return session;
@@ -130,6 +137,10 @@ function fakeConnector(key, config, calls, sessionOverrides = {}) {
     },
     async saveConfig(nextConfig) {
       call("saveConfig", structuredClone(nextConfig));
+      const saveConfigError = behavior.saveConfigErrors?.length
+        ? behavior.saveConfigErrors.shift()
+        : behavior.saveConfigError;
+      if (saveConfigError) throw saveConfigError;
       currentConfig = structuredClone(nextConfig);
       return { saved: true, config: structuredClone(nextConfig) };
     },
@@ -174,7 +185,16 @@ function fakeConnector(key, config, calls, sessionOverrides = {}) {
     async getImageInfo(path) {
       call("getImageInfo", path);
       return { source: key, width: 100, height: 50 };
-    }
+    },
+    ...(behavior.deployment
+      ? {
+          setSkipDeployments(value, options) {
+            call("setSkipDeployments", value, options);
+            const deploymentError = behavior.deploymentError?.(value, options);
+            if (deploymentError) throw deploymentError;
+          }
+        }
+      : {})
   };
 }
 
@@ -189,6 +209,296 @@ test("accepts only explicit production and development environments", async () =
     }),
     /environment/
   );
+});
+
+test("rejects duplicate GitHub repository branches before creating adapters", async () => {
+  const bootstrap = sourceConfig();
+  bootstrap.connectors.archive = {
+    ...bootstrap.connectors.default
+  };
+  bootstrap.node_types.archive_image = {
+    connector: "archive",
+    remote_type: "image"
+  };
+  bootstrap.collections.archive_images = {
+    connector: "archive",
+    remote_collection: "images"
+  };
+
+  await assert.rejects(
+    createConnectorAdapter({
+      sourceConfig: bootstrap,
+      connectorFactory() {
+        throw new Error("must not instantiate duplicate targets");
+      }
+    }),
+    /target the same repository branch/
+  );
+});
+
+test("rejects a duplicate GitHub repository branch during lazy activation", async () => {
+  const calls = [];
+  const created = [];
+  const bootstrap = sourceConfig();
+  bootstrap.connectors.archive = {
+    ...bootstrap.connectors.default
+  };
+  const adapter = await createConnectorAdapter({
+    sourceConfig: bootstrap,
+    connectorFactory: async ({ key }) => {
+      created.push(key);
+      return fakeConnector(
+        key,
+        key === "central" ? remoteConfig() : bootstrap,
+        calls
+      );
+    }
+  });
+  const effective = await adapter.config();
+  effective.node_types.archive_image = {
+    connector: "archive",
+    remote_type: "image"
+  };
+  effective.collections.archive_images = {
+    connector: "archive",
+    remote_collection: "images"
+  };
+
+  await assert.rejects(
+    adapter.saveConfig(effective),
+    /target the same repository branch/
+  );
+  assert.equal(created.includes("archive"), false);
+});
+
+test("exposes and propagates GitHub deployment skipping to lazy connectors", async () => {
+  const calls = [];
+  const storageCalls = [];
+  const bootstrap = sourceConfig();
+  bootstrap.connectors.archive = {
+    name: "github",
+    repo: "signalwerk/archive",
+    branch: "main",
+    base_url: "https://auth.example.com"
+  };
+  const adapter = await createConnectorAdapter({
+    sourceConfig: bootstrap,
+    deploymentStorage: {
+      getItem(key) {
+        storageCalls.push(["getItem", key]);
+        return "true";
+      },
+      setItem(key, value) {
+        storageCalls.push(["setItem", key, value]);
+      },
+      removeItem(key) {
+        storageCalls.push(["removeItem", key]);
+      }
+    },
+    connectorFactory: async ({ key, connector }) =>
+      fakeConnector(
+        key,
+        ["central", "archive"].includes(key)
+          ? remoteConfig()
+          : bootstrap,
+        calls,
+        {},
+        { deployment: connector.name === "github" }
+      )
+  });
+
+  assert.equal(adapter.deployment.supportsSkip, true);
+  assert.equal(adapter.deployment.skip, true);
+  assert.equal(
+    adapter.deployment.storageKey,
+    "minicms:skip-deployments:v1:https://api.github.com|signalwerk/project@main"
+  );
+
+  const effective = await adapter.config();
+  effective.node_types.archive_image = {
+    connector: "archive",
+    remote_type: "image"
+  };
+  effective.collections.archive_images = {
+    connector: "archive",
+    remote_collection: "images"
+  };
+  await adapter.saveConfig(effective);
+  await adapter.deployment.setSkip(false);
+
+  assert.deepEqual(
+    calls
+      .filter((entry) => entry.method === "setSkipDeployments")
+      .map((entry) => [entry.key, ...entry.args]),
+    [
+      ["default", true, { resume: false }],
+      ["archive", true, { resume: false }],
+      ["default", false, { resume: true }],
+      ["archive", false, { resume: true }]
+    ]
+  );
+  assert.deepEqual(storageCalls, [
+    [
+      "getItem",
+      "minicms:skip-deployments:v1:https://api.github.com|signalwerk/project@main"
+    ],
+    [
+      "removeItem",
+      "minicms:skip-deployments:v1:https://api.github.com|signalwerk/project@main"
+    ]
+  ]);
+});
+
+test("does not resume a prepared connector that has not authenticated", async () => {
+  const calls = [];
+  const bootstrap = sourceConfig();
+  bootstrap.connectors.archive = {
+    name: "github",
+    repo: "signalwerk/archive",
+    branch: "main",
+    base_url: "https://auth.example.com"
+  };
+  const adapter = await createConnectorAdapter({
+    sourceConfig: bootstrap,
+    connectorFactory: async ({ key, connector }) =>
+      fakeConnector(
+        key,
+        ["central", "archive"].includes(key)
+          ? remoteConfig()
+          : bootstrap,
+        calls,
+        key === "archive"
+          ? {
+              provider: "github",
+              authenticationRequired: true,
+              authenticated: false
+            }
+          : {},
+        { deployment: connector.name === "github" }
+      )
+  });
+  await adapter.deployment.setSkip(true);
+  const effective = await adapter.config();
+  effective.node_types.archive_image = {
+    connector: "archive",
+    remote_type: "image"
+  };
+  effective.collections.archive_images = {
+    connector: "archive",
+    remote_collection: "images"
+  };
+
+  await assert.rejects(adapter.saveConfig(effective), /requires sign-in/);
+  await adapter.deployment.setSkip(false);
+
+  const archiveDeploymentCalls = calls.filter(
+    (entry) =>
+      entry.key === "archive" && entry.method === "setSkipDeployments"
+  );
+  assert.deepEqual(
+    archiveDeploymentCalls.map((entry) => entry.args),
+    [
+      [true, { resume: false }],
+      [false, { resume: false }]
+    ]
+  );
+  assert.equal(
+    calls.some((entry) => entry.key === "archive" && entry.method === "login"),
+    false
+  );
+});
+
+test("restores deployment skipping when one GitHub connector cannot resume", async () => {
+  const calls = [];
+  let storedValue = null;
+  let resumeFails = true;
+  const bootstrap = sourceConfig();
+  bootstrap.connectors.central = {
+    name: "github",
+    repo: "signalwerk/media",
+    branch: "main",
+    base_url: "https://auth.example.com"
+  };
+  const adapter = await createConnectorAdapter({
+    sourceConfig: bootstrap,
+    deploymentStorage: {
+      getItem() {
+        return storedValue;
+      },
+      setItem(_key, value) {
+        storedValue = value;
+      },
+      removeItem() {
+        storedValue = null;
+      }
+    },
+    connectorFactory: async ({ key }) =>
+      fakeConnector(
+        key,
+        key === "central" ? remoteConfig() : bootstrap,
+        calls,
+        {},
+        {
+          deployment: true,
+          deploymentError(value, options) {
+            return resumeFails && key === "central" && !value && options?.resume
+              ? new Error("branch changed")
+              : null;
+          }
+        }
+      )
+  });
+
+  await adapter.deployment.setSkip(true);
+  await assert.rejects(adapter.deployment.setSkip(false), /branch changed/);
+
+  assert.equal(adapter.deployment.skip, true);
+  assert.equal(storedValue, "true");
+  assert.deepEqual(
+    calls
+      .filter((entry) => entry.method === "setSkipDeployments")
+      .slice(-4)
+      .map((entry) => [entry.key, ...entry.args]),
+    [
+      ["default", false, { resume: true }],
+      ["central", false, { resume: true }],
+      ["default", true, { resume: false }],
+      ["central", true, { resume: false }]
+    ]
+  );
+
+  resumeFails = false;
+  await adapter.deployment.setSkip(false);
+  assert.equal(adapter.deployment.skip, false);
+  assert.equal(storedValue, null);
+});
+
+test("does not mistake GitHub authentication for GitHub storage", async () => {
+  const calls = [];
+  const bootstrap = sourceConfig();
+  bootstrap.connectors.default = {
+    name: "api",
+    api_url: "https://content.example.com",
+    auth_url: "https://auth.example.com"
+  };
+  const adapter = await createConnectorAdapter({
+    sourceConfig: bootstrap,
+    connectorFactory: async ({ key }) =>
+      fakeConnector(
+        key,
+        key === "central" ? remoteConfig() : bootstrap,
+        calls,
+        {
+          provider: "github",
+          authenticationRequired: true,
+          authenticated: true
+        }
+      )
+  });
+
+  assert.equal(adapter.session().provider, "github");
+  assert.equal(adapter.deployment.supportsSkip, false);
+  assert.equal(adapter.deployment.storageKey, null);
 });
 
 test("passes the trusted API auth_url to the central popup", async () => {
@@ -384,6 +694,231 @@ test("saves collapsed source config only through the active default connector", 
   assert.equal(result.config.node_types.shared_image.fields.file.widget, "image");
 });
 
+test("saves edited remote schema only through its owner", async () => {
+  const calls = [];
+  const adapter = await createConnectorAdapter({
+    sourceConfig: sourceConfig(),
+    connectorFactory: async ({ key }) =>
+      fakeConnector(
+        key,
+        key === "central" ? remoteConfig() : sourceConfig(),
+        calls
+      )
+  });
+  const effective = await adapter.config();
+  effective.node_types.shared_image.label = "Edited image";
+  effective.collections.shared_images.folder = "content/library-images";
+
+  const result = await adapter.saveConfig(effective);
+  const writes = calls.filter((entry) => entry.method === "saveConfig");
+  assert.deepEqual(writes.map((entry) => entry.key), ["central"]);
+  assert.equal(writes[0].args[0].node_types.image.label, "Edited image");
+  assert.equal(
+    writes[0].args[0].collections.images.folder,
+    "content/library-images"
+  );
+  assert.equal(writes[0].args[0].node_types.image.connector, undefined);
+  assert.equal(
+    result.config.collections.shared_images.folder,
+    "content/library-images"
+  );
+});
+
+test("creates new remote schema before publishing its local aliases", async () => {
+  const calls = [];
+  const adapter = await createConnectorAdapter({
+    sourceConfig: sourceConfig(),
+    connectorFactory: async ({ key }) =>
+      fakeConnector(
+        key,
+        key === "central" ? remoteConfig() : sourceConfig(),
+        calls
+      )
+  });
+  const effective = await adapter.config();
+  effective.node_types.shared_quote = {
+    connector: "central",
+    remote_type: "quote",
+    label: "Quote",
+    fields: { text: { widget: "text" } }
+  };
+  effective.collections.shared_quotes = {
+    connector: "central",
+    remote_collection: "quotes",
+    label: "Quotes",
+    folder: "content/quotes",
+    node_type: "shared_quote",
+    allowed_types: ["shared_quote"]
+  };
+
+  const result = await adapter.saveConfig(effective);
+  const writes = calls.filter((entry) => entry.method === "saveConfig");
+  assert.deepEqual(writes.map((entry) => entry.key), ["central", "default"]);
+  assert.equal(writes[0].args[0].collections.quotes.node_type, "quote");
+  assert.deepEqual(writes[1].args[0].collections.shared_quotes, {
+    connector: "central",
+    remote_collection: "quotes"
+  });
+  assert.equal(result.config.node_types.shared_quote.fields.text.widget, "text");
+});
+
+test("retries default publication without rewriting a successful remote owner", async () => {
+  const calls = [];
+  const defaultBehavior = {
+    saveConfigErrors: [new Error("Default unavailable"), null]
+  };
+  const adapter = await createConnectorAdapter({
+    sourceConfig: sourceConfig(),
+    connectorFactory: async ({ key }) =>
+      fakeConnector(
+        key,
+        key === "central" ? remoteConfig() : sourceConfig(),
+        calls,
+        {},
+        key === "default" ? defaultBehavior : {}
+      )
+  });
+  const effective = await adapter.config();
+  effective.node_types.shared_quote = {
+    connector: "central",
+    remote_type: "quote",
+    label: "Quote",
+    fields: { text: { widget: "text" } }
+  };
+  effective.collections.shared_quotes = {
+    connector: "central",
+    remote_collection: "quotes",
+    label: "Quotes",
+    folder: "content/quotes",
+    node_type: "shared_quote",
+    allowed_types: ["shared_quote"]
+  };
+
+  await assert.rejects(
+    adapter.saveConfig(effective),
+    /Could not save the default connector: Default unavailable/
+  );
+  assert.deepEqual(
+    calls
+      .filter((entry) => entry.method === "saveConfig")
+      .map((entry) => entry.key),
+    ["central", "default"]
+  );
+  assert.equal((await adapter.config()).node_types.shared_quote, undefined);
+  await assert.rejects(
+    adapter.list("shared_quotes"),
+    /Collection "shared_quotes" does not exist/
+  );
+
+  const result = await adapter.saveConfig(effective);
+  assert.deepEqual(
+    calls
+      .filter((entry) => entry.method === "saveConfig")
+      .map((entry) => entry.key),
+    ["central", "default", "default"]
+  );
+  assert.equal(result.config.node_types.shared_quote.fields.text.widget, "text");
+});
+
+test("retries only unfinished owners before publishing aliases", async () => {
+  const calls = [];
+  const unusedBehavior = {
+    saveConfigErrors: [new Error("Later unavailable"), null]
+  };
+  const adapter = await createConnectorAdapter({
+    sourceConfig: sourceConfig(),
+    connectorFactory: async ({ key }) =>
+      fakeConnector(
+        key,
+        ["central", "unused"].includes(key)
+          ? remoteConfig()
+          : sourceConfig(),
+        calls,
+        {},
+        key === "unused" ? unusedBehavior : {}
+      )
+  });
+  const effective = await adapter.config();
+  effective.node_types.shared_quote = {
+    connector: "central",
+    remote_type: "quote",
+    fields: { text: { widget: "text" } }
+  };
+  effective.collections.shared_quotes = {
+    connector: "central",
+    remote_collection: "quotes",
+    folder: "content/quotes",
+    node_type: "shared_quote"
+  };
+  effective.node_types.library_note = {
+    connector: "unused",
+    remote_type: "note",
+    fields: { text: { widget: "text" } }
+  };
+  effective.collections.library_notes = {
+    connector: "unused",
+    remote_collection: "notes",
+    folder: "content/notes",
+    node_type: "library_note"
+  };
+
+  await assert.rejects(
+    adapter.saveConfig(effective),
+    /Could not save connector "unused": Later unavailable/
+  );
+  assert.deepEqual(
+    calls
+      .filter((entry) => entry.method === "saveConfig")
+      .map((entry) => entry.key),
+    ["central", "unused"]
+  );
+  const unpublished = await adapter.config();
+  assert.equal(unpublished.node_types.shared_quote, undefined);
+  assert.equal(unpublished.node_types.library_note, undefined);
+
+  const result = await adapter.saveConfig(effective);
+  assert.deepEqual(
+    calls
+      .filter((entry) => entry.method === "saveConfig")
+      .map((entry) => entry.key),
+    ["central", "unused", "unused", "default"]
+  );
+  assert.equal(result.config.node_types.shared_quote.fields.text.widget, "text");
+  assert.equal(result.config.node_types.library_note.fields.text.widget, "text");
+});
+
+test("does not publish default aliases when an owner config write fails", async () => {
+  const calls = [];
+  const adapter = await createConnectorAdapter({
+    sourceConfig: sourceConfig(),
+    connectorFactory: async ({ key }) =>
+      fakeConnector(
+        key,
+        key === "central" ? remoteConfig() : sourceConfig(),
+        calls,
+        {},
+        key === "central"
+          ? { saveConfigError: new Error("Remote unavailable") }
+          : {}
+      )
+  });
+  const effective = await adapter.config();
+  effective.collections.shared_images.folder = "content/library-images";
+
+  await assert.rejects(
+    adapter.saveConfig(effective),
+    /Could not save connector "central": Remote unavailable/
+  );
+  assert.deepEqual(
+    calls.filter((entry) => entry.method === "saveConfig").map((entry) => entry.key),
+    ["central"]
+  );
+  assert.equal(
+    (await adapter.config()).collections.shared_images.folder,
+    "content/images"
+  );
+});
+
 test("preflights remote aliases before writing the default connector", async () => {
   const calls = [];
   const adapter = await createConnectorAdapter({
@@ -398,7 +933,10 @@ test("preflights remote aliases before writing the default connector", async () 
   const effective = await adapter.config();
   effective.collections.shared_images.remote_collection = "missing";
 
-  await assert.rejects(adapter.saveConfig(effective), /has no collection/);
+  await assert.rejects(
+    adapter.saveConfig(effective),
+    /cannot change.*identity/
+  );
   assert.equal(
     calls.filter((entry) => entry.method === "saveConfig").length,
     0
@@ -406,7 +944,7 @@ test("preflights remote aliases before writing the default connector", async () 
   assert.equal((await adapter.list("shared_images")).collection, "shared_images");
 });
 
-test("activates a trusted unused connector when a draft first references it", async () => {
+test("prepares a trusted unused connector before a synchronous sign-in retry", async () => {
   const calls = [];
   const created = [];
   const adapter = await createConnectorAdapter({
@@ -429,6 +967,10 @@ test("activates a trusted unused connector when a draft first references it", as
     }
   });
   const effective = await adapter.config();
+  const sessions = [];
+  const unsubscribe = adapter.subscribeSession((session) => {
+    sessions.push(structuredClone(session));
+  });
 
   assert.deepEqual(created, ["default", "central"]);
   assert.equal(adapter.session().authenticated, true);
@@ -441,13 +983,59 @@ test("activates a trusted unused connector when a draft first references it", as
     connector: "unused",
     remote_collection: "images"
   };
-  const result = await adapter.saveConfig(effective);
+  effective.node_types.library_note = {
+    connector: "unused",
+    remote_type: "note",
+    label: "Note",
+    fields: { text: { widget: "text" } }
+  };
+  effective.collections.library_notes = {
+    connector: "unused",
+    remote_collection: "notes",
+    label: "Notes",
+    folder: "content/notes",
+    node_type: "library_note",
+    allowed_types: ["library_note"]
+  };
+  await assert.rejects(
+    adapter.saveConfig(effective),
+    (error) =>
+      error.code === "MINICMS_CONNECTOR_AUTHENTICATION_REQUIRED" &&
+      error.connector === "unused"
+  );
 
   assert.deepEqual(created, ["default", "central", "unused"]);
+  assert.deepEqual(sessions, []);
+  assert.deepEqual(
+    calls.filter((entry) => entry.key === "unused"),
+    []
+  );
+
+  const saving = adapter.saveConfig(effective, {
+    authenticateConnector: "unused"
+  });
+  assert.deepEqual(
+    calls
+      .filter((entry) => entry.key === "unused")
+      .map((entry) => entry.method),
+    ["login"]
+  );
+  const result = await saving;
+
   assert.equal(result.config.node_types.library_image.fields.file.widget, "image");
   assert.equal(result.config.collections.library_images.node_type, "library_image");
-  assert.equal(adapter.session().pendingConnector, "unused");
-  await adapter.login();
+  assert.equal(result.config.node_types.library_note.fields.text.widget, "text");
+  assert.equal(adapter.session().authenticated, true);
+  assert.equal(adapter.session().pendingConnector, undefined);
+  assert.ok(sessions.length > 0);
+  assert.ok(sessions.every((session) => session.authenticated));
+  assert.deepEqual(
+    calls
+      .filter((entry) => entry.key === "unused")
+      .map((entry) => entry.method),
+    ["login", "config", "saveConfig"]
+  );
+  unsubscribe();
   const listed = await adapter.list("library_images");
   assert.equal(listed.collection, "library_images");
   assert.equal(listed.items[0].type, "library_image");
@@ -459,6 +1047,151 @@ test("activates a trusted unused connector when a draft first references it", as
         entry.args[0] === "images"
     )
   );
+});
+
+test("keeps a failed lazy connector login private from the editor session", async () => {
+  const calls = [];
+  const adapter = await createConnectorAdapter({
+    sourceConfig: sourceConfig(),
+    connectorFactory: async ({ key }) =>
+      fakeConnector(
+        key,
+        ["central", "unused"].includes(key)
+          ? remoteConfig()
+          : sourceConfig(),
+        calls,
+        key === "unused"
+          ? {
+              authenticated: false,
+              authenticationRequired: true,
+              provider: "github",
+              label: "Unused sign in"
+            }
+          : {},
+        key === "unused"
+          ? { loginError: new Error("Sign-in cancelled") }
+          : {}
+      )
+  });
+  const effective = await adapter.config();
+  const sessions = [];
+  adapter.subscribeSession((session) => sessions.push(structuredClone(session)));
+  effective.node_types.library_image = {
+    connector: "unused",
+    remote_type: "image"
+  };
+  effective.collections.library_images = {
+    connector: "unused",
+    remote_collection: "images"
+  };
+
+  await assert.rejects(
+    adapter.saveConfig(effective),
+    (error) =>
+      error.code === "MINICMS_CONNECTOR_AUTHENTICATION_REQUIRED" &&
+      error.connector === "unused"
+  );
+  assert.deepEqual(
+    calls.filter((entry) => entry.key === "unused"),
+    []
+  );
+  await assert.rejects(
+    adapter.saveConfig(effective, { authenticateConnector: "unused" }),
+    /Sign-in cancelled/
+  );
+  assert.equal(adapter.session().authenticated, true);
+  assert.equal(adapter.session().pendingConnector, undefined);
+  assert.deepEqual(sessions, []);
+  assert.deepEqual(
+    calls
+      .filter((entry) => entry.key === "unused")
+      .map((entry) => entry.method),
+    ["login"]
+  );
+  assert.equal(
+    calls.filter((entry) => entry.method === "saveConfig").length,
+    0
+  );
+});
+
+test("opens at most one prepared connector login per Settings gesture", async () => {
+  const calls = [];
+  const bootstrap = sourceConfig();
+  bootstrap.connectors.archive = {
+    name: "api",
+    api_url: "https://archive.example.com",
+    auth_url: "https://auth.example.com"
+  };
+  const adapter = await createConnectorAdapter({
+    sourceConfig: bootstrap,
+    connectorFactory: async ({ key }) =>
+      fakeConnector(
+        key,
+        ["central", "unused", "archive"].includes(key)
+          ? remoteConfig()
+          : bootstrap,
+        calls,
+        ["unused", "archive"].includes(key)
+          ? {
+              authenticated: false,
+              authenticationRequired: true,
+              provider: "github",
+              label: `${key} sign in`
+            }
+          : {}
+      )
+  });
+  const effective = await adapter.config();
+  effective.node_types.library_image = {
+    connector: "unused",
+    remote_type: "image"
+  };
+  effective.collections.library_images = {
+    connector: "unused",
+    remote_collection: "images"
+  };
+  effective.node_types.archive_image = {
+    connector: "archive",
+    remote_type: "image"
+  };
+  effective.collections.archive_images = {
+    connector: "archive",
+    remote_collection: "images"
+  };
+
+  await assert.rejects(
+    adapter.saveConfig(effective),
+    (error) =>
+      error.code === "MINICMS_CONNECTOR_AUTHENTICATION_REQUIRED" &&
+      error.connector === "unused"
+  );
+  assert.deepEqual(
+    calls.filter((entry) => entry.method === "login"),
+    []
+  );
+
+  await assert.rejects(
+    adapter.saveConfig(effective, { authenticateConnector: "unused" }),
+    (error) =>
+      error.code === "MINICMS_CONNECTOR_AUTHENTICATION_REQUIRED" &&
+      error.connector === "archive"
+  );
+  assert.deepEqual(
+    calls.filter((entry) => entry.method === "login").map((entry) => entry.key),
+    ["unused"]
+  );
+  assert.equal(adapter.session().authenticated, true);
+
+  const saving = adapter.saveConfig(effective, {
+    authenticateConnector: "archive"
+  });
+  assert.deepEqual(
+    calls.filter((entry) => entry.method === "login").map((entry) => entry.key),
+    ["unused", "archive"]
+  );
+  const result = await saving;
+  assert.equal(result.config.collections.archive_images.node_type, "archive_image");
+  assert.equal(adapter.session().authenticated, true);
 });
 
 test("keeps newly added and changed connectors after an unreferenced save", async () => {

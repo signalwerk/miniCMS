@@ -61,6 +61,7 @@ import {
   validateMediaAccept
 } from "../../../../core/media.js";
 import { ConfirmationDialog } from "../Dialogs/Dialogs.jsx";
+import { DeploymentControl } from "../DeploymentControl/DeploymentControl.jsx";
 import { Spinner } from "../Common/Common.jsx";
 import "./ConfigurationEditor.scss";
 
@@ -870,14 +871,30 @@ function AddEntryDialog({
   title,
   existing,
   label = "Name",
+  connectorOptions = [],
+  contentTypeOptions = null,
   onCancel,
   onCreate
 }) {
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
   const [keyEdited, setKeyEdited] = useState(false);
+  const [connector, setConnector] = useState("");
+  const [contentType, setContentType] = useState("");
   const resolvedKey = slugifyKey(key, "");
-  const invalid = !name.trim() || !resolvedKey || Object.hasOwn(existing, resolvedKey);
+  const compatibleTypes = (contentTypeOptions ?? []).filter(
+    (option) => option.connector === (connector || "default")
+  );
+  const resolvedContentType = compatibleTypes.some(
+    (option) => option.value === contentType
+  )
+    ? contentType
+    : compatibleTypes[0]?.value ?? "";
+  const invalid =
+    !name.trim() ||
+    !resolvedKey ||
+    Object.hasOwn(existing, resolvedKey) ||
+    (contentTypeOptions !== null && !resolvedContentType);
 
   useEffect(() => {
     function onKeyDown(event) {
@@ -896,7 +913,16 @@ function AddEntryDialog({
         aria-labelledby="configuration-add-dialog-title"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!invalid) onCreate({ key: resolvedKey, label: name.trim() });
+          if (!invalid) {
+            onCreate({
+              key: resolvedKey,
+              label: name.trim(),
+              connector: connector || "default",
+              ...(contentTypeOptions !== null
+                ? { nodeType: resolvedContentType }
+                : {})
+            });
+          }
         }}
       >
         <div className="dialog__top">
@@ -930,6 +956,42 @@ function AddEntryDialog({
               }}
             />
           </FormField>
+          {connectorOptions.length > 0 && (
+            <FormField label="Connector">
+              <SelectInput
+                value={connector}
+                onChange={(value) => {
+                  setConnector(value);
+                  setContentType("");
+                }}
+              >
+                <option value="">This project</option>
+                {connectorOptions.map(([value, optionLabel]) => (
+                  <option key={value} value={value}>{optionLabel}</option>
+                ))}
+              </SelectInput>
+            </FormField>
+          )}
+          {contentTypeOptions !== null && (
+            <FormField label="Content type">
+              <SelectInput
+                value={resolvedContentType}
+                onChange={setContentType}
+                disabled={!compatibleTypes.length}
+              >
+                {compatibleTypes.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </SelectInput>
+            </FormField>
+          )}
+          {contentTypeOptions !== null && !compatibleTypes.length && (
+            <p className="configuration-inline-error">
+              <CircleAlert size={14} /> Add a content type on this connector first.
+            </p>
+          )}
           {resolvedKey && Object.hasOwn(existing, resolvedKey) && (
             <p className="configuration-inline-error">
               <CircleAlert size={14} /> “{resolvedKey}” already exists.
@@ -2446,7 +2508,6 @@ function TypeEditor({
   type,
   nodeTypes,
   collections,
-  connectors,
   updateType,
   onMoveType,
   onDeleteType,
@@ -2454,81 +2515,22 @@ function TypeEditor({
 }) {
   const fields = type.fields ?? {};
   const slots = type.slots ?? {};
-  const imported = Boolean(type.connector && type.remote_type);
-  const namedConnectors = Object.keys(connectors ?? {}).filter(
-    (key) => !["default", "development"].includes(key)
+  const connector = type.connector || "default";
+  const connectorLabel = connector === "default"
+    ? "This project"
+    : labelFromKey(connector);
+  const ownedNodeTypes = Object.fromEntries(
+    Object.entries(nodeTypes).filter(
+      ([, definition]) => (definition.connector || "default") === connector
+    )
   );
-
-  if (imported) {
-    return (
-      <div className="configuration-editor-pane">
-        <SectionHeading
-          icon={Layers3}
-          title={type.label || labelFromKey(typeKey)}
-          meta={typeKey}
-          action={
-            <div className="configuration-heading-actions">
-              <button type="button" title="Move type up" aria-label="Move content type up" onClick={() => onMoveType(-1)}>
-                <ArrowUp size={14} />
-              </button>
-              <button type="button" title="Move type down" aria-label="Move content type down" onClick={() => onMoveType(1)}>
-                <ArrowDown size={14} />
-              </button>
-              <button type="button" className="danger" title="Delete type" aria-label="Delete content type" onClick={onDeleteType}>
-                <Trash2 size={14} />
-              </button>
-            </div>
-          }
-        />
-        <section className="configuration-card configuration-card--form">
-          <div className="configuration-subheading">
-            <div>
-              <strong>Remote content type</strong>
-              <small>The field and slot schema is owned by the connected project.</small>
-            </div>
-          </div>
-          <div className="configuration-entry-card__grid">
-            <FormField label="Connector">
-              <SelectInput
-                value={type.connector}
-                onChange={(value) => updateType((nextType) => {
-                  nextType.connector = value;
-                })}
-              >
-                {namedConnectors.map((key) => (
-                  <option key={key} value={key}>{labelFromKey(key)}</option>
-                ))}
-              </SelectInput>
-            </FormField>
-            <FormField label="Remote type">
-              <TextInput
-                value={type.remote_type}
-                onChange={(value) => updateType((nextType) => {
-                  nextType.remote_type = value;
-                })}
-              />
-            </FormField>
-          </div>
-          <div className="configuration-inline-setting">
-            <span>
-              <strong>{Object.keys(fields).length} remote fields</strong>
-              <small>Open the remote project’s admin to change its schema.</small>
-            </span>
-            <button
-              type="button"
-              className="button button--secondary"
-              onClick={() => updateType((nextType) => {
-                delete nextType.connector;
-                delete nextType.remote_type;
-              })}
-            >
-              Make local
-            </button>
-          </div>
-        </section>
-      </div>
-    );
-  }
+  const fieldCollections = connector === "default"
+    ? collections
+    : Object.fromEntries(
+        Object.entries(collections).filter(
+          ([, definition]) => definition.connector === connector
+        )
+      );
 
   return (
     <div className="configuration-editor-pane">
@@ -2567,23 +2569,13 @@ function TypeEditor({
         }
       />
       <section className="configuration-card configuration-card--form">
-        {namedConnectors.length > 0 && (
-          <FormField label="Definition source">
-            <SelectInput
-              value=""
-              onChange={(value) => updateType((nextType) => {
-                if (!value) return;
-                nextType.connector = value;
-                nextType.remote_type = typeKey;
-              })}
-            >
-              <option value="">This project</option>
-              {namedConnectors.map((key) => (
-                <option key={key} value={key}>{labelFromKey(key)}</option>
-              ))}
-            </SelectInput>
-          </FormField>
-        )}
+        <div className="configuration-inline-setting">
+          <span>
+            <strong>Connector</strong>
+            <small>{connectorLabel}</small>
+          </span>
+          <code>{type.remote_type || typeKey}</code>
+        </div>
         <div className="configuration-entry-card__grid">
           <FormField label="Type label">
             <TextInput
@@ -2654,7 +2646,7 @@ function TypeEditor({
             field={field}
             fields={fields}
             count={Object.keys(fields).length}
-            collections={collections}
+            collections={fieldCollections}
             nodeTypes={nodeTypes}
             dragHandleProps={dragHandleProps}
             onChange={(change) => updateType((nextType) => {
@@ -2740,7 +2732,7 @@ function TypeEditor({
               slotKey={slotKey}
               slot={slot}
               count={Object.keys(slots).length}
-              nodeTypes={nodeTypes}
+              nodeTypes={ownedNodeTypes}
               dragHandleProps={dragHandleProps}
               onChange={(change) => updateType((nextType) => {
                 change(nextType.slots[slotKey]);
@@ -3190,7 +3182,6 @@ function CollectionEditor({
   collectionKey,
   collection,
   nodeTypes,
-  connectors,
   updateConfig,
   updateCollection,
   onMove,
@@ -3204,81 +3195,15 @@ function CollectionEditor({
   const viewFields = [...fields, ...SYSTEM_FIELD_OPTIONS];
   const listType = collection.views?.list?.type || "tree";
   const hierarchyEnabled = Boolean(collection.hierarchy?.enabled);
-  const imported = Boolean(collection.connector && collection.remote_collection);
-  const namedConnectors = Object.keys(connectors ?? {}).filter(
-    (key) => !["default", "development"].includes(key)
+  const connector = collection.connector || "default";
+  const connectorLabel = connector === "default"
+    ? "This project"
+    : labelFromKey(connector);
+  const ownedNodeTypes = Object.fromEntries(
+    Object.entries(nodeTypes).filter(
+      ([, definition]) => (definition.connector || "default") === connector
+    )
   );
-
-  if (imported) {
-    return (
-      <div className="configuration-editor-pane">
-        <SectionHeading
-          icon={Database}
-          title={collection.label || labelFromKey(collectionKey)}
-          meta={collectionKey}
-          action={
-            <div className="configuration-heading-actions">
-              <button type="button" title="Move collection up" aria-label="Move collection up" onClick={() => onMove(-1)}>
-                <ArrowUp size={14} />
-              </button>
-              <button type="button" title="Move collection down" aria-label="Move collection down" onClick={() => onMove(1)}>
-                <ArrowDown size={14} />
-              </button>
-              <button type="button" className="danger" title="Delete collection" aria-label="Delete collection" onClick={onDelete}>
-                <Trash2 size={14} />
-              </button>
-            </div>
-          }
-        />
-        <section className="configuration-card configuration-card--form">
-          <div className="configuration-subheading">
-            <div>
-              <strong>Remote collection</strong>
-              <small>Records, uploads, media, and schema are owned by the connected project.</small>
-            </div>
-          </div>
-          <div className="configuration-entry-card__grid">
-            <FormField label="Connector">
-              <SelectInput
-                value={collection.connector}
-                onChange={(value) => updateCollection((nextCollection) => {
-                  nextCollection.connector = value;
-                })}
-              >
-                {namedConnectors.map((key) => (
-                  <option key={key} value={key}>{labelFromKey(key)}</option>
-                ))}
-              </SelectInput>
-            </FormField>
-            <FormField label="Remote collection">
-              <TextInput
-                value={collection.remote_collection}
-                onChange={(value) => updateCollection((nextCollection) => {
-                  nextCollection.remote_collection = value;
-                })}
-              />
-            </FormField>
-          </div>
-          <div className="configuration-inline-setting">
-            <span>
-              <strong>{collection.label || labelFromKey(collectionKey)}</strong>
-              <small>Open the remote project’s admin to change collection settings.</small>
-            </span>
-            <button
-              type="button"
-              className="button button--secondary"
-              onClick={() => updateCollection((nextCollection) => {
-                delete nextCollection.connector;
-                delete nextCollection.remote_collection;
-              })}
-            >
-              Make local
-            </button>
-          </div>
-        </section>
-      </div>
-    );
-  }
 
   return (
     <div className="configuration-editor-pane">
@@ -3317,23 +3242,13 @@ function CollectionEditor({
         }
       />
       <section className="configuration-card configuration-card--form">
-        {namedConnectors.length > 0 && (
-          <FormField label="Storage source">
-            <SelectInput
-              value=""
-              onChange={(value) => updateCollection((nextCollection) => {
-                if (!value) return;
-                nextCollection.connector = value;
-                nextCollection.remote_collection = collectionKey;
-              })}
-            >
-              <option value="">This project</option>
-              {namedConnectors.map((key) => (
-                <option key={key} value={key}>{labelFromKey(key)}</option>
-              ))}
-            </SelectInput>
-          </FormField>
-        )}
+        <div className="configuration-inline-setting">
+          <span>
+            <strong>Connector</strong>
+            <small>{connectorLabel}</small>
+          </span>
+          <code>{collection.remote_collection || collectionKey}</code>
+        </div>
         <div className="configuration-entry-card__grid">
           <FormField label="Collection name">
             <TextInput
@@ -3357,7 +3272,7 @@ function CollectionEditor({
               onChange={(value) => updateConfig((next) => {
                 clearPublishedReferenceSelections(next, collectionKey);
                 const nextCollection = next.collections[collectionKey];
-                const fieldKeys = Object.keys(nodeTypes[value]?.fields ?? {});
+                const fieldKeys = Object.keys(ownedNodeTypes[value]?.fields ?? {});
                 const identifierField = fieldKeys.includes("title")
                   ? "title"
                   : fieldKeys[0];
@@ -3376,14 +3291,14 @@ function CollectionEditor({
                 }
                 if (nextCollection.hierarchy?.enabled) {
                   const idField =
-                    generatedIdFieldName(nodeTypes[value]) || fieldKeys[0];
+                    generatedIdFieldName(ownedNodeTypes[value]) || fieldKeys[0];
                   setOptional(nextCollection.hierarchy, "id_field", idField);
                   nextCollection.hierarchy.allowed_child_types = [value];
                 }
                 reconcileReferenceFieldsForCollection(next, collectionKey);
               })}
             >
-              {Object.entries(nodeTypes).map(([key, nodeType]) => (
+              {Object.entries(ownedNodeTypes).map(([key, nodeType]) => (
                 <option key={key} value={key}>{nodeType.label || key}</option>
               ))}
             </SelectInput>
@@ -3468,11 +3383,11 @@ function CollectionEditor({
               onChange={(checked) => updateCollection((nextCollection) => {
                 if (checked) {
                   const fieldKeys = Object.keys(
-                    nodeTypes[nextCollection.node_type]?.fields ?? {}
+                    ownedNodeTypes[nextCollection.node_type]?.fields ?? {}
                   );
                   const idField =
                     generatedIdFieldName(
-                      nodeTypes[nextCollection.node_type]
+                      ownedNodeTypes[nextCollection.node_type]
                     ) || fieldKeys[0];
                   nextCollection.hierarchy = {
                     enabled: true,
@@ -3493,7 +3408,7 @@ function CollectionEditor({
             <div className="configuration-card__nested">
               <FormField label="Allowed child types">
                 <MultiChoice
-                  options={Object.entries(nodeTypes).map(([key, nodeType]) => [
+                  options={Object.entries(ownedNodeTypes).map(([key, nodeType]) => [
                     key,
                     nodeType.label || key
                   ])}
@@ -3556,7 +3471,7 @@ function CollectionEditor({
         </div>
         <FormField label="Allowed root types">
           <MultiChoice
-            options={Object.entries(nodeTypes).map(([key, nodeType]) => [
+            options={Object.entries(ownedNodeTypes).map(([key, nodeType]) => [
               key,
               nodeType.label || key
             ])}
@@ -3694,7 +3609,8 @@ function CollectionEditor({
 export default function ConfigurationEditor({
   config,
   onClose,
-  onSave
+  onSave,
+  deploymentControl = null
 }) {
   const [draft, setDraft] = useState(() => structuredClone(config));
   const [savedDraft, setSavedDraft] = useState(() => structuredClone(config));
@@ -3704,7 +3620,9 @@ export default function ConfigurationEditor({
   const [confirmation, setConfirmation] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [authenticateConnector, setAuthenticateConnector] = useState("");
   const overlayRef = useRef(null);
+  const trustedConnectorsRef = useRef(structuredClone(config.connectors ?? {}));
   const modalOpen = Boolean(entryDialog || confirmation);
   const dirty = useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(savedDraft),
@@ -3788,11 +3706,20 @@ export default function ConfigurationEditor({
     setSaving(true);
     setError("");
     try {
-      const saved = await onSave(draft);
+      const saved = await onSave(draft, {
+        authenticateConnector
+      });
       setDraft(structuredClone(saved));
       setSavedDraft(structuredClone(saved));
+      setAuthenticateConnector("");
       return true;
     } catch (saveError) {
+      if (
+        saveError.code === "MINICMS_CONNECTOR_AUTHENTICATION_REQUIRED" &&
+        typeof saveError.connector === "string"
+      ) {
+        setAuthenticateConnector(saveError.connector);
+      }
       setError(saveError.message);
       return false;
     } finally {
@@ -3849,16 +3776,18 @@ export default function ConfigurationEditor({
     return () => document.removeEventListener("keydown", handleKeyboard);
   });
 
-  function createEntry({ key, label }) {
+  function createEntry({ key, label, connector = "default", nodeType }) {
     const dialog = entryDialog;
     update((next) => {
       if (dialog.kind === "collection") {
-        const nodeType = Object.keys(next.node_types)[0] || "";
         const fieldKeys = Object.keys(next.node_types[nodeType]?.fields ?? {});
         const identifierField = fieldKeys.includes("title")
           ? "title"
           : fieldKeys[0];
         next.collections[key] = {
+          ...(connector !== "default"
+            ? { connector, remote_collection: key }
+            : {}),
           label,
           label_singular: label.replace(/s$/i, "") || label,
           icon: "files",
@@ -3873,6 +3802,9 @@ export default function ConfigurationEditor({
         setSelection({ section: "collections", key });
       } else if (dialog.kind === "type") {
         next.node_types[key] = {
+          ...(connector !== "default"
+            ? { connector, remote_type: key }
+            : {}),
           label,
           kind: "content",
           icon: "file-text",
@@ -4123,6 +4055,20 @@ export default function ConfigurationEditor({
     selection.section === "types"
       ? draft.node_types?.[selection.key]
       : null;
+  const creationConnectors = Object.entries(trustedConnectorsRef.current)
+    .filter(
+      ([key, connector]) =>
+        !["default", "development"].includes(key) &&
+        JSON.stringify(connector) === JSON.stringify(draft.connectors?.[key])
+    )
+    .map(([key]) => [key, labelFromKey(key)]);
+  const creationContentTypes = Object.entries(draft.node_types ?? {}).map(
+    ([value, type]) => ({
+      value,
+      label: type.label || labelFromKey(value),
+      connector: type.connector || "default"
+    })
+  );
 
   return (
     <div
@@ -4151,17 +4097,31 @@ export default function ConfigurationEditor({
           <i aria-hidden="true" />
           {dirty ? "Unsaved configuration" : "Configuration saved"}
         </span>
-        <button
-          type="button"
-          className="button button--save"
-          aria-keyshortcuts="Control+S Meta+S"
-          title="Save settings (Command/Ctrl+S)"
-          disabled={!dirty || saving}
-          onClick={saveDraft}
-        >
-          {saving ? <Spinner small /> : <Save size={14} />}
-          {saving ? "Saving" : "Save settings"}
-        </button>
+        <div className="save-actions">
+          <button
+            type="button"
+            className="button button--save"
+            aria-keyshortcuts="Control+S Meta+S"
+            title={`${authenticateConnector ? "Sign in and save" : "Save settings"} (Command/Ctrl+S)`}
+            disabled={!dirty || saving}
+            onClick={saveDraft}
+          >
+            {saving ? <Spinner small /> : <Save size={14} />}
+            {saving
+              ? authenticateConnector
+                ? "Signing in and saving"
+                : "Saving"
+              : authenticateConnector
+                ? "Sign in and save"
+                : "Save settings"}
+          </button>
+          {deploymentControl && (
+            <DeploymentControl
+              active={deploymentControl.active}
+              onChange={deploymentControl.onChange}
+            />
+          )}
+        </div>
         <button
           type="button"
           className="configuration-overlay__close"
@@ -4307,7 +4267,6 @@ export default function ConfigurationEditor({
               collectionKey={selection.key}
               collection={selectedCollection}
               nodeTypes={draft.node_types}
-              connectors={draft.connectors}
               updateConfig={update}
               updateCollection={(change) => updateCollection(selection.key, change)}
               onMove={(direction) => update((next) => {
@@ -4322,7 +4281,6 @@ export default function ConfigurationEditor({
               type={selectedType}
               nodeTypes={draft.node_types}
               collections={draft.collections}
-              connectors={draft.connectors}
               updateType={(change) => updateType(selection.key, change)}
               onMoveType={(direction) => update((next) => {
                 next.node_types = moveMappingEntry(next.node_types, selection.key, direction);
@@ -4383,6 +4341,16 @@ export default function ConfigurationEditor({
                       : "Add inspector group"
           }
           existing={entryDialogMapping()}
+          connectorOptions={
+            ["collection", "type"].includes(entryDialog.kind)
+              ? creationConnectors
+              : []
+          }
+          contentTypeOptions={
+            entryDialog.kind === "collection"
+              ? creationContentTypes
+              : null
+          }
           onCancel={() => setEntryDialog(null)}
           onCreate={createEntry}
         />

@@ -61,6 +61,12 @@ export interface MaterializedConfig {
   routes: MaterializedRoutes;
 }
 
+export interface PlannedConfigWrites extends MaterializedConfig {
+  remoteConfigs: Record<string, SourceConfig>;
+  changedConnectors: string[];
+  sourceChanged: boolean;
+}
+
 export function validateSourceConfig(
   config: SourceConfig,
   status?: number
@@ -76,6 +82,14 @@ export function materializeConfig(options: {
   remoteConfigs?: Record<string, SourceConfig>;
   status?: number;
 }): MaterializedConfig;
+
+export function planConfigWrites(options: {
+  effectiveConfig: SourceConfig;
+  sourceConfig: SourceConfig;
+  ownershipSourceConfig?: SourceConfig;
+  remoteConfigs?: Record<string, SourceConfig>;
+  status?: number;
+}): PlannedConfigWrites;
 
 export function isRemoteCollection(
   value: unknown

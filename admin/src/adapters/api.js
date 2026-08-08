@@ -123,6 +123,7 @@ async function createApiAdapter({
   let bearer = storage?.getItem(storageKey) || "";
   let loginPromise = null;
   let currentConfig = null;
+  let currentConfigEtag = "";
   let currentSession = normalizeSession({
     authenticated: false,
     authenticationRequired: true,
@@ -153,7 +154,7 @@ async function createApiAdapter({
     });
   }
 
-  async function request(path, options = {}) {
+  async function request(path, options = {}, { includeResponse = false } = {}) {
     const headers = new Headers(options.headers || {});
     if (bearer && !headers.has("authorization")) {
       headers.set("authorization", `Bearer ${bearer}`);
@@ -172,7 +173,7 @@ async function createApiAdapter({
       error.body = body;
       throw error;
     }
-    return body;
+    return includeResponse ? { body, response } : body;
   }
 
   async function refreshSession() {
@@ -263,17 +264,35 @@ async function createApiAdapter({
   }
 
   async function loadConfig() {
-    const config = await request("/api/config");
+    const { body: config, response } = await request(
+      "/api/config",
+      {},
+      { includeResponse: true }
+    );
+    currentConfigEtag = response.headers.get("etag") || "";
     currentConfig = config;
     return config;
   }
 
   async function saveConfig(config) {
-    const result = await request("/api/config", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(config)
-    });
+    if (!currentConfigEtag) {
+      throw new Error(
+        "The miniCMS API returned no configuration version. Reload Settings and try again."
+      );
+    }
+    const { body: result, response } = await request(
+      "/api/config",
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          "if-match": currentConfigEtag
+        },
+        body: JSON.stringify(config)
+      },
+      { includeResponse: true }
+    );
+    currentConfigEtag = response.headers.get("etag") || currentConfigEtag;
     currentConfig = result?.config ?? config;
     return result;
   }

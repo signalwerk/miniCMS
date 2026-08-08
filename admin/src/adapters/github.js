@@ -16,9 +16,19 @@ import {
   recordMediaStoragePaths
 } from "../../../core/media.js";
 import { sanitizeFilenameStem } from "../../../core/slug.js";
+import { isRemoteCollection } from "../../../core/connectors.js";
 import { createGitHubAuth } from "./github-auth.js";
 
 const API_VERSION = "2026-03-10";
+const CI_SKIP_MARKER = "[ci skip]";
+const CI_SKIP_PATTERN = /\[ci skip\]/i;
+
+function deploymentCommitMessage(message, skipDeployments) {
+  const value = String(message);
+  return skipDeployments && !CI_SKIP_PATTERN.test(value)
+    ? `${value} ${CI_SKIP_MARKER}`
+    : value;
+}
 
 function encodePath(value) {
   return String(value)
@@ -54,6 +64,102 @@ function recordTimestamp(commit) {
   );
 }
 
+function collectionFolderMoves(currentConfig, nextConfig) {
+  const moves = [];
+  for (const [name, nextCollection] of Object.entries(
+    nextConfig.collections ?? {}
+  )) {
+    const currentCollection = currentConfig.collections?.[name];
+    if (
+      !currentCollection ||
+      isRemoteCollection(currentCollection) ||
+      isRemoteCollection(nextCollection)
+    ) {
+      continue;
+    }
+    const from = normalizeRepositoryPath(
+      currentCollection.folder,
+      `Collection "${name}" folder`
+    );
+    const to = normalizeRepositoryPath(
+      nextCollection.folder,
+      `Collection "${name}" folder`
+    );
+    if (from === to) continue;
+    if (from.startsWith(`${to}/`) || to.startsWith(`${from}/`)) {
+      throw contentError(
+        400,
+        `Collection "${name}" folder cannot move into or contain its previous folder.`
+      );
+    }
+    moves.push({ collection: name, from, to });
+  }
+  return moves;
+}
+
+function pathWithin(path, directory) {
+  return path === directory || path.startsWith(`${directory}/`);
+}
+
+function movedTreeChanges(entries, moves) {
+  const sourceFolders = moves.map(({ from }) => from);
+  const targetPaths = new Set();
+  const additions = [];
+  const deletions = [];
+
+  for (const move of moves) {
+    for (const entry of entries) {
+      if (!pathWithin(entry.path, move.from) || entry.type === "tree") continue;
+      if (entry.type !== "blob") {
+        throw contentError(
+          409,
+          `Collection "${move.collection}" folder contains unsupported Git entry "${entry.path}".`
+        );
+      }
+      const suffix = entry.path.slice(move.from.length);
+      const targetPath = `${move.to}${suffix}`;
+      if (targetPaths.has(targetPath)) {
+        throw contentError(409, `Collection folder moves collide at "${targetPath}".`);
+      }
+      targetPaths.add(targetPath);
+      additions.push({
+        path: targetPath,
+        mode: entry.mode,
+        type: "blob",
+        sha: entry.sha
+      });
+      deletions.push({
+        path: entry.path,
+        mode: entry.mode,
+        type: "blob",
+        delete: true
+      });
+    }
+  }
+
+  for (const move of moves) {
+    const collision = entries.find((entry) => {
+      const destinationOverlap =
+        pathWithin(entry.path, move.to) ||
+        (entry.type !== "tree" && pathWithin(move.to, entry.path));
+      if (!destinationOverlap) return false;
+      return !sourceFolders.some((source) => pathWithin(entry.path, source));
+    });
+    if (collision) {
+      throw contentError(
+        409,
+        `Collection "${move.collection}" folder destination conflicts with "${collision.path}".`
+      );
+    }
+  }
+
+  const changes = new Map(
+    deletions.map((change) => [change.path, change])
+  );
+  for (const addition of additions) changes.set(addition.path, addition);
+  return [...changes.values()];
+}
+
 function createGitHubAdapter({
   config: bootstrapConfig,
   connector,
@@ -81,7 +187,10 @@ function createGitHubAdapter({
   const listeners = new Set();
   const recordCache = new Map();
   let currentConfig = bootstrapConfig;
+  let currentConfigBlobSha;
   let lastCommitSha = "";
+  let skipDeployments = false;
+  let writeTail = Promise.resolve();
   let loginPromise = null;
   let currentSession = {
     authenticated: Boolean(auth.getToken()),
@@ -142,6 +251,15 @@ function createGitHubAdapter({
 
   async function ensureAuthenticated() {
     if (!auth.getToken()) await login();
+  }
+
+  function enqueueWrite(operation) {
+    const result = writeTail.then(operation, operation);
+    writeTail = result.then(
+      () => undefined,
+      () => undefined
+    );
+    return result;
   }
 
   async function githubRequest(
@@ -234,7 +352,7 @@ function createGitHubAdapter({
     }
   }
 
-  async function commitChanges(changes, message) {
+  async function repositorySnapshot() {
     const refPath = `${repositoryApi}/git/ref/heads/${encodePath(branch)}`;
     const reference = await githubRequest(refPath, { authRequired: true });
     const parentSha = reference.object.sha;
@@ -242,6 +360,99 @@ function createGitHubAdapter({
       `${repositoryApi}/git/commits/${encodeURIComponent(parentSha)}`,
       { authRequired: true }
     );
+    return { parentSha, parentCommit };
+  }
+
+  async function snapshotTree(snapshot, { recursive = false } = {}) {
+    const query = recursive ? "?recursive=1" : "";
+    const result = await githubRequest(
+      `${repositoryApi}/git/trees/${encodeURIComponent(snapshot.parentCommit.tree.sha)}${query}`,
+      { authRequired: true }
+    );
+    if (result?.truncated || !Array.isArray(result?.tree)) {
+      throw contentError(
+        409,
+        "The repository tree is too large to update configuration safely."
+      );
+    }
+    return result.tree;
+  }
+
+  function assertCurrentConfigBlob(entries) {
+    const entry = entries.find(({ path }) => path === configPath);
+    const matches =
+      currentConfigBlobSha === null
+        ? !entry
+        : entry?.type === "blob" && entry.sha === currentConfigBlobSha;
+    if (!matches) {
+      throw contentError(
+        409,
+        `The ${branch} configuration changed while you were editing. Reload and try again.`
+      );
+    }
+  }
+
+  async function createTextBlob(source) {
+    const blob = await githubRequest(`${repositoryApi}/git/blobs`, {
+      method: "POST",
+      authRequired: true,
+      body: {
+        content: source,
+        encoding: "utf-8"
+      }
+    });
+    if (typeof blob?.sha !== "string" || !blob.sha) {
+      throw contentError(502, "GitHub did not return a configuration blob.");
+    }
+    return blob.sha;
+  }
+
+  async function publishCommit({
+    parentSha,
+    treeSha,
+    message,
+    skip = skipDeployments
+  }) {
+    const nextCommit = await githubRequest(`${repositoryApi}/git/commits`, {
+      method: "POST",
+      authRequired: true,
+      body: {
+        message: deploymentCommitMessage(message, skip),
+        tree: treeSha,
+        parents: [parentSha]
+      }
+    });
+    try {
+      await githubRequest(
+        `${repositoryApi}/git/refs/heads/${encodePath(branch)}`,
+        {
+          method: "PATCH",
+          authRequired: true,
+          body: {
+            sha: nextCommit.sha,
+            force: false
+          }
+        }
+      );
+    } catch (error) {
+      if ([409, 422].includes(error.status)) {
+        throw contentError(
+          409,
+          `The ${branch} branch changed while you were editing. Reload and try again.`
+        );
+      }
+      throw error;
+    }
+    lastCommitSha = nextCommit.sha;
+    return {
+      sha: nextCommit.sha,
+      updatedAt: recordTimestamp(nextCommit) || new Date().toISOString()
+    };
+  }
+
+  async function commitChanges(changes, message, suppliedSnapshot) {
+    const { parentSha, parentCommit } =
+      suppliedSnapshot ?? (await repositorySnapshot());
 
     const tree = await Promise.all(
       changes.map(async (change) => {
@@ -249,9 +460,17 @@ function createGitHubAdapter({
         if (change.delete) {
           return {
             path,
-            mode: "100644",
-            type: "blob",
+            mode: change.mode || "100644",
+            type: change.type || "blob",
             sha: null
+          };
+        }
+        if (change.sha) {
+          return {
+            path,
+            mode: change.mode || "100644",
+            type: change.type || "blob",
+            sha: change.sha
           };
         }
         if (change.bytes) {
@@ -287,50 +506,46 @@ function createGitHubAdapter({
         tree
       }
     });
-    const nextCommit = await githubRequest(`${repositoryApi}/git/commits`, {
-      method: "POST",
-      authRequired: true,
-      body: {
-        message,
-        tree: nextTree.sha,
-        parents: [parentSha]
-      }
+    return publishCommit({
+      parentSha,
+      treeSha: nextTree.sha,
+      message
     });
-    try {
-      await githubRequest(
-        `${repositoryApi}/git/refs/heads/${encodePath(branch)}`,
-        {
-          method: "PATCH",
-          authRequired: true,
-          body: {
-            sha: nextCommit.sha,
-            force: false
-          }
-        }
-      );
-    } catch (error) {
-      if ([409, 422].includes(error.status)) {
-        throw contentError(
-          409,
-          `The ${branch} branch changed while you were editing. Reload and try again.`
-        );
-      }
-      throw error;
+  }
+
+  async function updateDeploymentSkipping(value, { resume = true } = {}) {
+    const next = value === true;
+    if (next === skipDeployments) return;
+    if (next) {
+      skipDeployments = true;
+      return;
     }
-    lastCommitSha = nextCommit.sha;
-    return {
-      sha: nextCommit.sha,
-      updatedAt: recordTimestamp(nextCommit) || new Date().toISOString()
-    };
+    if (!resume) {
+      skipDeployments = false;
+      return;
+    }
+
+    const snapshot = await repositorySnapshot();
+    if (CI_SKIP_PATTERN.test(snapshot.parentCommit.message || "")) {
+      await publishCommit({
+        parentSha: snapshot.parentSha,
+        treeSha: snapshot.parentCommit.tree.sha,
+        message: "Resume deployments",
+        skip: false
+      });
+    }
+    skipDeployments = false;
   }
 
   async function loadConfig() {
     try {
       const source = await readRepositoryFile(configPath);
       currentConfig = validateSourceConfig(parseYaml(source.text));
+      currentConfigBlobSha = source.sha;
     } catch (error) {
       if (error.status !== 404 || auth.getToken()) throw error;
       currentConfig = validateSourceConfig(bootstrapConfig);
+      currentConfigBlobSha = null;
     }
     return currentConfig;
   }
@@ -566,11 +781,38 @@ function createGitHubAdapter({
   async function saveConfig(config) {
     await ensureAuthenticated();
     const validated = validateSourceConfig(config, 400);
+    if (currentConfigBlobSha === undefined) await loadConfig();
+    const current = await ensureConfig();
+    const moves = collectionFolderMoves(current, validated);
+    const snapshot = await repositorySnapshot();
+    const entries = await snapshotTree(snapshot, {
+      recursive: moves.length > 0
+    });
+    assertCurrentConfigBlob(entries);
+    const folderChanges = moves.length
+      ? movedTreeChanges(entries, moves)
+      : [];
+    const nextConfigBlobSha = await createTextBlob(dumpYaml(validated));
     await commitChanges(
-      [{ path: configPath, text: dumpYaml(validated) }],
-      "Update miniCMS configuration"
+      [
+        ...folderChanges,
+        {
+          path: configPath,
+          mode: "100644",
+          type: "blob",
+          sha: nextConfigBlobSha
+        }
+      ],
+      moves.length === 1
+        ? `Move ${moves[0].collection} collection folder`
+        : moves.length > 1
+          ? "Move collection folders"
+          : "Update miniCMS configuration",
+      snapshot
     );
+    if (moves.length) recordCache.clear();
     currentConfig = validated;
+    currentConfigBlobSha = nextConfigBlobSha;
     return { saved: true, config: validated };
   }
 
@@ -673,18 +915,20 @@ function createGitHubAdapter({
     logout,
     resolveMediaUrl,
     resolveImageUrl,
+    setSkipDeployments: (value, options) =>
+      enqueueWrite(() => updateDeploymentSkipping(value, options)),
     config: loadConfig,
-    saveConfig,
+    saveConfig: (...args) => enqueueWrite(() => saveConfig(...args)),
     list,
     record: async (collectionName, id) => {
       const { collection } = await collectionConfiguration(collectionName);
       return readRecord(collection, id);
     },
-    save,
-    create,
-    rename,
-    remove,
-    uploadMedia
+    save: (...args) => enqueueWrite(() => save(...args)),
+    create: (...args) => enqueueWrite(() => create(...args)),
+    rename: (...args) => enqueueWrite(() => rename(...args)),
+    remove: (...args) => enqueueWrite(() => remove(...args)),
+    uploadMedia: (...args) => enqueueWrite(() => uploadMedia(...args))
   };
 }
 

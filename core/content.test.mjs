@@ -71,6 +71,33 @@ test("validates the default GitHub connector and repository content paths", () =
   );
 });
 
+test("rejects overlapping collection and media storage folders", () => {
+  const duplicate = fixtureConfig();
+  duplicate.collections.archive = {
+    folder: duplicate.collections.pages.folder,
+    node_type: "page"
+  };
+  assert.throws(
+    () => validateConfig(duplicate),
+    /folder overlaps collection/
+  );
+
+  const nested = fixtureConfig();
+  nested.collections.archive = {
+    folder: `${nested.collections.pages.folder}/archive`,
+    node_type: "page"
+  };
+  assert.throws(() => validateConfig(nested), /folder overlaps collection/);
+
+  const media = fixtureConfig();
+  media.site.media_folder = `${media.collections.pages.folder}/media`;
+  assert.throws(() => validateConfig(media), /media_folder overlaps/);
+
+  const root = fixtureConfig();
+  root.collections.pages.folder = "content";
+  assert.throws(() => validateConfig(root), /must be below content/);
+});
+
 test("accepts secure API connectors and rejects the removed backend contract", () => {
   const apiConfig = fixtureConfig();
   apiConfig.connectors.default = {

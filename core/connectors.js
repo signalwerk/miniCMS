@@ -228,27 +228,40 @@ function addRoute(routes, kind, localName, connector, remoteName, status) {
   group.remote_to_local[remoteName] = localName;
 }
 
-function translatedDependency(routes, kind, remoteName, context, status) {
-  const localName = routes[kind].remote_to_local[remoteName];
-  if (!localName) {
+function translatedDependency(
+  routes,
+  kind,
+  name,
+  direction,
+  context,
+  status
+) {
+  const translatedName = routes[kind]?.[direction]?.[name];
+  if (!translatedName) {
     const label = kind === "collections" ? "collection" : "node type";
+    const source = direction === "remote_to_local" ? "remote" : "local";
     throw contentError(
       status,
-      `${context} depends on remote ${label} "${remoteName}", which has no explicit local alias.`
+      `${context} depends on ${source} ${label} "${name}", which has no explicit ${direction === "remote_to_local" ? "local alias" : "remote route"}.`
     );
   }
-  return localName;
+  return translatedName;
 }
 
-function translateRemoteType(type, route, context, status) {
+function translateTypeDefinition(type, route, direction, context, status) {
   const translated = cloneValue(type);
+  if (direction === "local_to_remote") {
+    delete translated.connector;
+    delete translated.remote_type;
+  }
   for (const [slotName, slot] of Object.entries(translated.slots ?? {})) {
     if (!Array.isArray(slot?.allowed_types)) continue;
-    slot.allowed_types = slot.allowed_types.map((remoteType) =>
+    slot.allowed_types = slot.allowed_types.map((typeName) =>
       translatedDependency(
         route,
         "node_types",
-        remoteType,
+        typeName,
+        direction,
         `${context} slot "${slotName}"`,
         status
       )
@@ -260,16 +273,18 @@ function translateRemoteType(type, route, context, status) {
         route,
         "collections",
         field.collection,
+        direction,
         `${context} field "${fieldName}"`,
         status
       );
     }
     if (Array.isArray(field?.allowed_types)) {
-      field.allowed_types = field.allowed_types.map((remoteType) =>
+      field.allowed_types = field.allowed_types.map((typeName) =>
         translatedDependency(
           route,
           "node_types",
-          remoteType,
+          typeName,
+          direction,
           `${context} field "${fieldName}"`,
           status
         )
@@ -281,6 +296,7 @@ function translateRemoteType(type, route, context, status) {
         route,
         "collections",
         inlineReference.collection,
+        direction,
         `${context} field "${fieldName}" inline reference`,
         status
       );
@@ -289,21 +305,33 @@ function translateRemoteType(type, route, context, status) {
   return translated;
 }
 
-function translateRemoteCollection(collection, route, context, status) {
+function translateCollectionDefinition(
+  collection,
+  route,
+  direction,
+  context,
+  status
+) {
   const translated = cloneValue(collection);
+  if (direction === "local_to_remote") {
+    delete translated.connector;
+    delete translated.remote_collection;
+  }
   translated.node_type = translatedDependency(
     route,
     "node_types",
     translated.node_type,
+    direction,
     context,
     status
   );
   if (Array.isArray(translated.allowed_types)) {
-    translated.allowed_types = translated.allowed_types.map((remoteType) =>
+    translated.allowed_types = translated.allowed_types.map((typeName) =>
       translatedDependency(
         route,
         "node_types",
-        remoteType,
+        typeName,
+        direction,
         context,
         status
       )
@@ -311,17 +339,75 @@ function translateRemoteCollection(collection, route, context, status) {
   }
   if (Array.isArray(translated.hierarchy?.allowed_child_types)) {
     translated.hierarchy.allowed_child_types =
-      translated.hierarchy.allowed_child_types.map((remoteType) =>
+      translated.hierarchy.allowed_child_types.map((typeName) =>
         translatedDependency(
           route,
           "node_types",
-          remoteType,
+          typeName,
+          direction,
           `${context} hierarchy`,
           status
         )
       );
   }
   return translated;
+}
+
+function buildRoutes(source, status) {
+  const routes = {
+    collections: {},
+    node_types: {},
+    connectors: {}
+  };
+  for (const typeName of Object.keys(source.node_types)) {
+    const type = source.node_types[typeName];
+    const connector = type.connector ?? "default";
+    const remoteType = type.remote_type ?? typeName;
+    addRoute(routes, "node_types", typeName, connector, remoteType, status);
+  }
+  for (const collectionName of Object.keys(source.collections)) {
+    const collection = source.collections[collectionName];
+    const connector = collection.connector ?? "default";
+    const remoteCollection = collection.remote_collection ?? collectionName;
+    addRoute(
+      routes,
+      "collections",
+      collectionName,
+      connector,
+      remoteCollection,
+      status
+    );
+  }
+  return routes;
+}
+
+function requiredConnectorNames(source) {
+  return new Set([
+    ...Object.values(source.node_types)
+      .map((type) => type.connector)
+      .filter(Boolean),
+    ...Object.values(source.collections)
+      .map((collection) => collection.connector)
+      .filter(Boolean)
+  ]);
+}
+
+function sameValue(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sameRemoteOwner(current, next, remoteKey) {
+  return (
+    isMapping(current) &&
+    current.connector === next.connector &&
+    current[remoteKey] === next[remoteKey]
+  );
+}
+
+function hasDefinitionBody(definition, remoteKey) {
+  return Object.keys(definition ?? {}).some(
+    (key) => !["connector", remoteKey].includes(key)
+  );
 }
 
 function collapseConfig(effectiveConfig, status = 500) {
@@ -360,39 +446,8 @@ function materializeConfig({ sourceConfig, remoteConfigs = {}, status = 500 } = 
     throw contentError(status, "remoteConfigs must be a mapping.");
   }
 
-  const routes = {
-    collections: {},
-    node_types: {},
-    connectors: {}
-  };
-  for (const typeName of Object.keys(source.node_types)) {
-    const type = source.node_types[typeName];
-    const connector = type.connector ?? "default";
-    const remoteType = type.remote_type ?? typeName;
-    addRoute(routes, "node_types", typeName, connector, remoteType, status);
-  }
-  for (const collectionName of Object.keys(source.collections)) {
-    const collection = source.collections[collectionName];
-    const connector = collection.connector ?? "default";
-    const remoteCollection = collection.remote_collection ?? collectionName;
-    addRoute(
-      routes,
-      "collections",
-      collectionName,
-      connector,
-      remoteCollection,
-      status
-    );
-  }
-
-  const requiredConnectors = new Set([
-    ...Object.values(source.node_types)
-      .map((type) => type.connector)
-      .filter(Boolean),
-    ...Object.values(source.collections)
-      .map((collection) => collection.connector)
-      .filter(Boolean)
-  ]);
+  const routes = buildRoutes(source, status);
+  const requiredConnectors = requiredConnectorNames(source);
   const validatedRemoteConfigs = {};
   for (const connector of requiredConnectors) {
     if (["default", "development"].includes(connector)) {
@@ -429,9 +484,10 @@ function materializeConfig({ sourceConfig, remoteConfigs = {}, status = 500 } = 
         `Connector "${declaration.connector}" node type "${declaration.remote_type}" must be owned by that remote project.`
       );
     }
-    const translated = translateRemoteType(
+    const translated = translateTypeDefinition(
       remoteType,
       routes.connectors[declaration.connector],
+      "remote_to_local",
       `Remote node type "${localName}"`,
       status
     );
@@ -459,9 +515,10 @@ function materializeConfig({ sourceConfig, remoteConfigs = {}, status = 500 } = 
         `Connector "${declaration.connector}" collection "${declaration.remote_collection}" must be owned by that remote project.`
       );
     }
-    const translated = translateRemoteCollection(
+    const translated = translateCollectionDefinition(
       remoteCollection,
       routes.connectors[declaration.connector],
+      "remote_to_local",
       `Remote collection "${localName}"`,
       status
     );
@@ -480,11 +537,158 @@ function materializeConfig({ sourceConfig, remoteConfigs = {}, status = 500 } = 
   };
 }
 
+function planConfigWrites({
+  effectiveConfig,
+  sourceConfig,
+  ownershipSourceConfig = sourceConfig,
+  remoteConfigs = {},
+  status = 500
+} = {}) {
+  const currentSource = cloneValue(sourceConfig);
+  validateSourceConfig(currentSource, status);
+  const currentOwnershipSource = cloneValue(ownershipSourceConfig);
+  validateSourceConfig(currentOwnershipSource, status);
+  if (!isMapping(remoteConfigs)) {
+    throw contentError(status, "remoteConfigs must be a mapping.");
+  }
+
+  const nextSource = collapseConfig(effectiveConfig, status);
+  const routes = buildRoutes(nextSource, status);
+  const nextRemoteConfigs = { ...remoteConfigs };
+  const changedConnectors = [];
+
+  for (const connector of requiredConnectorNames(nextSource)) {
+    if (["default", "development"].includes(connector)) {
+      throw contentError(
+        status,
+        `Remote aliases must use a named connector, not the reserved "${connector}" connector.`
+      );
+    }
+    if (!Object.hasOwn(remoteConfigs, connector)) {
+      throw contentError(
+        status,
+        `Remote connector "${connector}" configuration was not provided.`
+      );
+    }
+
+    const currentRemote = cloneValue(remoteConfigs[connector]);
+    validateSourceConfig(currentRemote, status);
+    const nextRemote = cloneValue(currentRemote);
+    const connectorRoute = routes.connectors[connector];
+
+    for (const [localName, declaration] of Object.entries(
+      nextSource.node_types
+    )) {
+      if (declaration.connector !== connector) continue;
+      const draft = effectiveConfig.node_types?.[localName];
+      if (!hasDefinitionBody(draft, "remote_type")) continue;
+      const currentDeclaration =
+        currentOwnershipSource.node_types?.[localName];
+      if (
+        isRemoteNodeType(currentDeclaration) &&
+        !sameRemoteOwner(
+          currentDeclaration,
+          declaration,
+          "remote_type"
+        )
+      ) {
+        throw contentError(
+          status,
+          `Remote node type "${localName}" cannot change its connector or remote type identity.`
+        );
+      }
+      const previouslyOwned = sameRemoteOwner(
+        currentDeclaration,
+        declaration,
+        "remote_type"
+      );
+      const existing = currentRemote.node_types?.[declaration.remote_type];
+      if (existing && !previouslyOwned) {
+        throw contentError(
+          status,
+          `Connector "${connector}" already has node type "${declaration.remote_type}". Import it with an alias instead of overwriting it.`
+        );
+      }
+      nextRemote.node_types[declaration.remote_type] =
+        translateTypeDefinition(
+          draft,
+          connectorRoute,
+          "local_to_remote",
+          `Remote node type "${localName}"`,
+          status
+        );
+    }
+
+    for (const [localName, declaration] of Object.entries(
+      nextSource.collections
+    )) {
+      if (declaration.connector !== connector) continue;
+      const draft = effectiveConfig.collections?.[localName];
+      if (!hasDefinitionBody(draft, "remote_collection")) continue;
+      const currentDeclaration =
+        currentOwnershipSource.collections?.[localName];
+      if (
+        isRemoteCollection(currentDeclaration) &&
+        !sameRemoteOwner(
+          currentDeclaration,
+          declaration,
+          "remote_collection"
+        )
+      ) {
+        throw contentError(
+          status,
+          `Remote collection "${localName}" cannot change its connector or remote collection identity.`
+        );
+      }
+      const previouslyOwned = sameRemoteOwner(
+        currentDeclaration,
+        declaration,
+        "remote_collection"
+      );
+      const existing =
+        currentRemote.collections?.[declaration.remote_collection];
+      if (existing && !previouslyOwned) {
+        throw contentError(
+          status,
+          `Connector "${connector}" already has collection "${declaration.remote_collection}". Import it with an alias instead of overwriting it.`
+        );
+      }
+      nextRemote.collections[declaration.remote_collection] =
+        translateCollectionDefinition(
+          draft,
+          connectorRoute,
+          "local_to_remote",
+          `Remote collection "${localName}"`,
+          status
+        );
+    }
+
+    validateSourceConfig(nextRemote, status);
+    nextRemoteConfigs[connector] = nextRemote;
+    if (!sameValue(currentRemote, nextRemote)) {
+      changedConnectors.push(connector);
+    }
+  }
+
+  const materialized = materializeConfig({
+    sourceConfig: nextSource,
+    remoteConfigs: nextRemoteConfigs,
+    status
+  });
+  return {
+    ...materialized,
+    remoteConfigs: nextRemoteConfigs,
+    changedConnectors,
+    sourceChanged: !sameValue(currentSource, nextSource)
+  };
+}
+
 export {
   collapseConfig,
   isRemoteCollection,
   isRemoteNodeType,
   materializeConfig,
+  planConfigWrites,
   translateInlineReferences,
   translateRecord,
   validateSourceConfig

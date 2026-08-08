@@ -172,8 +172,15 @@ named connector's configuration, hydrates the local type and collection for
 editing, and translates their names at the connector boundary. Listing,
 reading, creating, saving, renaming, deleting, and uploading through
 `shared_images` therefore happen in the remote `images` collection. Imported
-schema remains owned by the remote project; saving Settings writes only the
-two-key aliases back through the active default connector.
+schema remains owned by the remote project. Settings can edit that complete
+schema or create a new content type and collection on a selected connector.
+Saving translates local aliases back into each concrete owner configuration,
+writes changed named connectors first, and publishes only changed exact two-key
+aliases through the active default connector. An edit confined to existing
+remote schema therefore never writes the default project. If an owner write
+succeeds before a later write fails, retrying skips that completed write while
+keeping unpublished aliases out of the live editor. Removing an alias does not
+delete the remote schema or its records.
 
 `name: api` uses `api_url`, or the page origin when it is omitted on a reserved
 connector. Named API connectors require HTTPS. Production API connectors also
@@ -188,6 +195,12 @@ protocol at `<base_url>/auth`; its established GitHub-token sessionStorage
 behavior is unchanged. The optional `api_root` defaults to
 `https://api.github.com`. The legacy root `backend` and connector name `node`
 are not accepted.
+
+The auth worker must allow the editor's exact browser origin. Remote clients
+use exact HTTPS origins (or an explicitly supported HTTPS wildcard); an HTTP
+origin is safe to configure only when it is an exact loopback development
+origin, including its port. This matters even with an unauthenticated local
+default API because a named production API connector may still require login.
 
 The host selects the development connector explicitly:
 
@@ -209,11 +222,46 @@ authentication, the editor remains behind the sign-in gate until every used
 connector has a session. Each click authenticates one pending connector so
 browser popup blocking cannot interrupt a multi-service sign-in.
 
-Settings preflights every imported type and collection before writing
-`cms.config.yml`. A newly added or changed connector can be saved while it is
-unused; reload the editor from that new bootstrap configuration before adding
-aliases to it. This keeps runtime origins pinned to the consumer page while
-ensuring a missing remote target is never persisted.
+When a Settings draft first references an unchanged trusted connector that was
+unused at bootstrap, the first Save prepares that connector privately. If it
+needs authentication, the existing action changes to **Sign in and save**. That
+second explicit gesture opens the popup synchronously, then loads and exposes
+only the authenticated connector. A cancelled or failed sign-in therefore
+leaves Settings and its draft mounted. Each gesture opens at most one connector
+login; repeat the still-mounted action if another newly referenced connector
+also needs authentication.
+
+Settings preflights every imported, edited, and newly created remote definition
+before writing. Collection and content-type creation choose an owner from the
+trusted connectors already present when the editor loaded; a collection can
+use only a content type owned by that connector. A newly added or changed
+connector can be saved while it is unused; reload the editor from that new
+bootstrap configuration before creating or importing definitions on it. This
+keeps runtime origins pinned to the consumer page while ensuring a missing
+remote target is never persisted.
+
+Changing a collection's content folder is a storage migration, not a
+config-only edit. API storage moves it in the same versioned filesystem
+transaction as the configuration. GitHub reuses existing blobs and publishes
+the old-path deletions, new paths, and `cms.config.yml` through one Git commit.
+Before creating Git objects, it verifies that the parent tree still contains
+the exact configuration blob loaded by the editor; a stale Settings draft is
+rejected instead of overwriting a newer configuration.
+An empty Git collection has no directory until its first record is created.
+
+When at least one trusted connector is GitHub, the dropdown beside Save (and
+Save settings) offers **Skip deployments**. The choice is stored for the
+project's stable default-connector identity in browser local storage, so edits
+to named connectors do not reset it. While active, every GitHub
+mutation—including records, media, renames, deletes, and configuration—adds
+`[ci skip]` to its commit message; API writes are unchanged. Turning the option
+off creates a marker-free `Resume deployments` commit with the current tree on
+each affected GitHub branch, so CI runs immediately with all accumulated
+content.
+GitHub writes from one editor are serialized; a truly external branch change
+is still rejected so the editor never overwrites it. Connector keys used in
+one session must not point to the same GitHub repository branch, because that
+would create competing write queues for one branch.
 
 Raw files use `resolveMediaUrl`; images use the separate `resolveImageUrl`
 capability. The owning local collection accompanies every media request so the
@@ -751,8 +799,12 @@ columns, hierarchy, references, and inspector layout. Common settings are
 shown first; fields and table columns use compact disclosure rows, while
 technical behavior is available in collapsed advanced sections. Every
 supported option has a form control; Settings never exposes raw configuration
-source. The overlay supports keyboard focus containment, reduced motion, and a
-stacked small-screen layout. Grip handles reorder fields, options, content
+source. New collections and content types choose their connector during
+creation, and remote-owned definitions use the same complete forms as local
+definitions. Existing connector ownership is shown but is not silently
+changed, because moving content between storage systems is a separate data
+migration. The overlay supports keyboard focus containment, reduced motion,
+and a stacked small-screen layout. Grip handles reorder fields, options, content
 areas, inspector layout, and table columns with the same source preview and
 insertion-line behavior as the content trees. The grip handles support both
 pointer and keyboard reordering; list rows do not add redundant up/down

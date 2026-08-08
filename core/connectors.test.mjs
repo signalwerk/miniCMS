@@ -5,6 +5,7 @@ import {
   isRemoteCollection,
   isRemoteNodeType,
   materializeConfig,
+  planConfigWrites,
   translateInlineReferences,
   translateRecord
 } from "./connectors.js";
@@ -353,4 +354,233 @@ test("fails closed for missing, ambiguous, and incomplete remote dependencies", 
       }),
     /aliased by both/
   );
+});
+
+test("plans edited remote schema back to its owning connector", () => {
+  const source = sourceConfig();
+  const remote = remoteConfig();
+  remote.site.unrelated = "preserved";
+  const effective = materializeConfig({
+    sourceConfig: source,
+    remoteConfigs: { central: remote }
+  }).config;
+  effective.node_types.central_gallery.label = "Edited gallery";
+  effective.collections.central_galleries.folder = "content/edited-galleries";
+
+  const planned = planConfigWrites({
+    effectiveConfig: effective,
+    sourceConfig: source,
+    remoteConfigs: { central: remote }
+  });
+
+  assert.deepEqual(planned.changedConnectors, ["central"]);
+  assert.equal(planned.sourceChanged, false);
+  assert.equal(
+    planned.remoteConfigs.central.node_types.gallery.label,
+    "Edited gallery"
+  );
+  assert.equal(
+    planned.remoteConfigs.central.node_types.gallery.fields.lead.collection,
+    "images"
+  );
+  assert.deepEqual(
+    planned.remoteConfigs.central.node_types.gallery.slots.images.allowed_types,
+    ["image"]
+  );
+  assert.equal(
+    planned.remoteConfigs.central.collections.galleries.folder,
+    "content/edited-galleries"
+  );
+  assert.equal(planned.remoteConfigs.central.site.unrelated, "preserved");
+  assert.equal(
+    planned.config.collections.central_galleries.folder,
+    "content/edited-galleries"
+  );
+  assert.deepEqual(planned.sourceConfig.collections.central_galleries, {
+    connector: "central",
+    remote_collection: "galleries"
+  });
+});
+
+test("plans a new remote content type and collection together", () => {
+  const source = sourceConfig();
+  const remote = remoteConfig();
+  const effective = materializeConfig({
+    sourceConfig: source,
+    remoteConfigs: { central: remote }
+  }).config;
+  effective.node_types.central_feature = {
+    connector: "central",
+    remote_type: "feature",
+    label: "Feature",
+    fields: {
+      title: { widget: "string" },
+      image: { widget: "reference", collection: "central_images" }
+    },
+    slots: {
+      gallery: { allowed_types: ["central_gallery"] }
+    }
+  };
+  effective.collections.central_features = {
+    connector: "central",
+    remote_collection: "features",
+    label: "Features",
+    folder: "content/features",
+    node_type: "central_feature",
+    allowed_types: ["central_feature"],
+    hierarchy: {
+      enabled: true,
+      allowed_child_types: ["central_feature"]
+    }
+  };
+
+  const planned = planConfigWrites({
+    effectiveConfig: effective,
+    sourceConfig: source,
+    remoteConfigs: { central: remote }
+  });
+
+  assert.equal(planned.sourceChanged, true);
+  assert.equal(
+    planned.remoteConfigs.central.node_types.feature.fields.image.collection,
+    "images"
+  );
+  assert.deepEqual(
+    planned.remoteConfigs.central.node_types.feature.slots.gallery.allowed_types,
+    ["gallery"]
+  );
+  assert.equal(
+    planned.remoteConfigs.central.collections.features.node_type,
+    "feature"
+  );
+  assert.deepEqual(
+    planned.remoteConfigs.central.collections.features.hierarchy.allowed_child_types,
+    ["feature"]
+  );
+  assert.equal(
+    planned.config.collections.central_features.node_type,
+    "central_feature"
+  );
+});
+
+test("uses provisional aliases to retry publication after an owner saved", () => {
+  const source = sourceConfig();
+  const remote = remoteConfig();
+  const effective = materializeConfig({
+    sourceConfig: source,
+    remoteConfigs: { central: remote }
+  }).config;
+  effective.node_types.central_feature = {
+    connector: "central",
+    remote_type: "feature",
+    fields: { title: { widget: "string" } }
+  };
+  effective.collections.central_features = {
+    connector: "central",
+    remote_collection: "features",
+    folder: "content/features",
+    node_type: "central_feature"
+  };
+
+  const first = planConfigWrites({
+    effectiveConfig: effective,
+    sourceConfig: source,
+    remoteConfigs: { central: remote }
+  });
+  const retry = planConfigWrites({
+    effectiveConfig: effective,
+    sourceConfig: source,
+    ownershipSourceConfig: first.sourceConfig,
+    remoteConfigs: { central: first.remoteConfigs.central }
+  });
+
+  assert.deepEqual(retry.changedConnectors, []);
+  assert.equal(retry.sourceChanged, true);
+  assert.equal(
+    retry.config.node_types.central_feature.fields.title.widget,
+    "string"
+  );
+  assert.deepEqual(retry.sourceConfig.collections.central_features, {
+    connector: "central",
+    remote_collection: "features"
+  });
+});
+
+test("imports exact remote stubs without rewriting their owner", () => {
+  const source = sourceConfig();
+  const remote = remoteConfig();
+  remote.node_types.video = { fields: { title: { widget: "string" } } };
+  remote.collections.videos = {
+    folder: "content/videos",
+    node_type: "video"
+  };
+  const effective = materializeConfig({
+    sourceConfig: source,
+    remoteConfigs: { central: remote }
+  }).config;
+  effective.node_types.central_video = {
+    connector: "central",
+    remote_type: "video"
+  };
+  effective.collections.central_videos = {
+    connector: "central",
+    remote_collection: "videos"
+  };
+
+  const planned = planConfigWrites({
+    effectiveConfig: effective,
+    sourceConfig: source,
+    remoteConfigs: { central: remote }
+  });
+  assert.deepEqual(planned.changedConnectors, []);
+  assert.equal(planned.config.collections.central_videos.node_type, "central_video");
+});
+
+test("never overwrites an unaliased remote definition or deletes an unlinked one", () => {
+  const source = sourceConfig();
+  const remote = remoteConfig();
+  remote.node_types.archive = { fields: { title: { widget: "string" } } };
+  remote.collections.archive = {
+    folder: "content/archive",
+    node_type: "archive"
+  };
+  const effective = materializeConfig({
+    sourceConfig: source,
+    remoteConfigs: { central: remote }
+  }).config;
+  effective.node_types.central_archive = {
+    connector: "central",
+    remote_type: "archive",
+    fields: { title: { widget: "string", label: "Overwrite" } }
+  };
+  effective.collections.central_archive = {
+    connector: "central",
+    remote_collection: "archive",
+    folder: "content/archive-new",
+    node_type: "central_archive"
+  };
+  assert.throws(
+    () =>
+      planConfigWrites({
+        effectiveConfig: effective,
+        sourceConfig: source,
+        remoteConfigs: { central: remote }
+      }),
+    /already has node type "archive"/
+  );
+
+  const withoutGallery = materializeConfig({
+    sourceConfig: source,
+    remoteConfigs: { central: remote }
+  }).config;
+  delete withoutGallery.collections.central_galleries;
+  delete withoutGallery.node_types.central_gallery;
+  withoutGallery.node_types.page.fields.gallery.collection = "central_images";
+  const planned = planConfigWrites({
+    effectiveConfig: withoutGallery,
+    sourceConfig: source,
+    remoteConfigs: { central: remote }
+  });
+  assert.ok(planned.remoteConfigs.central.collections.galleries);
+  assert.ok(planned.remoteConfigs.central.node_types.gallery);
 });

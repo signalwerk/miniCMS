@@ -12,10 +12,10 @@ const TEST_SHA = "a".repeat(64);
 const HERO_SOURCE = `/media/images/${TEST_SHA}/hero.png`;
 const HUGE_SOURCE = `/media/images/${TEST_SHA}/huge.jpg`;
 
-function json(body, status = 200) {
+function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" }
+    headers: { "content-type": "application/json", ...headers }
   });
 }
 
@@ -356,8 +356,9 @@ test("sends the stored service bearer with every API operation", async () => {
     apiUrl: apiOrigin,
     windowObject: browser.windowObject,
     fetchImpl: async (input, options = {}) => {
-      calls.push({ url: new URL(input), options });
-      if (new URL(input).pathname === "/api/auth/session") {
+      const url = new URL(input);
+      calls.push({ url, options });
+      if (url.pathname === "/api/auth/session") {
         return json({
           authenticated: true,
           authenticationRequired: true,
@@ -368,6 +369,15 @@ test("sends the stored service bearer with every API operation", async () => {
       }
       if ((options.method || "GET") === "DELETE") {
         return new Response(null, { status: 204 });
+      }
+      if (url.pathname === "/api/config") {
+        return json(
+          options.method === "PUT"
+            ? { saved: true, config: { collections: {}, node_types: {} } }
+            : { collections: {}, node_types: {} },
+          200,
+          { etag: options.method === "PUT" ? '"config-v2"' : '"config-v1"' }
+        );
       }
       return json({ ok: true });
     }
@@ -398,6 +408,49 @@ test("sends the stored service bearer with every API operation", async () => {
   assert.equal(calls.at(-2).url.pathname, "/api/media/images");
   assert.equal(calls.at(-2).url.searchParams.get("filename"), "Hero image.png");
   assert.equal(calls.at(-1).options.method, "DELETE");
+  const configWrite = calls.find(
+    (call) => call.url.pathname === "/api/config" && call.options.method === "PUT"
+  );
+  assert.equal(configWrite.options.headers.get("if-match"), '"config-v1"');
+});
+
+test("keeps the loaded config revision after a rejected API save", async () => {
+  const browser = browserFixture("http://127.0.0.1:4321");
+  const writes = [];
+  const adapter = await createApiAdapter({
+    windowObject: browser.windowObject,
+    fetchImpl: async (input, options = {}) => {
+      const pathname = new URL(input).pathname;
+      if (pathname === "/api/auth/session") {
+        return json({
+          authenticated: true,
+          authenticationRequired: false,
+          provider: "local",
+          label: "Local"
+        });
+      }
+      if (options.method === "PUT") {
+        writes.push(options.headers.get("if-match"));
+        return json({ message: "Reload and try again." }, 412);
+      }
+      return json(
+        { site: {}, collections: {}, node_types: {} },
+        200,
+        { etag: '"config-v1"' }
+      );
+    }
+  });
+
+  await adapter.config();
+  await assert.rejects(
+    adapter.saveConfig({ site: {}, collections: {}, node_types: {} }),
+    (error) => error.status === 412
+  );
+  await assert.rejects(
+    adapter.saveConfig({ site: {}, collections: {}, node_types: {} }),
+    (error) => error.status === 412
+  );
+  assert.deepEqual(writes, ['"config-v1"', '"config-v1"']);
 });
 
 test("requires collection context for API media uploads", async () => {
@@ -447,7 +500,7 @@ test("clears and publishes an unauthenticated API session after a 401", async ()
 });
 
 test("hands one ephemeral GitHub token to the API for an opaque bearer", async () => {
-  const browser = browserFixture();
+  const browser = browserFixture("http://127.0.0.1:5173");
   const apiOrigin = "https://content.example.com";
   const authOrigin = "https://auth.example.com";
   const githubToken = "github-token-for-one-exchange";
@@ -526,6 +579,8 @@ test("hands one ephemeral GitHub token to the API for an opaque bearer", async (
     data: successMessage
   });
   assert.equal((await firstLogin).login, "signalwerk");
+  assert.equal(firstPopup.closed, true);
+  assert.equal(browser.windowObject.closePoll, null);
 
   const openedUrl = new URL(browser.openedUrls[0]);
   assert.equal(openedUrl.origin, authOrigin);
@@ -578,9 +633,10 @@ test("hands one ephemeral GitHub token to the API for an opaque bearer", async (
   browser.dispatchMessage({
     origin: authOrigin,
     source: browser.popups[1],
-    data: 'authorization:github:error:{"error_description":"This GitHub account is not allowed."}'
+    data: 'authorization:github:error:{"error":"client_origin_not_allowed","error_description":"This miniCMS origin is not allowed by the GitHub authentication worker.","provider":"github"}'
   });
-  await assert.rejects(deniedLogin, /GitHub account is not allowed/);
+  await assert.rejects(deniedLogin, /miniCMS origin is not allowed/);
+  assert.equal(browser.popups[1].closed, true);
 });
 
 test("requires auth_url only when an API session needs authentication", async () => {

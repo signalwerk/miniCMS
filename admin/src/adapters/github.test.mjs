@@ -65,7 +65,7 @@ function repositoryFile(path, source, sha = "blob-sha") {
   };
 }
 
-function makeGitHubFixture() {
+function makeGitHubFixture({ treeEntries, loadedConfigSha = "config-sha" } = {}) {
   const config = fixtureConfig();
   const record = {
     id: "home",
@@ -76,7 +76,17 @@ function makeGitHubFixture() {
   };
   const calls = [];
   const trees = [];
+  const repositoryTree = treeEntries ?? [
+    { path: "cms.config.yml", mode: "100644", type: "blob", sha: "config-sha" },
+    { path: "content", mode: "040000", type: "tree", sha: "content-tree" },
+    { path: "content/pages", mode: "040000", type: "tree", sha: "pages-tree" },
+    { path: "content/pages/home.yml", mode: "100644", type: "blob", sha: "home-sha" },
+    { path: "content/pages/archive", mode: "040000", type: "tree", sha: "archive-tree" },
+    { path: "content/pages/archive/note.txt", mode: "100644", type: "blob", sha: "note-sha" }
+  ];
   let commitIndex = 0;
+  let headMessage = "Initial commit";
+  let headTreeSha = "tree-0";
 
   async function fetchImpl(input, options = {}) {
     const url = new URL(input);
@@ -91,7 +101,9 @@ function makeGitHubFixture() {
     });
 
     if (method === "GET" && url.pathname.endsWith("/contents/cms.config.yml")) {
-      return json(repositoryFile("cms.config.yml", dumpYaml(config), "config-sha"));
+      return json(
+        repositoryFile("cms.config.yml", dumpYaml(config), loadedConfigSha)
+      );
     }
     if (method === "GET" && url.pathname.endsWith("/contents/content/pages")) {
       return json([
@@ -131,10 +143,24 @@ function makeGitHubFixture() {
       return json({ object: { sha: `parent-${commitIndex}` } });
     }
     if (method === "GET" && url.pathname.includes("/git/commits/parent-")) {
-      return json({ tree: { sha: `tree-${commitIndex}` } });
+      return json({
+        tree: { sha: headTreeSha },
+        message: headMessage
+      });
+    }
+    if (method === "GET" && url.pathname.includes("/git/trees/tree-")) {
+      return json({ tree: repositoryTree, truncated: false });
     }
     if (method === "POST" && url.pathname.endsWith("/git/blobs")) {
-      return json({ sha: "uploaded-blob" }, 201);
+      return json(
+        {
+          sha:
+            body.encoding === "utf-8"
+              ? "next-config-sha"
+              : "uploaded-blob"
+        },
+        201
+      );
     }
     if (method === "POST" && url.pathname.endsWith("/git/trees")) {
       trees.push(body.tree);
@@ -142,6 +168,8 @@ function makeGitHubFixture() {
     }
     if (method === "POST" && url.pathname.endsWith("/git/commits")) {
       commitIndex += 1;
+      headMessage = body.message;
+      headTreeSha = body.tree;
       return json(
         {
           sha: `next-commit-${commitIndex}`,
@@ -178,7 +206,7 @@ function makeGitHubFixture() {
 
 test("reads repository configuration and collection records", async () => {
   const { adapter } = makeGitHubFixture();
-  const config = await adapter.config();
+  const config = structuredClone(await adapter.config());
   const list = await adapter.list("pages");
 
   assert.equal(config.connectors.default.repo, "signalwerk/example");
@@ -219,6 +247,223 @@ test("writes YAML through one atomic Git commit transaction", async () => {
         call.path.endsWith("/git/refs/heads/main") &&
         call.headers.authorization === "Bearer github-token"
     )
+  );
+});
+
+test("skips GitHub deployments and resumes them with the current tree", async () => {
+  const { adapter, calls } = makeGitHubFixture();
+  await adapter.config();
+  const record = await adapter.record("pages", "home");
+
+  await adapter.setSkipDeployments(true);
+  record.properties.title = "First change";
+  await adapter.save("pages", record);
+  await adapter.setSkipDeployments(false);
+  record.properties.title = "Second change";
+  await adapter.save("pages", record);
+
+  const commits = calls
+    .filter(
+      (call) =>
+        call.method === "POST" && call.path.endsWith("/git/commits")
+    );
+  assert.deepEqual(commits.map((call) => call.body.message), [
+    "Update Page home [ci skip]",
+    "Resume deployments",
+    "Update Page home"
+  ]);
+  assert.equal(commits[1].body.tree, commits[0].body.tree);
+});
+
+test("synchronizes another tab without publishing a second resume commit", async () => {
+  const { adapter, calls } = makeGitHubFixture();
+  await adapter.config();
+  const record = await adapter.record("pages", "home");
+
+  await adapter.setSkipDeployments(true);
+  await adapter.save("pages", record);
+  await adapter.setSkipDeployments(false, { resume: false });
+
+  assert.deepEqual(
+    calls
+      .filter(
+        (call) =>
+          call.method === "POST" && call.path.endsWith("/git/commits")
+      )
+      .map((call) => call.body.message),
+    ["Update Page home [ci skip]"]
+  );
+});
+
+test("serializes overlapping writes from one editor", async () => {
+  const { adapter, calls } = makeGitHubFixture();
+  await adapter.config();
+  const record = await adapter.record("pages", "home");
+  const first = structuredClone(record);
+  const second = structuredClone(record);
+  first.properties.title = "First change";
+  second.properties.title = "Second change";
+
+  await Promise.all([
+    adapter.save("pages", first),
+    adapter.save("pages", second)
+  ]);
+
+  assert.deepEqual(
+    calls
+      .filter(
+        (call) =>
+          call.method === "POST" && call.path.endsWith("/git/commits")
+      )
+      .map((call) => call.body.parents[0]),
+    ["parent-0", "parent-1"]
+  );
+});
+
+test("moves a collection folder with its config in one Git commit", async () => {
+  const { adapter, calls, trees } = makeGitHubFixture();
+  const config = structuredClone(await adapter.config());
+  config.collections.pages.folder = "content/documents";
+
+  const saved = await adapter.saveConfig(config);
+  assert.equal(saved.config.collections.pages.folder, "content/documents");
+  assert.equal(trees.length, 1);
+  assert.ok(
+    trees[0].some(
+      (entry) =>
+        entry.path === "content/documents/home.yml" &&
+        entry.sha === "home-sha" &&
+        entry.mode === "100644"
+    )
+  );
+  assert.ok(
+    trees[0].some(
+      (entry) =>
+        entry.path === "content/documents/archive/note.txt" &&
+        entry.sha === "note-sha"
+    )
+  );
+  assert.ok(
+    trees[0].some(
+      (entry) =>
+        entry.path === "content/pages/home.yml" && entry.sha === null
+    )
+  );
+  assert.ok(
+    trees[0].some(
+      (entry) =>
+        entry.path === "cms.config.yml" &&
+        entry.sha === "next-config-sha"
+    )
+  );
+  assert.equal(
+    calls.filter(
+      (call) => call.method === "POST" && call.path.endsWith("/git/blobs")
+    ).length,
+    1
+  );
+  assert.ok(
+    calls.some(
+      (call) =>
+        call.method === "POST" &&
+        call.path.endsWith("/git/blobs") &&
+        call.body.encoding === "utf-8" &&
+        /folder: content\/documents/.test(call.body.content)
+    )
+  );
+  assert.equal(
+    calls.filter(
+      (call) => call.method === "PATCH" && call.path.includes("/git/refs/")
+    ).length,
+    1
+  );
+});
+
+test("rejects collection folder destination collisions before Git writes", async () => {
+  const treeEntries = [
+    { path: "cms.config.yml", mode: "100644", type: "blob", sha: "config-sha" },
+    { path: "content/pages/home.yml", mode: "100644", type: "blob", sha: "home-sha" },
+    { path: "content/documents/taken.yml", mode: "100644", type: "blob", sha: "taken-sha" }
+  ];
+  const { adapter, calls, trees } = makeGitHubFixture({ treeEntries });
+  const config = structuredClone(await adapter.config());
+  config.collections.pages.folder = "content/documents";
+
+  await assert.rejects(adapter.saveConfig(config), /destination conflicts/);
+  assert.equal(trees.length, 0);
+  assert.equal(
+    calls.filter((call) => ["POST", "PATCH"].includes(call.method)).length,
+    0
+  );
+});
+
+test("moves an empty GitHub collection with a config-only commit", async () => {
+  const { adapter, trees } = makeGitHubFixture({
+    treeEntries: [
+      { path: "cms.config.yml", mode: "100644", type: "blob", sha: "config-sha" }
+    ]
+  });
+  const config = structuredClone(await adapter.config());
+  config.collections.pages.folder = "content/empty-pages";
+
+  await adapter.saveConfig(config);
+  assert.equal(trees.length, 1);
+  assert.deepEqual(trees[0].map((entry) => entry.path), ["cms.config.yml"]);
+});
+
+test("rejects a stale config-only save before creating Git objects", async () => {
+  const { adapter, calls, trees } = makeGitHubFixture({
+    treeEntries: [
+      {
+        path: "cms.config.yml",
+        mode: "100644",
+        type: "blob",
+        sha: "newer-config-sha"
+      }
+    ]
+  });
+  const config = structuredClone(await adapter.config());
+  config.site.name = "Stale edit";
+
+  await assert.rejects(
+    adapter.saveConfig(config),
+    (error) => error.status === 409 && /configuration changed/.test(error.message)
+  );
+  assert.equal(trees.length, 0);
+  assert.equal(
+    calls.filter((call) => ["POST", "PATCH"].includes(call.method)).length,
+    0
+  );
+});
+
+test("rejects a stale collection folder move before creating Git objects", async () => {
+  const { adapter, calls, trees } = makeGitHubFixture({
+    treeEntries: [
+      {
+        path: "cms.config.yml",
+        mode: "100644",
+        type: "blob",
+        sha: "newer-config-sha"
+      },
+      {
+        path: "content/pages/home.yml",
+        mode: "100644",
+        type: "blob",
+        sha: "home-sha"
+      }
+    ]
+  });
+  const config = structuredClone(await adapter.config());
+  config.collections.pages.folder = "content/documents";
+
+  await assert.rejects(
+    adapter.saveConfig(config),
+    (error) => error.status === 409 && /configuration changed/.test(error.message)
+  );
+  assert.equal(trees.length, 0);
+  assert.equal(
+    calls.filter((call) => ["POST", "PATCH"].includes(call.method)).length,
+    0
   );
 });
 
@@ -344,6 +589,8 @@ test("keeps direct GitHub connector tokens in its established storage", async ()
     data: 'authorization:github:success:{"token":"github-token","provider":"github"}'
   });
   assert.equal((await login).token, "github-token");
+  assert.equal(popup.closed, true);
+  assert.equal(messageListener, null);
   assert.equal(auth.getToken(), "github-token");
   assert.equal(
     values.get("minicms:github:signalwerk/example:token"),

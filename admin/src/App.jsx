@@ -89,6 +89,7 @@ import {
   Spinner
 } from "./components/Common/Common.jsx";
 import { ConfirmationDialog, InsertionDialog } from "./components/Dialogs/Dialogs.jsx";
+import { DeploymentControl } from "./components/DeploymentControl/DeploymentControl.jsx";
 import { Inspector } from "./components/Inspector/Inspector.jsx";
 import { Preview } from "./components/Preview/Preview.jsx";
 import { CollectionTree, ContentTree } from "./components/Trees/Trees.jsx";
@@ -101,6 +102,10 @@ export default function App({ PreviewComponent = null }) {
     login: loginAdapter,
     logout: logoutAdapter
   } = useAdapterContext();
+  const deployment = api.deployment;
+  const [skipDeployments, setSkipDeployments] = useState(
+    () => deployment?.skip === true
+  );
   const [config, setConfig] = useState(null);
   const [activeCollection, setActiveCollection] = useState("");
   const [items, setItems] = useState([]);
@@ -251,6 +256,23 @@ export default function App({ PreviewComponent = null }) {
       tableSurface === "preview" &&
       record
   );
+
+  async function updateSkipDeployments(value) {
+    if (!deployment?.supportsSkip) return;
+    const next = value === true;
+    setError("");
+    try {
+      await deployment.setSkip(next);
+      setSkipDeployments(deployment.skip === true);
+      showToast(next ? "Deployments skipped" : "Deployments resumed");
+    } catch (deploymentError) {
+      setSkipDeployments(deployment.skip === true);
+      setError(
+        `Could not update deployment setting: ${deploymentError.message || deploymentError}`
+      );
+      throw deploymentError;
+    }
+  }
 
   const showToast = useCallback((message) => {
     setToast(message);
@@ -664,6 +686,38 @@ export default function App({ PreviewComponent = null }) {
   }, [layoutPreferences]);
 
   useEffect(() => {
+    if (!deployment?.supportsSkip || !deployment.storageKey) return undefined;
+    let active = true;
+
+    async function synchronizeDeploymentPreference(event) {
+      try {
+        if (event.storageArea && event.storageArea !== window.localStorage) return;
+      } catch {
+        return;
+      }
+      if (event.key !== null && event.key !== deployment.storageKey) return;
+      const next = event.newValue === "true";
+      try {
+        await deployment.setSkip(next, { resume: false, persist: false });
+        if (active) setSkipDeployments(deployment.skip === true);
+      } catch (deploymentError) {
+        if (active) {
+          setSkipDeployments(deployment.skip === true);
+          setError(
+            `Could not synchronize deployment setting: ${deploymentError.message || deploymentError}`
+          );
+        }
+      }
+    }
+
+    window.addEventListener("storage", synchronizeDeploymentPreference);
+    return () => {
+      active = false;
+      window.removeEventListener("storage", synchronizeDeploymentPreference);
+    };
+  }, [deployment]);
+
+  useEffect(() => {
     function fitToViewport() {
       setLayoutPreferences((current) => {
         const viewportWidth =
@@ -976,8 +1030,8 @@ export default function App({ PreviewComponent = null }) {
     showToast
   ]);
 
-  async function saveConfiguration(nextConfig) {
-    const result = await api.saveConfig(nextConfig);
+  async function saveConfiguration(nextConfig, options) {
+    const result = await api.saveConfig(nextConfig, options);
     setConfig(result.config);
     const nextCollection =
       result.config.collections?.[activeCollection]
@@ -2055,17 +2109,25 @@ export default function App({ PreviewComponent = null }) {
             <i />
             {dirty ? "Unsaved changes" : "All changes saved"}
           </span>
-          <button
-            type="button"
-            className="button button--save"
-            aria-keyshortcuts="Control+S Meta+S"
-            title="Save (Command/Ctrl+S)"
-            onClick={saveRecord}
-            disabled={!record || !dirty || saving}
-          >
-            {saving ? <Spinner small /> : dirty ? <Save size={15} /> : <Check size={15} />}
-            {saving ? "Saving" : "Save"}
-          </button>
+          <div className="save-actions">
+            <button
+              type="button"
+              className="button button--save"
+              aria-keyshortcuts="Control+S Meta+S"
+              title="Save (Command/Ctrl+S)"
+              onClick={saveRecord}
+              disabled={!record || !dirty || saving}
+            >
+              {saving ? <Spinner small /> : dirty ? <Save size={15} /> : <Check size={15} />}
+              {saving ? "Saving" : "Save"}
+            </button>
+            {deployment?.supportsSkip && (
+              <DeploymentControl
+                active={skipDeployments}
+                onChange={updateSkipDeployments}
+              />
+            )}
+          </div>
           <button
             type="button"
             className={cx(
@@ -2454,6 +2516,14 @@ export default function App({ PreviewComponent = null }) {
           config={config}
           onClose={() => setSettingsOpen(false)}
           onSave={saveConfiguration}
+          deploymentControl={
+            deployment?.supportsSkip
+              ? {
+                  active: skipDeployments,
+                  onChange: updateSkipDeployments
+                }
+              : null
+          }
         />
       )}
 

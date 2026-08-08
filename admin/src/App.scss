@@ -107,6 +107,12 @@
   box-shadow: 0 0 0 3px rgb(244 188 66 / 10%);
 }
 
+.save-actions {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
 
 .adapter-account {
   @extend %type-consulting;

@@ -924,8 +924,55 @@ function validateConfig(config, status = 500, { source = false } = {}) {
     }
   }
 
-  const mediaFolder = config.site?.media_folder || "content/media";
-  assertContentPath(mediaFolder, "site.media_folder", status);
+  const collectionFoldersByConnector = new Map();
+  for (const [collectionName, collection] of Object.entries(
+    config.collections
+  )) {
+    if (source && Object.hasOwn(collection, "remote_collection")) continue;
+    const connector = collection.connector || "default";
+    const folder = assertContentPath(
+      collection.folder,
+      `Collection "${collectionName}" folder`,
+      status
+    );
+    if (folder === "content") {
+      fail(`Collection "${collectionName}" folder must be below content/.`);
+    }
+    const configured = collectionFoldersByConnector.get(connector) ?? [];
+    for (const existing of configured) {
+      if (
+        folder === existing.folder ||
+        folder.startsWith(`${existing.folder}/`) ||
+        existing.folder.startsWith(`${folder}/`)
+      ) {
+        fail(
+          `Collection "${collectionName}" folder overlaps collection "${existing.name}" folder on connector "${connector}".`
+        );
+      }
+    }
+    configured.push({ name: collectionName, folder });
+    collectionFoldersByConnector.set(connector, configured);
+  }
+
+  const mediaFolder = assertContentPath(
+    config.site?.media_folder || "content/media",
+    "site.media_folder",
+    status
+  );
+  if (mediaFolder === "content") {
+    fail("site.media_folder must be below content/.");
+  }
+  for (const collection of collectionFoldersByConnector.get("default") ?? []) {
+    if (
+      mediaFolder === collection.folder ||
+      mediaFolder.startsWith(`${collection.folder}/`) ||
+      collection.folder.startsWith(`${mediaFolder}/`)
+    ) {
+      fail(
+        `site.media_folder overlaps collection "${collection.name}" folder.`
+      );
+    }
+  }
   const imageCache = config.site?.image_processing?.cache;
   if (isMapping(imageCache)) {
     delete imageCache.strategy;
