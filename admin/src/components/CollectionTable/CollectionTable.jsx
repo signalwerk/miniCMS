@@ -13,7 +13,10 @@ import "./CollectionTable.scss";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import { cx, typeField, typeFields } from "../../model/editor.js";
 import { imageSource } from "../../model/image.js";
-import { normalizeReferenceValue } from "../../model/reference.js";
+import {
+  normalizeReferenceValue,
+  normalizeReferenceValues
+} from "../../model/reference.js";
 import {
   SYSTEM_FIELD_DEFINITIONS,
   displayValue
@@ -66,9 +69,10 @@ function sortableTableValue(item, fieldName, nodeTypes, collection) {
     { field: fieldName },
     nodeTypes
   );
-  return field.widget === "reference"
-    ? normalizeReferenceValue(value).ref
-    : value;
+  if (field.widget !== "reference") return value;
+  return field.multiple === true
+    ? normalizeReferenceValues(value).map(String).join(", ")
+    : normalizeReferenceValue(value).ref;
 }
 
 function TableCell({
@@ -85,7 +89,8 @@ function TableCell({
   const formatted = displayValue(value, field);
   const structuredReference =
     field.widget === "reference" &&
-    ((Array.isArray(field.selections) && field.selections.length > 0) ||
+    (field.multiple === true ||
+      (Array.isArray(field.selections) && field.selections.length > 0) ||
       (value && typeof value === "object"));
   const editable =
     column.mode === "edit" &&

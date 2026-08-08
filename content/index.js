@@ -392,6 +392,13 @@ function createContentAdapter({
     );
   }
 
+  async function resolvedReferences(field, value, ancestors) {
+    if (!Array.isArray(value)) return [];
+    return Promise.all(
+      value.map((reference) => resolvedReference(field, reference, ancestors))
+    );
+  }
+
   async function resolvedMarkdown(field, value, ancestors) {
     const markdown = typeof value === "string" ? value : String(value ?? "");
     const collectionName = field.blocknote.inline_reference.collection;
@@ -456,11 +463,9 @@ function createContentAdapter({
     for (const [name, value] of Object.entries(properties)) {
       const field = fields[name];
       if (field?.widget === "reference") {
-        resolvedProperties[name] = await resolvedReference(
-          field,
-          value,
-          ancestors
-        );
+        resolvedProperties[name] = field.multiple === true
+          ? await resolvedReferences(field, value, ancestors)
+          : await resolvedReference(field, value, ancestors);
       } else if (field?.widget === "tags") {
         resolvedProperties[name] = await resolvedTags(field, value, ancestors);
       } else if (

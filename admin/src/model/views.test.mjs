@@ -146,6 +146,16 @@ test("displays structured reference values by their target reference", () => {
   assert.equal(displayValue(false, { widget: "reference" }), "false");
 });
 
+test("displays multiple references in their stored order", () => {
+  const field = { widget: "reference", multiple: true };
+  assert.equal(
+    displayValue(["second", "first", "second"], field),
+    "second, first"
+  );
+  assert.equal(displayValue([], field), "—");
+  assert.equal(displayValue("first", field), "—");
+});
+
 test("displays tag ID arrays without coercing them to editor strings", () => {
   assert.equal(
     displayValue(["aaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbb"], { widget: "tags" }),

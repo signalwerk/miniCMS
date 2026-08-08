@@ -96,6 +96,16 @@ function isMapping(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isReferenceScalar(value) {
+  return ["string", "number", "boolean"].includes(typeof value);
+}
+
+function referenceScalarKey(value) {
+  return isReferenceScalar(value) && value !== ""
+    ? `${typeof value}:${String(value)}`
+    : null;
+}
+
 function isWebUrl(value) {
   if (typeof value !== "string" || !value) return false;
   try {
@@ -636,6 +646,28 @@ function validateConfig(config, status = 500, { source = false } = {}) {
         fail(
           `Field "${typeName}.${fieldName}" required must be true when configured.`
         );
+      }
+      if (field.multiple === false) {
+        delete field.multiple;
+      } else if (
+        field.multiple !== undefined &&
+        (field.widget !== "reference" || field.multiple !== true)
+      ) {
+        fail(
+          `Field "${typeName}.${fieldName}" multiple must be true only for a reference widget.`
+        );
+      }
+      if (field.widget === "reference" && field.multiple === true) {
+        if (field.default !== undefined) {
+          fail(
+            `Multiple reference field "${typeName}.${fieldName}" cannot define a default.`
+          );
+        }
+        if (field.selections !== undefined) {
+          fail(
+            `Multiple reference field "${typeName}.${fieldName}" cannot define selections.`
+          );
+        }
       }
       if (field.widget === "uuid") field.widget = "id";
       if (field.blocknote !== undefined && field.widget !== "markdown") {
@@ -1399,6 +1431,23 @@ function validateRecord(record, collection, config, status = 400) {
           status,
           `Tags field "${node.type}.${fieldName}" must contain an array of unique generated IDs.`
         );
+      }
+      if (field.widget === "reference" && field.multiple === true) {
+        const seenReferences = new Set();
+        if (
+          !Array.isArray(value) ||
+          value.some((reference) => {
+            const key = referenceScalarKey(reference);
+            if (key === null || seenReferences.has(key)) return true;
+            seenReferences.add(key);
+            return false;
+          })
+        ) {
+          throw contentError(
+            status,
+            `Multiple reference field "${node.type}.${fieldName}" must contain an array of unique non-empty scalar values.`
+          );
+        }
       }
       if (
         field.widget === "url" &&

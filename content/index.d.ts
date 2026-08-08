@@ -48,6 +48,9 @@ export interface ResolvedReference<T extends ContentRecord = ContentRecord> {
   selections: Record<string, ResolvedSelection>;
 }
 
+export type ResolvedReferences<T extends ContentRecord = ContentRecord> =
+  ResolvedReference<T>[];
+
 export interface ResolvedMarkdownReference<
   T extends ContentRecord = ContentRecord
 > {

@@ -110,12 +110,25 @@ test("keeps selects optional by default until an option is chosen", () => {
   );
 });
 
-test("gives every tags field a fresh array default", () => {
+test("gives every array-valued relation field a fresh empty default", () => {
   const first = defaultFieldValue({ widget: "tags" });
   const second = defaultFieldValue({ widget: "tags" });
   assert.deepEqual(first, []);
   assert.deepEqual(second, []);
   assert.notEqual(first, second);
+
+  const multipleFirst = defaultFieldValue({
+    widget: "reference",
+    multiple: true
+  });
+  const multipleSecond = defaultFieldValue({
+    widget: "reference",
+    multiple: true,
+    default: ["ignored"]
+  });
+  assert.deepEqual(multipleFirst, []);
+  assert.deepEqual(multipleSecond, []);
+  assert.notEqual(multipleFirst, multipleSecond);
 });
 
 test("filters reference choices by configured record types", () => {

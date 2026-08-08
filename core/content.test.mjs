@@ -391,6 +391,64 @@ test("keeps fields optional by default and omits explicit false", () => {
   );
 });
 
+test("validates and normalizes multiple reference configuration", () => {
+  const config = fixtureConfig();
+  config.node_types.page.fields.authors = {
+    widget: "reference",
+    collection: "pages",
+    multiple: true
+  };
+  config.node_types.page.fields.related = {
+    widget: "reference",
+    collection: "pages",
+    multiple: false
+  };
+
+  const validated = validateConfig(config);
+  assert.equal(validated.node_types.page.fields.authors.multiple, true);
+  assert.equal(
+    Object.hasOwn(validated.node_types.page.fields.related, "multiple"),
+    false
+  );
+
+  for (const [configure, message] of [
+    [
+      (field) => {
+        field.multiple = "yes";
+      },
+      /multiple must be true only for a reference widget/
+    ],
+    [
+      (field) => {
+        field.widget = "string";
+        delete field.collection;
+      },
+      /multiple must be true only for a reference widget/
+    ],
+    [
+      (field) => {
+        field.default = [];
+      },
+      /cannot define a default/
+    ],
+    [
+      (field) => {
+        field.selections = [];
+      },
+      /cannot define selections/
+    ]
+  ]) {
+    const invalid = fixtureConfig();
+    invalid.node_types.page.fields.authors = {
+      widget: "reference",
+      collection: "pages",
+      multiple: true
+    };
+    configure(invalid.node_types.page.fields.authors);
+    assert.throws(() => validateConfig(invalid, 400), message);
+  }
+});
+
 test("validates markdown BlockNote inline reference configuration", () => {
   const config = fixtureConfig();
   config.node_types.page.fields.body = {
@@ -762,6 +820,55 @@ test("requires persisted tag values to be unique generated-ID arrays", () => {
           config
         ),
       /array of unique generated IDs/
+    );
+  }
+});
+
+test("requires persisted multiple references to be unique scalar arrays", () => {
+  const config = fixtureConfig();
+  config.node_types.page.fields.authors = {
+    widget: "reference",
+    collection: "pages",
+    multiple: true
+  };
+  validateConfig(config);
+  const collection = { name: "pages", ...config.collections.pages };
+  const record = {
+    id: "home",
+    type: "page",
+    order: 0,
+    properties: {
+      authors: ["first", 0, false, "0"]
+    },
+    slots: {}
+  };
+
+  assert.equal(validateRecord(record, collection, config), record);
+  assert.equal(
+    validateRecord(
+      { ...record, properties: { authors: [] } },
+      collection,
+      config
+    ).properties.authors.length,
+    0
+  );
+
+  for (const authors of [
+    "first",
+    [""],
+    [null],
+    [{ ref: "first" }],
+    ["first", "first"],
+    [false, false]
+  ]) {
+    assert.throws(
+      () =>
+        validateRecord(
+          { ...record, properties: { authors } },
+          collection,
+          config
+        ),
+      /array of unique non-empty scalar values/
     );
   }
 });

@@ -24,6 +24,49 @@ function hasReferenceValue(value) {
   return isReferenceScalar(value) && value !== "";
 }
 
+function referenceScalarKey(value) {
+  return hasReferenceValue(value)
+    ? `${typeof value}:${String(value)}`
+    : null;
+}
+
+function normalizeReferenceValues(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value.filter((reference) => {
+    const key = referenceScalarKey(reference);
+    if (key === null || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function referenceValuesAfterAdd(value, nextReference) {
+  const references = normalizeReferenceValues(value);
+  const nextKey = referenceScalarKey(nextReference);
+  if (
+    nextKey === null ||
+    references.some((reference) => referenceScalarKey(reference) === nextKey)
+  ) {
+    return references;
+  }
+  return [...references, nextReference];
+}
+
+function referenceValuesAfterToggle(value, nextReference) {
+  const references = normalizeReferenceValues(value);
+  const nextKey = referenceScalarKey(nextReference);
+  if (nextKey === null) return references;
+  const selected = references.some(
+    (reference) => referenceScalarKey(reference) === nextKey
+  );
+  return selected
+    ? references.filter(
+        (reference) => referenceScalarKey(reference) !== nextKey
+      )
+    : [...references, nextReference];
+}
+
 function normalizeReferenceValue(value) {
   if (isReferenceScalar(value)) {
     return { ref: value, selections: {} };
@@ -243,6 +286,9 @@ function requiredReferenceFieldHasValue(field, value) {
     return Array.isArray(value) && value.length > 0;
   }
   if (field?.widget === "reference") {
+    if (field.multiple === true) {
+      return normalizeReferenceValues(value).length > 0;
+    }
     return hasReferenceValue(normalizeReferenceValue(value).ref);
   }
   if (field?.widget === "image") {
@@ -681,6 +727,7 @@ export {
   hasReferenceValue,
   matchingReferenceOption,
   normalizeReferenceValue,
+  normalizeReferenceValues,
   normalizedReferenceLabel,
   referenceCreationConfig,
   referenceRecordCreationConfig,
@@ -691,6 +738,8 @@ export {
   referenceSelectionDefinitions,
   referenceSelectionOptions,
   referenceValueAfterSelection,
+  referenceValuesAfterAdd,
+  referenceValuesAfterToggle,
   storeReferencedRecordDraft,
   validateReferencedRecordDraft
 };

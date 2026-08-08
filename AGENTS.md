@@ -292,9 +292,13 @@ decimal degrees. Reference
 presentation belongs to the target collection’s `views.reference` and may
 configure `value`, `image`, `title`, `description`, and target-published
 `selections`. The published mapping defines presentation order; reference
-fields treat their selection-name list as an opt-in set. Values stay
+fields treat their selection-name list as an opt-in set. Singular values stay
 scalar without selections and expand to `{ref, selections}` when needed; read
-both forms through `model/reference.js`. Reference cards resolve a thumbnail
+both forms through `model/reference.js`. A reference may instead set
+`multiple: true`; it then has no configured default or selections and stores an
+ordered, unique array of non-empty string, number, or boolean identities. The
+shared content adapter resolves that value to an array of standard reference
+envelopes in the same order. Reference cards resolve a thumbnail
 only when `views.reference.image` explicitly names a field; image-less targets
 use their collection icon and never interpret the record ID as media.
 Reference fields may limit choices to a target collection subset with
@@ -381,9 +385,10 @@ Collection list layout belongs under `collections.<name>.views.list`.
 Table columns may define read/edit mode, display, appearance, alignment,
 sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 `$storage_path`, `$created_at`, and `$updated_at`.
-Scalar reference table cells retain ordinary inline editing; references that
-enable selections or already contain `{ref, selections}` are inspector-only so
-the structured value cannot be flattened by a text input.
+Scalar reference table cells retain ordinary inline editing; multiple
+references, references that enable selections, and values already containing
+`{ref, selections}` are inspector-only so structured values cannot be flattened
+by a text input.
 Settings keeps Inspector field assignment to field, custom label, and order;
 mode/display/appearance/alignment controls belong to table columns. Runtime
 config parsing retains legacy detail-reference presentation compatibility.

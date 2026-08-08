@@ -251,6 +251,44 @@
   color: #ffaaa4;
 }
 
+.reference-field__multiple {
+  display: grid;
+  gap: 5px;
+}
+
+.reference-field__multiple-item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px;
+  align-items: center;
+}
+
+.reference-field__multiple-item .reference-field__missing {
+  min-height: 58px;
+}
+
+.reference-field__remove {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  color: #85877f;
+  border-radius: 3px;
+}
+
+.reference-field__remove:hover,
+.reference-field__remove:focus-visible {
+  color: #ffaaa4;
+  background: #312422;
+}
+
+.reference-field__remove:focus-visible {
+  outline: 1px solid #824b45;
+  outline-offset: 1px;
+}
+
 .reference-field__selections {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));

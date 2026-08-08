@@ -2,7 +2,8 @@ import { typeField, typeFields } from "./editor.js";
 import { imageSource } from "./image.js";
 import {
   hasReferenceValue,
-  normalizeReferenceValue
+  normalizeReferenceValue,
+  normalizeReferenceValues
 } from "./reference.js";
 
 function displayValue(value, field) {
@@ -11,6 +12,10 @@ function displayValue(value, field) {
     return value.length ? value.map(String).join(", ") : "—";
   }
   if (field.widget === "reference") {
+    if (field.multiple === true) {
+      const references = normalizeReferenceValues(value);
+      return references.length ? references.map(String).join(", ") : "—";
+    }
     const reference = normalizeReferenceValue(value).ref;
     return hasReferenceValue(reference) ? String(reference) : "—";
   }

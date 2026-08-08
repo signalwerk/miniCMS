@@ -37,6 +37,7 @@ import {
   createReferencedRecordDraft,
   hasReferenceValue,
   normalizeReferenceValue,
+  normalizeReferenceValues,
   referenceImageSource,
   referenceItemLabel,
   referenceItemValue,
@@ -45,6 +46,8 @@ import {
   referenceSelectionDefinitions,
   referenceSelectionOptions,
   referenceValueAfterSelection,
+  referenceValuesAfterAdd,
+  referenceValuesAfterToggle,
   storeReferencedRecordDraft
 } from "../../model/reference.js";
 import { fieldIsVisible } from "../../model/views.js";
@@ -109,8 +112,12 @@ function ReferenceField({
     (collection) => collection.name === field.collection
   );
   const referenceView = targetCollection?.views?.reference ?? {};
+  const multiple = field.multiple === true;
   const reference = normalizeReferenceValue(value);
-  const hasReference = hasReferenceValue(reference.ref);
+  const references = multiple ? normalizeReferenceValues(value) : [];
+  const hasReference = multiple
+    ? references.length > 0
+    : hasReferenceValue(reference.ref);
   const selectionDefinitions = referenceSelectionDefinitions(
     field,
     targetCollection
@@ -118,6 +125,7 @@ function ReferenceField({
   const ReferenceIcon = iconFor(targetCollection?.icon, FilesIcon);
   const singularLabel =
     targetCollection?.label_singular?.toLowerCase() || "item";
+  const pluralLabel = targetCollection?.label?.toLowerCase() || "items";
   const dialogId = useId();
   const backdropRef = useRef(null);
   const dialogRef = useRef(null);
@@ -144,6 +152,10 @@ function ReferenceField({
   const selectedOption = pickerOptions.find(
     (option) => option.value === reference.ref
   );
+  const selectedReferences = references.map((ref) => ({
+    ref,
+    option: pickerOptions.find((option) => option.value === ref)
+  }));
   const selected = selectedOption?.item;
   const creation = referenceRecordCreationConfig(targetCollection, nodeTypes, {
     allowedTypes: field.allowed_types
@@ -300,6 +312,10 @@ function ReferenceField({
   }
 
   function chooseReference(option) {
+    if (multiple) {
+      onChange(referenceValuesAfterToggle(value, option.value));
+      return;
+    }
     onChange(referenceValueAfterSelection(value, option.value));
     resetPicker();
   }
@@ -335,7 +351,12 @@ function ReferenceField({
         optionForItem
       });
       setItems(result.items);
-      chooseReference(result.option);
+      if (multiple) {
+        onChange(referenceValuesAfterAdd(value, result.option.value));
+        resetPicker();
+      } else {
+        chooseReference(result.option);
+      }
     } catch (createError) {
       setCreateError(
         createError?.message || "The referenced item could not be created."
@@ -376,7 +397,42 @@ function ReferenceField({
 
   return (
     <div className="reference-field">
-      {selected ? (
+      {multiple && selectedReferences.length ? (
+        <div className="reference-field__multiple">
+          {selectedReferences.map(({ ref, option }) => (
+            <div
+              className="reference-field__multiple-item"
+              key={`${typeof ref}:${String(ref)}`}
+            >
+              {option ? (
+                <ReferenceCard
+                  item={option.item}
+                  view={referenceView}
+                  collection={targetCollection}
+                  compact
+                />
+              ) : (
+                <div className="reference-field__missing">
+                  <CircleAlert size={15} />
+                  Missing reference <code>{String(ref)}</code>
+                </div>
+              )}
+              <button
+                type="button"
+                className="reference-field__remove"
+                aria-label={`Remove ${option?.label || String(ref)}`}
+                onClick={() =>
+                  onChange(referenceValuesAfterToggle(value, ref))
+                }
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : multiple ? (
+        <div className="reference-field__empty">No {pluralLabel} selected</div>
+      ) : selected ? (
         <ReferenceCard
           item={selected}
           view={referenceView}
@@ -391,7 +447,7 @@ function ReferenceField({
       ) : (
         <div className="reference-field__empty">No {singularLabel} selected</div>
       )}
-      {selected && selectionDefinitions.length > 0 && (
+      {!multiple && selected && selectionDefinitions.length > 0 && (
         <div className="reference-field__selections">
           {selectionDefinitions.map((definition) => {
             const selectedValue = reference.selections[definition.name];
@@ -418,11 +474,13 @@ function ReferenceField({
           onClick={openPicker}
         >
           <Search size={14} />
-          {hasReference
-            ? `Change ${singularLabel}`
-            : `Choose ${singularLabel}`}
+          {multiple
+            ? `Choose ${pluralLabel}`
+            : hasReference
+              ? `Change ${singularLabel}`
+              : `Choose ${singularLabel}`}
         </button>
-        {selected && selectionDefinitions.length > 0 && (
+        {!multiple && selected && selectionDefinitions.length > 0 && (
           <button
             type="button"
             className="button button--secondary"
@@ -436,9 +494,9 @@ function ReferenceField({
           <button
             type="button"
             className="button button--secondary"
-            onClick={() => onChange("")}
+            onClick={() => onChange(multiple ? [] : "")}
           >
-            Clear
+            {multiple ? "Clear all" : "Clear"}
           </button>
         )}
       </div>
@@ -493,10 +551,14 @@ function ReferenceField({
               </span>
               <div>
                 <h2 id={`${dialogId}-title`}>
-                  Reference {targetCollection.label_singular}
+                  Reference {multiple
+                    ? targetCollection.label
+                    : targetCollection.label_singular}
                 </h2>
                 <p>
-                  Select an existing {singularLabel} or create a new one.
+                  {multiple
+                    ? `Select existing ${pluralLabel} or create a new ${singularLabel}.`
+                    : `Select an existing ${singularLabel} or create a new one.`}
                 </p>
               </div>
               <button
@@ -588,14 +650,16 @@ function ReferenceField({
                   )}
                   {visibleOptions.map((option) => {
                     const item = option.item;
+                    const optionSelected = multiple
+                      ? references.some((ref) => ref === option.value)
+                      : option.value === reference.ref;
                     return (
                       <button
                         type="button"
                         key={item.id}
                         disabled={creating}
-                        className={cx(
-                          option.value === reference.ref && "is-selected"
-                        )}
+                        className={cx(optionSelected && "is-selected")}
+                        aria-pressed={multiple ? optionSelected : undefined}
                         onClick={() => chooseReference(option)}
                       >
                         <ReferenceCard
@@ -603,7 +667,7 @@ function ReferenceField({
                           view={referenceView}
                           collection={targetCollection}
                         />
-                        {option.value === reference.ref && (
+                        {optionSelected && (
                           <Check size={15} />
                         )}
                       </button>
@@ -621,6 +685,18 @@ function ReferenceField({
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {activeTab === "select" && multiple && (
+              <div className="dialog__footer">
+                <button
+                  type="button"
+                  className="button button--primary"
+                  onClick={closePicker}
+                >
+                  Done
+                </button>
               </div>
             )}
 

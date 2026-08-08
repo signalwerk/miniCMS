@@ -503,6 +503,23 @@ selections; creating or choosing another target clears those target-specific
 selections. This target write is immediate and survives discarding the record
 that contains the reference.
 
+Reference fields may opt into ordered multi-selection:
+
+```yaml
+authors:
+  label: Authors
+  widget: reference
+  collection: authors
+  multiple: true
+```
+
+The stored value is a duplicate-free array of the target collection's normal
+published scalar reference values. The picker keeps existing selections open
+for toggling, can create and append another complete target record, and resolves
+the array to ordered `{ref, record, selections}` envelopes for consumers.
+Multiple references have no configured default or target-specific selections;
+an optional empty value is `[]`.
+
 The `url` widget stores an empty string or an absolute HTTP(S) URL and renders a
 semantic browser URL input; shared validation enforces the same rule. The
 `tags` widget is a multi-relation to a collection. Its YAML value is

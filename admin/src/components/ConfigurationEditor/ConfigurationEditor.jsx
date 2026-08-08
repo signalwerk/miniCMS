@@ -1853,6 +1853,10 @@ function FieldEditor({
     referenceSets,
     inlineReference?.collection
   );
+  const supportsDefault =
+    widget !== "tags" &&
+    !(widget === "reference" && field.multiple === true) &&
+    !isGeneratedIdWidget(widget);
 
   function defaultConditionValue(sourceField) {
     if (sourceField?.default !== undefined) return sourceField.default;
@@ -1931,8 +1935,13 @@ function FieldEditor({
                 delete nextField.value_field;
                 delete nextField.allowed_types;
                 delete nextField.selections;
+                delete nextField.multiple;
               }
-              if (value === "tags" || Array.isArray(nextField.default)) {
+              if (
+                value === "tags" ||
+                nextField.multiple === true ||
+                Array.isArray(nextField.default)
+              ) {
                 delete nextField.default;
               }
               if (!["image", "file"].includes(value)) {
@@ -2102,30 +2111,50 @@ function FieldEditor({
               />
             </FormField>
           )}
-          {widget === "reference" && targetReferenceSelections.length > 0 && (
-            <FormField label="Reference selections" optional>
-              <MultiChoice
-                options={targetReferenceSelections}
-                value={field.selections ?? []}
-                onChange={(value) => onChange((nextField) => {
-                  const current = field.selections ?? [];
-                  const added = value.find((name) => !current.includes(name));
-                  const sourceField = targetReferenceSelectionMap[
-                    added || value[0]
-                  ]?.options?.field;
-                  const compatible = sourceField
-                    ? value.filter(
-                        (name) =>
-                          targetReferenceSelectionMap[name]?.options?.field ===
-                          sourceField
-                      )
-                    : value;
-                  if (compatible.length) nextField.selections = compatible;
-                  else delete nextField.selections;
-                })}
-              />
-            </FormField>
+          {widget === "reference" &&
+            field.multiple !== true &&
+            targetReferenceSelections.length > 0 && (
+              <FormField label="Reference selections" optional>
+                <MultiChoice
+                  options={targetReferenceSelections}
+                  value={field.selections ?? []}
+                  onChange={(value) => onChange((nextField) => {
+                    const current = field.selections ?? [];
+                    const added = value.find((name) => !current.includes(name));
+                    const sourceField = targetReferenceSelectionMap[
+                      added || value[0]
+                    ]?.options?.field;
+                    const compatible = sourceField
+                      ? value.filter(
+                          (name) =>
+                            targetReferenceSelectionMap[name]?.options?.field ===
+                            sourceField
+                        )
+                      : value;
+                    if (compatible.length) nextField.selections = compatible;
+                    else delete nextField.selections;
+                  })}
+                />
+              </FormField>
           )}
+        </div>
+      )}
+      {widget === "reference" && (
+        <div className="configuration-inline-setting">
+          <span><strong>Allow multiple selections</strong></span>
+          <Switch
+            checked={field.multiple === true}
+            label={`${field.label || fieldKey} allow multiple selections`}
+            onChange={(checked) => onChange((nextField) => {
+              if (checked) {
+                nextField.multiple = true;
+                delete nextField.default;
+                delete nextField.selections;
+              } else {
+                delete nextField.multiple;
+              }
+            })}
+          />
         </div>
       )}
       <AdvancedSection
@@ -2248,7 +2277,7 @@ function FieldEditor({
               })}
             </SelectInput>
           </FormField>
-        ) : widget === "tags" ? null : !isGeneratedIdWidget(widget) ? (
+        ) : !supportsDefault ? null : (
           <FormField
             label={
               ["image", "file"].includes(widget)
@@ -2286,7 +2315,7 @@ function FieldEditor({
               })}
             />
           </FormField>
-        ) : null}
+        )}
         {["image", "file"].includes(widget) && (
           <AcceptedFileTypesEditor
             value={

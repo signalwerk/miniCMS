@@ -7,6 +7,7 @@ import {
   createReferencedRecord,
   hasReferenceValue,
   normalizeReferenceValue,
+  normalizeReferenceValues,
   referenceCreationConfig,
   referenceImageSource,
   referenceItemLabel,
@@ -16,6 +17,8 @@ import {
   referenceSelectionDefinitions,
   referenceSelectionOptions,
   referenceValueAfterSelection,
+  referenceValuesAfterAdd,
+  referenceValuesAfterToggle,
   storeReferencedRecordDraft,
   validateReferencedRecordDraft
 } from "./reference.js";
@@ -96,6 +99,37 @@ test("normalizes and compacts scalar and selected reference values", () => {
   });
   assert.equal(compactReferenceValue({ ref: 0, selections: {} }), 0);
   assert.equal(hasReferenceValue(false), true);
+});
+
+test("normalizes, adds, and toggles ordered multiple reference values", () => {
+  assert.deepEqual(
+    normalizeReferenceValues([
+      "first",
+      "",
+      "first",
+      0,
+      false,
+      "0",
+      null,
+      { ref: "ignored" }
+    ]),
+    ["first", 0, false, "0"]
+  );
+  assert.deepEqual(normalizeReferenceValues("first"), []);
+  assert.deepEqual(
+    referenceValuesAfterAdd(["first", "first"], "second"),
+    ["first", "second"]
+  );
+  assert.deepEqual(referenceValuesAfterAdd([0], false), [0, false]);
+  assert.deepEqual(referenceValuesAfterAdd(["first"], ""), ["first"]);
+  assert.deepEqual(
+    referenceValuesAfterToggle(["first", "second"], "first"),
+    ["second"]
+  );
+  assert.deepEqual(
+    referenceValuesAfterToggle(["first"], "second"),
+    ["first", "second"]
+  );
 });
 
 test("resolves reference presentation and target-published selections", () => {
@@ -638,6 +672,13 @@ test("validates only supplied visible required fields with widget-aware emptines
       widget: "reference",
       required: true
     },
+    {
+      name: "contributors",
+      label: "Contributors",
+      widget: "reference",
+      multiple: true,
+      required: true
+    },
     { name: "image", label: "Image", widget: "image", required: true },
     { name: "file", label: "File", widget: "file", required: true }
   ];
@@ -647,6 +688,7 @@ test("validates only supplied visible required fields with widget-aware emptines
       count: 0,
       tags: [],
       related: { ref: "", selections: { crop: "ignored" } },
+      contributors: [],
       image: { src: "", regions: [{ id: "abcdefghijklmno" }] },
       file: "",
       hidden_required: ""
@@ -658,6 +700,7 @@ test("validates only supplied visible required fields with widget-aware emptines
     errors: {
       tags: "Tags is required.",
       related: "Related item is required.",
+      contributors: "Contributors is required.",
       image: "Image is required.",
       file: "File is required."
     }
@@ -669,6 +712,7 @@ test("validates only supplied visible required fields with widget-aware emptines
       ...draft.properties,
       tags: ["abc123def456ghi"],
       related: false,
+      contributors: [false],
       image: { src: "/media/image.jpg" },
       file: { path: "/media/document.pdf" }
     }

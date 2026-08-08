@@ -532,7 +532,10 @@ function referenceItemsForField(items, field) {
 }
 
 function defaultFieldValue(field, generateId = false) {
-  if (field.widget === "tags") {
+  if (
+    field.widget === "tags" ||
+    (field.widget === "reference" && field.multiple === true)
+  ) {
     return [];
   }
   let value = field.default;

@@ -27,6 +27,11 @@ const config = {
           collection: "images",
           value_field: "title"
         },
+        gallery: {
+          widget: "reference",
+          collection: "images",
+          multiple: true
+        },
         missing: { widget: "reference", collection: "images" },
         peer: {
           widget: "reference",
@@ -140,6 +145,7 @@ const home = {
     },
     hero_by_id: "hero-file",
     hero_by_title: "Hero",
+    gallery: ["missing-uuid", "hero-uuid"],
     missing: {
       ref: "missing-uuid",
       selections: { crop: "missing-crop" }
@@ -243,6 +249,17 @@ test("returns one stable data envelope with deeply resolved content", async () =
   assert.equal(data.item.properties.hero_by_id.record.id, "hero-file");
   assert.deepEqual(data.item.properties.hero_by_id.selections, {});
   assert.equal(data.item.properties.hero_by_title.record.id, "hero-file");
+  assert.deepEqual(
+    data.item.properties.gallery.map(({ ref, record, selections }) => ({
+      ref,
+      record: record?.id ?? null,
+      selections
+    })),
+    [
+      { ref: "missing-uuid", record: null, selections: {} },
+      { ref: "hero-uuid", record: "hero-file", selections: {} }
+    ]
+  );
   assert.deepEqual(data.item.properties.missing, {
     ref: "missing-uuid",
     record: null,
