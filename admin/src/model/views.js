@@ -3,11 +3,60 @@ import { imageSource } from "./image.js";
 import {
   hasReferenceValue,
   normalizeReferenceValue,
-  normalizeReferenceValues
+  normalizeReferenceValues,
+  referencePickerOption
 } from "./reference.js";
 
-function displayValue(value, field) {
+function relationValueKey(value) {
+  return ["string", "number", "boolean"].includes(typeof value) &&
+    value !== ""
+    ? `${typeof value}:${String(value)}`
+    : null;
+}
+
+function tableRelationOptions(field, collection, items) {
+  const options = new Map();
+  if (!field || !["reference", "tags"].includes(field.widget)) {
+    return options;
+  }
+  for (const item of Array.isArray(items) ? items : []) {
+    const option = referencePickerOption(item, field, collection);
+    const key = relationValueKey(option?.value);
+    if (key && !options.has(key)) options.set(key, option);
+  }
+  return options;
+}
+
+function relationDisplayValue(value, field, presentation) {
+  const references = field.widget === "tags"
+    ? Array.isArray(value)
+      ? value
+      : []
+    : field.multiple === true
+      ? normalizeReferenceValues(value)
+      : [normalizeReferenceValue(value).ref].filter(hasReferenceValue);
+  if (!references.length) return "—";
+
+  const missingLabel = field.widget === "tags"
+    ? "Missing tag"
+    : "Missing reference";
+  return references
+    .map((reference) => {
+      const option = presentation.options.get(relationValueKey(reference));
+      if (option) return option.label;
+      return presentation.loading ? "…" : missingLabel;
+    })
+    .join(", ");
+}
+
+function displayValue(value, field, relationPresentation) {
   if (value === null || value === undefined || value === "") return "—";
+  if (
+    relationPresentation !== undefined &&
+    ["reference", "tags"].includes(field.widget)
+  ) {
+    return relationDisplayValue(value, field, relationPresentation);
+  }
   if (field.widget === "tags" && Array.isArray(value)) {
     return value.length ? value.map(String).join(", ") : "—";
   }
@@ -40,6 +89,16 @@ function displayValue(value, field) {
     if (option && typeof option === "object") return option.label;
   }
   return String(value);
+}
+
+function externalHttpUrl(value) {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
 }
 
 function systemFieldValue(name, record, collection, item) {
@@ -181,8 +240,11 @@ export {
   SYSTEM_FIELD_DEFINITIONS,
   detailField,
   displayValue,
+  externalHttpUrl,
   fieldIsVisible,
   groupsForPanel,
   panelsFor,
+  relationValueKey,
+  tableRelationOptions,
   systemFieldValue
 };

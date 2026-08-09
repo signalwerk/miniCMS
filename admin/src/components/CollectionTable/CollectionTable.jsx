@@ -14,14 +14,20 @@ import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import { cx, typeField, typeFields } from "../../model/editor.js";
 import { imageSource } from "../../model/image.js";
 import {
-  normalizeReferenceValue,
-  normalizeReferenceValues
+  hasReferenceValue,
+  normalizeReferenceValue
 } from "../../model/reference.js";
 import {
   SYSTEM_FIELD_DEFINITIONS,
-  displayValue
+  displayValue,
+  relationValueKey,
+  tableRelationOptions
 } from "../../model/views.js";
-import { EmptyState, Spinner } from "../Common/Common.jsx";
+import {
+  EmptyState,
+  ExternalUrlLink,
+  Spinner
+} from "../Common/Common.jsx";
 
 function getTableValue(item, fieldName, collection) {
   if (!fieldName) return "";
@@ -55,24 +61,58 @@ function configuredTableField(item, column, nodeTypes) {
   return { ...base, ...column };
 }
 
-function formatTableValue(item, column, nodeTypes, collection) {
+function relationFieldKey(field) {
+  return JSON.stringify([
+    field.widget,
+    field.collection || "",
+    field.value_field || "",
+    field.allowed_types ?? []
+  ]);
+}
+
+function relationPresentationForField(field, presentations) {
+  if (!["reference", "tags"].includes(field.widget)) return undefined;
+  return presentations?.get(relationFieldKey(field)) ?? {
+    options: new Map(),
+    loading: true
+  };
+}
+
+function formatTableValue(
+  item,
+  column,
+  nodeTypes,
+  collection,
+  relationPresentations
+) {
+  const field = configuredTableField(item, column, nodeTypes);
   return displayValue(
     getTableValue(item, column.field, collection),
-    configuredTableField(item, column, nodeTypes)
+    field,
+    relationPresentationForField(field, relationPresentations)
   );
 }
 
-function sortableTableValue(item, fieldName, nodeTypes, collection) {
+function sortableTableValue(
+  item,
+  fieldName,
+  nodeTypes,
+  collection,
+  relationPresentations
+) {
   const value = getTableValue(item, fieldName, collection);
   const field = configuredTableField(
     item,
     { field: fieldName },
     nodeTypes
   );
-  if (field.widget !== "reference") return value;
-  return field.multiple === true
-    ? normalizeReferenceValues(value).map(String).join(", ")
-    : normalizeReferenceValue(value).ref;
+  if (!["reference", "tags"].includes(field.widget)) return value;
+  const formatted = displayValue(
+    value,
+    field,
+    relationPresentationForField(field, relationPresentations)
+  );
+  return ["—", "…"].includes(formatted) ? "" : formatted;
 }
 
 function TableCell({
@@ -80,13 +120,18 @@ function TableCell({
   column,
   nodeTypes,
   collection,
+  relationPresentations,
   editing,
   onEdit
 }) {
   const adapter = useAdapter();
   const field = configuredTableField(item, column, nodeTypes);
   const value = getTableValue(item, column.field, collection);
-  const formatted = displayValue(value, field);
+  const relationPresentation = relationPresentationForField(
+    field,
+    relationPresentations
+  );
+  const formatted = displayValue(value, field, relationPresentation);
   const structuredReference =
     field.widget === "reference" &&
     (field.multiple === true ||
@@ -160,6 +205,51 @@ function TableCell({
         <ChevronDown size={13} />
       </div>
     );
+  } else if (editable && field.widget === "reference") {
+    const reference = normalizeReferenceValue(value).ref;
+    const selectedKey = relationValueKey(reference) || "";
+    const options = relationPresentation.options;
+    const selectedOption = options.get(selectedKey);
+    const missingSelection = hasReferenceValue(reference) && !selectedOption;
+    content = (
+      <div className="select-wrap table-cell__select">
+        <select
+          value={selectedKey}
+          aria-label={field.label || field.name}
+          disabled={
+            editing || (relationPresentation.loading && options.size === 0)
+          }
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => {
+            event.stopPropagation();
+            if (!event.target.value) {
+              onEdit(item, column, "");
+              return;
+            }
+            const option = options.get(event.target.value);
+            if (option) onEdit(item, column, option.value);
+          }}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          {(!hasReferenceValue(reference) || field.required !== true) && (
+            <option value="" disabled={field.required === true}>
+              {field.required === true ? "Select…" : "None"}
+            </option>
+          )}
+          {missingSelection && (
+            <option value={selectedKey} disabled>
+              {relationPresentation.loading ? "Loading…" : "Missing reference"}
+            </option>
+          )}
+          {[...options.entries()].map(([key, option]) => (
+            <option key={key} value={key}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown size={13} />
+      </div>
+    );
   } else if (editable) {
     content = (
       <input
@@ -215,6 +305,19 @@ function TableCell({
     content = formatted;
   }
 
+  if (field.widget === "url") {
+    content = (
+      <span className="table-cell__url">
+        <span className="table-cell__url-value">{content}</span>
+        <ExternalUrlLink
+          value={editable ? draftValue : value}
+          label={field.label || field.name || "URL"}
+          className="table-cell__url-action"
+        />
+      </span>
+    );
+  }
+
   return (
     <td
       className={cx(
@@ -230,6 +333,7 @@ function TableCell({
 
 function CollectionTable({
   collection,
+  collections = [],
   items,
   nodeTypes,
   selectedId,
@@ -242,6 +346,7 @@ function CollectionTable({
   onOpenPreview,
   onEdit
 }) {
+  const adapter = useAdapter();
   const listView = collection.views?.list ?? {};
   const columns = useMemo(() => {
     const configured = listView.columns ?? [];
@@ -283,6 +388,154 @@ function CollectionTable({
       ? inferred
       : [{ field: "id", label: "Record ID", sortable: true }];
   }, [collection.node_type, listView.columns, nodeTypes]);
+  const searchFields = useMemo(
+    () =>
+      listView.search?.fields?.length
+        ? listView.search.fields
+        : columns.map((column) => column.field),
+    [columns, listView.search?.fields]
+  );
+  const relationColumns = useMemo(() => {
+    const fields = new Map(columns.map((column) => [column.field, column]));
+    for (const fieldName of [
+      ...searchFields,
+      listView.sort?.field
+    ].filter(Boolean)) {
+      if (!fields.has(fieldName)) fields.set(fieldName, { field: fieldName });
+    }
+    return [...fields.values()];
+  }, [columns, listView.sort?.field, searchFields]);
+  const relationFields = useMemo(() => {
+    const typeNames = new Set([
+      collection.node_type,
+      ...(collection.allowed_types ?? []),
+      ...items.map((item) => item.type)
+    ]);
+    const fields = new Map();
+    for (const typeName of typeNames) {
+      for (const column of relationColumns) {
+        const field = configuredTableField({ type: typeName }, column, nodeTypes);
+        if (
+          ["reference", "tags"].includes(field.widget) &&
+          typeof field.collection === "string" &&
+          field.collection
+        ) {
+          fields.set(relationFieldKey(field), field);
+        }
+      }
+    }
+    return [...fields.values()];
+  }, [
+    collection.allowed_types,
+    collection.node_type,
+    items,
+    nodeTypes,
+    relationColumns
+  ]);
+  const relationTargetNames = useMemo(
+    () => [
+      ...new Set(
+        relationFields
+          .map((field) => field.collection)
+          .filter((name) => name !== collection.name)
+      )
+    ].sort(),
+    [collection.name, relationFields]
+  );
+  const relationTargetKey = JSON.stringify(relationTargetNames);
+  const relationValuesKey = useMemo(
+    () =>
+      JSON.stringify(
+        items.flatMap((item) =>
+          relationColumns.flatMap((column) => {
+            const field = configuredTableField(item, column, nodeTypes);
+            return ["reference", "tags"].includes(field.widget) &&
+              field.collection !== collection.name
+              ? [[
+                  relationFieldKey(field),
+                  getTableValue(item, column.field, collection)
+                ]]
+              : [];
+          })
+        )
+      ),
+    [collection, items, nodeTypes, relationColumns]
+  );
+  const [relationTargets, setRelationTargets] = useState({});
+
+  useEffect(() => {
+    const targetNames = JSON.parse(relationTargetKey);
+    if (!targetNames.length) {
+      setRelationTargets({});
+      return undefined;
+    }
+
+    let cancelled = false;
+    setRelationTargets((current) =>
+      Object.fromEntries(
+        targetNames.map((name) => [
+          name,
+          {
+            items: current[name]?.items ?? [],
+            loading: true
+          }
+        ])
+      )
+    );
+
+    async function loadRelationTargets() {
+      const results = await Promise.all(
+        targetNames.map(async (name) => {
+          try {
+            const result = await adapter.list(name);
+            return { name, items: result.items ?? [], failed: false };
+          } catch {
+            return { name, items: [], failed: true };
+          }
+        })
+      );
+      if (cancelled) return;
+      setRelationTargets((current) =>
+        Object.fromEntries(
+          results.map((result) => [
+            result.name,
+            {
+              items: result.failed
+                ? current[result.name]?.items ?? []
+                : result.items,
+              loading: false
+            }
+          ])
+        )
+      );
+    }
+
+    void loadRelationTargets();
+    return () => {
+      cancelled = true;
+    };
+  }, [adapter, relationTargetKey, relationValuesKey]);
+
+  const relationPresentations = useMemo(() => {
+    const targetCollections = new Map(
+      collections.map((entry) => [entry.name, entry])
+    );
+    const presentations = new Map();
+    for (const field of relationFields) {
+      const targetState = field.collection === collection.name
+        ? { items, loading: false }
+        : relationTargets[field.collection] ?? { items: [], loading: true };
+      presentations.set(relationFieldKey(field), {
+        options: tableRelationOptions(
+          field,
+          targetCollections.get(field.collection),
+          targetState.items
+        ),
+        loading: targetState.loading
+      });
+    }
+    return presentations;
+  }, [collection.name, collections, items, relationFields, relationTargets]);
   const [sort, setSort] = useState(() => {
     const configured = listView.sort;
     return {
@@ -290,9 +543,6 @@ function CollectionTable({
       direction: configured?.direction === "desc" ? "desc" : "asc"
     };
   });
-  const searchFields = listView.search?.fields?.length
-    ? listView.search.fields
-    : columns.map((column) => column.field);
   const tableColumns = columns
     .map((column) => column.width || "minmax(8rem, 1fr)")
     .join(" ");
@@ -310,7 +560,8 @@ function CollectionTable({
                 item,
                 column,
                 nodeTypes,
-                collection
+                collection,
+                relationPresentations
               );
             })
           ];
@@ -325,13 +576,15 @@ function CollectionTable({
         left,
         sort.field,
         nodeTypes,
-        collection
+        collection,
+        relationPresentations
       );
       const rightValue = sortableTableValue(
         right,
         sort.field,
         nodeTypes,
-        collection
+        collection,
+        relationPresentations
       );
       if (leftValue === rightValue) return left.id.localeCompare(right.id);
       if (leftValue === "" || leftValue === null || leftValue === undefined) return 1;
@@ -351,6 +604,7 @@ function CollectionTable({
     items,
     nodeTypes,
     normalizedSearch,
+    relationPresentations,
     searchFields,
     sort
   ]);
@@ -470,6 +724,7 @@ function CollectionTable({
                     column={column}
                     nodeTypes={nodeTypes}
                     collection={collection}
+                    relationPresentations={relationPresentations}
                     editing={editing}
                     onEdit={onEdit}
                   />

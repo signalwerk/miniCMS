@@ -90,6 +90,19 @@
   background: #e9e9e3;
 }
 
+.external-url-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.external-url-link:focus-visible {
+  outline: 2px solid #7790f8;
+  outline-offset: 1px;
+}
+
 
 .layout-resizer {
   position: relative;

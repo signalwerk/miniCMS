@@ -244,7 +244,11 @@ Supported widgets include `string`, `url`, `text`, `markdown`, `select`,
 `id`. The legacy
 `uuid` widget is accepted and normalized to `id` when configuration is loaded.
 URL fields store empty strings or absolute HTTP(S) URLs and use the browser's
-semantic URL input; shared record validation enforces the same contract. A `tags`
+semantic URL input; shared record validation enforces the same contract. Valid
+URL values expose a compact external-link action beside Inspector controls and
+inside read or edit table cells without increasing their height. The native
+anchor opens a new tab and stops table-row click and keyboard propagation;
+empty, malformed, relative, and non-HTTP(S) values expose no action. A `tags`
 field names one target collection and persists an ordered, unique array of its
 opaque generated IDs. The target publishes its generated-ID and string-label
 fields through `views.reference.value` and `views.reference.title`; the shared
@@ -385,10 +389,16 @@ Collection list layout belongs under `collections.<name>.views.list`.
 Table columns may define read/edit mode, display, appearance, alignment,
 sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 `$storage_path`, `$created_at`, and `$updated_at`.
-Scalar reference table cells retain ordinary inline editing; multiple
-references, references that enable selections, and values already containing
-`{ref, selections}` are inspector-only so structured values cannot be flattened
-by a text input.
+Reference and tag table cells resolve their visible text through the target
+collection's configured `views.reference.title`; the same labels drive cell
+tooltips, filtering, and sorting, while missing and loading targets never expose
+stored relation IDs. Editable scalar references use a compact native select
+whose labels follow that configuration and whose values retain their scalar
+types. Multiple references, tags, references that enable selections, and values
+already containing `{ref, selections}` are inspector-only so structured values
+cannot be flattened by a table control. Each distinct target collection is
+loaded once per table state and refreshed when the displayed relation values
+change.
 Settings keeps Inspector field assignment to field, custom label, and order;
 mode/display/appearance/alignment controls belong to table columns. Runtime
 config parsing retains legacy detail-reference presentation compatibility.

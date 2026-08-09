@@ -1,7 +1,8 @@
-import { FileText, LoaderCircle } from "lucide-react";
+import { ExternalLink, FileText, LoaderCircle } from "lucide-react";
 import { useRef } from "react";
 import "./Common.scss";
 import { cx } from "../../model/editor.js";
+import { externalHttpUrl } from "../../model/views.js";
 
 function BrandMark() {
   return (
@@ -15,6 +16,31 @@ function BrandMark() {
 
 function Spinner({ small = false }) {
   return <LoaderCircle className={cx("spinner", small && "spinner--small")} />;
+}
+
+function ExternalUrlLink({ value, label = "URL", className }) {
+  const href = externalHttpUrl(value);
+  if (!href) return null;
+  const accessibleLabel = `Open ${label} in a new tab`;
+
+  return (
+    <a
+      className={cx("external-url-link", className)}
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={accessibleLabel}
+      title={accessibleLabel}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.stopPropagation();
+        }
+      }}
+    >
+      <ExternalLink size={14} aria-hidden="true" />
+    </a>
+  );
 }
 
 function ResizeHandle({ axis, label, onResize }) {
@@ -107,4 +133,11 @@ function MultiSelectionNotice({ count, label, icon: Icon }) {
 }
 
 
-export { BrandMark, EmptyState, MultiSelectionNotice, ResizeHandle, Spinner };
+export {
+  BrandMark,
+  EmptyState,
+  ExternalUrlLink,
+  MultiSelectionNotice,
+  ResizeHandle,
+  Spinner
+};

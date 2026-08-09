@@ -51,7 +51,11 @@ import {
   storeReferencedRecordDraft
 } from "../../model/reference.js";
 import { fieldIsVisible } from "../../model/views.js";
-import { EmptyState, Spinner } from "../Common/Common.jsx";
+import {
+  EmptyState,
+  ExternalUrlLink,
+  Spinner
+} from "../Common/Common.jsx";
 import { AnnotatedImageField } from "./AnnotatedImageField.jsx";
 import { FileUploadField } from "./FileUploadField.jsx";
 import { ReferenceSelectionsDialog } from "./ReferenceSelectionsDialog.jsx";
@@ -946,7 +950,7 @@ function Field({
       />
     );
   } else {
-    control = (
+    const scalarInput = (
       <input
         {...common}
         onChange={
@@ -978,6 +982,16 @@ function Field({
         }
       />
     );
+    control = field.widget === "url" ? (
+      <div className="url-field">
+        {scalarInput}
+        <ExternalUrlLink
+          value={resolvedValue}
+          label={field.label || field.name || "URL"}
+          className="url-field__action"
+        />
+      </div>
+    ) : scalarInput;
   }
 
   return (

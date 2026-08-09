@@ -258,6 +258,41 @@
   box-shadow: 0 0 0 2px rgb(215 255 67 / 6%);
 }
 
+.table-cell__url {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  gap: 5px;
+  align-items: center;
+}
+
+.table-cell__url-value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-cell__url-value > .table-cell__input {
+  min-width: 0;
+}
+
+.table-cell__url-action {
+  width: 29px;
+  height: 29px;
+  color: #92958b;
+  background: #242521;
+  border: 1px solid #41433c;
+  border-radius: 3px;
+}
+
+.table-cell__url-action:hover {
+  color: #e5e6df;
+  background: #30312c;
+  border-color: #55584f;
+}
+
 .table-cell__badge,
 .detail-value__badge {
   @extend %type-consulting;

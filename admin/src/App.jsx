@@ -2176,6 +2176,7 @@ export default function App({ PreviewComponent = null }) {
               <CollectionTable
                 key={collection.name}
                 collection={collection}
+                collections={collections}
                 items={treeItems}
                 nodeTypes={nodeTypes}
                 selectedId={record?.id}

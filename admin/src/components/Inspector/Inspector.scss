@@ -609,6 +609,11 @@ body.inspector-focus-mode-open {
   background: #30312c;
 }
 
+.detail-value__action:focus-visible {
+  outline: 2px solid #7790f8;
+  outline-offset: 1px;
+}
+
 .detail-value__action:disabled {
   color: #55574f;
   background: transparent;

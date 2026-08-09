@@ -13,7 +13,7 @@ import {
   groupsForPanel,
   systemFieldValue
 } from "../../model/views.js";
-import { EmptyState } from "../Common/Common.jsx";
+import { EmptyState, ExternalUrlLink } from "../Common/Common.jsx";
 
 function ReadOnlyDetailField({ field, value, action, collectionName }) {
   const adapter = useAdapter();
@@ -47,6 +47,13 @@ function ReadOnlyDetailField({ field, value, action, collectionName }) {
       <span className="detail-value__label">{field.label || field.name}</span>
       <div className="detail-value__content">
         {content}
+        {field.widget === "url" && (
+          <ExternalUrlLink
+            value={value}
+            label={field.label || field.name || "URL"}
+            className="detail-value__action"
+          />
+        )}
         {action}
       </div>
     </div>

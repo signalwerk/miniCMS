@@ -68,6 +68,34 @@
   line-height: 1.4;
 }
 
+.url-field {
+  display: flex;
+  min-width: 0;
+  gap: 5px;
+  align-items: center;
+}
+
+.url-field input {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+}
+
+.url-field__action {
+  width: 30px;
+  height: 30px;
+  color: #92958b;
+  background: #242521;
+  border: 1px solid #41433c;
+  border-radius: 3px;
+}
+
+.url-field__action:hover {
+  color: #e5e6df;
+  background: #30312c;
+  border-color: #55584f;
+}
+
 .select-wrap {
   position: relative;
 }

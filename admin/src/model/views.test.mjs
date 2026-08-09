@@ -2,10 +2,37 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   displayValue,
+  externalHttpUrl,
   fieldIsVisible,
   groupsForPanel,
-  panelsFor
+  panelsFor,
+  relationValueKey,
+  tableRelationOptions
 } from "./views.js";
+
+test("normalizes only absolute HTTP(S) values for external URL actions", () => {
+  assert.equal(
+    externalHttpUrl("https://example.com/path?q=one#section"),
+    "https://example.com/path?q=one#section"
+  );
+  assert.equal(
+    externalHttpUrl("http://localhost:4321"),
+    "http://localhost:4321/"
+  );
+
+  for (const value of [
+    "",
+    null,
+    undefined,
+    "/relative",
+    "mailto:editor@example.com",
+    "javascript:alert(1)",
+    "data:text/plain,hello",
+    "not a URL"
+  ]) {
+    assert.equal(externalHttpUrl(value), null);
+  }
+});
 
 const type = {
   fields: {
@@ -162,4 +189,145 @@ test("displays tag ID arrays without coercing them to editor strings", () => {
     "aaaaaaaaaaaaaaa, bbbbbbbbbbbbbbb"
   );
   assert.equal(displayValue([], { widget: "tags" }), "—");
+});
+
+test("builds typed table relation options from configured target titles", () => {
+  const targetCollection = {
+    identifier_field: "name",
+    views: {
+      reference: { value: "content_id", title: "display_name" }
+    }
+  };
+  const field = {
+    widget: "reference",
+    collection: "people",
+    value_field: "external_code"
+  };
+  const options = tableRelationOptions(field, targetCollection, [
+    {
+      id: "ada",
+      type: "person",
+      properties: {
+        content_id: "aaaaaaaaaaaaaaa",
+        external_code: 0,
+        display_name: "Ada Lovelace"
+      }
+    },
+    {
+      id: "string-zero",
+      type: "person",
+      properties: {
+        content_id: "bbbbbbbbbbbbbbb",
+        external_code: "0",
+        display_name: "String Zero"
+      }
+    }
+  ]);
+
+  assert.equal(options.get(relationValueKey(0)).label, "Ada Lovelace");
+  assert.equal(options.get(relationValueKey("0")).label, "String Zero");
+  assert.equal(options.has(relationValueKey("aaaaaaaaaaaaaaa")), false);
+});
+
+test("uses the configured tag label instead of its generated ID", () => {
+  const options = tableRelationOptions(
+    { widget: "tags", collection: "tags" },
+    {
+      views: {
+        reference: { value: "content_id", title: "name" }
+      }
+    },
+    [
+      {
+        id: "research",
+        type: "tag",
+        properties: {
+          content_id: "aaaaaaaaaaaaaaa",
+          name: "Research"
+        }
+      }
+    ]
+  );
+
+  assert.equal(
+    options.get(relationValueKey("aaaaaaaaaaaaaaa")).label,
+    "Research"
+  );
+});
+
+test("displays configured labels for table references and tags", () => {
+  const referenceOptions = new Map([
+    [
+      relationValueKey("author-a"),
+      { value: "author-a", label: "Ada Lovelace" }
+    ],
+    [
+      relationValueKey("author-b"),
+      { value: "author-b", label: "Grace Hopper" }
+    ]
+  ]);
+  const tagOptions = new Map([
+    [
+      relationValueKey("aaaaaaaaaaaaaaa"),
+      { value: "aaaaaaaaaaaaaaa", label: "Research" }
+    ],
+    [
+      relationValueKey("bbbbbbbbbbbbbbb"),
+      { value: "bbbbbbbbbbbbbbb", label: "Typography" }
+    ]
+  ]);
+  const readyReferences = { options: referenceOptions, loading: false };
+  const readyTags = { options: tagOptions, loading: false };
+
+  assert.equal(
+    displayValue("author-a", { widget: "reference" }, readyReferences),
+    "Ada Lovelace"
+  );
+  assert.equal(
+    displayValue(
+      { ref: "author-b", selections: { crop: "portrait" } },
+      { widget: "reference" },
+      readyReferences
+    ),
+    "Grace Hopper"
+  );
+  assert.equal(
+    displayValue(
+      ["author-b", "author-a", "author-b"],
+      { widget: "reference", multiple: true },
+      readyReferences
+    ),
+    "Grace Hopper, Ada Lovelace"
+  );
+  assert.equal(
+    displayValue(
+      ["bbbbbbbbbbbbbbb", "aaaaaaaaaaaaaaa"],
+      { widget: "tags" },
+      readyTags
+    ),
+    "Typography, Research"
+  );
+});
+
+test("never exposes relation IDs while table labels load or are missing", () => {
+  const referenceField = { widget: "reference" };
+  const tagField = { widget: "tags" };
+  const loading = { options: new Map(), loading: true };
+  const ready = { options: new Map(), loading: false };
+
+  assert.equal(displayValue("private-id", referenceField, loading), "…");
+  assert.equal(
+    displayValue("private-id", referenceField, ready),
+    "Missing reference"
+  );
+  assert.equal(
+    displayValue(["aaaaaaaaaaaaaaa"], tagField, loading),
+    "…"
+  );
+  assert.equal(
+    displayValue(["aaaaaaaaaaaaaaa"], tagField, ready),
+    "Missing tag"
+  );
+  assert.equal(displayValue("", referenceField, ready), "—");
+  assert.equal(displayValue([], tagField, ready), "—");
 });

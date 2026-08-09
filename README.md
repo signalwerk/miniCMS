@@ -469,6 +469,11 @@ and restores focus. Fine-grained mode, display, appearance, and alignment
 controls belong to table columns; the runtime still reads older detail-field
 presentation configuration.
 
+Reference and tag columns display the target collection's configured
+`views.reference.title`, not the stored relation identity. Those labels also
+drive table filtering and sorting. A scalar reference column in edit mode uses
+the same labeled choices; multiple references and tags remain Inspector-edited.
+
 Fields are optional by default. Omit `required` for optional fields and persist
 only `required: true` when a value is mandatory. Optional select fields start
 empty and retain a `None` option so editors can clear a previous selection.
