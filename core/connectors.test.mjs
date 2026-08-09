@@ -366,6 +366,19 @@ test("plans edited remote schema back to its owning connector", () => {
   }).config;
   effective.node_types.central_gallery.label = "Edited gallery";
   effective.collections.central_galleries.folder = "content/edited-galleries";
+  effective.collections.central_galleries.views.list.quick_filters = {
+    user_created: {
+      abcdefghijklmno: {
+        label: "Named gallery",
+        expression: {
+          mode: "all",
+          children: [
+            { field: "title", operator: "contains", value: "Beowolf" }
+          ]
+        }
+      }
+    }
+  };
 
   const planned = planConfigWrites({
     effectiveConfig: effective,
@@ -390,6 +403,11 @@ test("plans edited remote schema back to its owning connector", () => {
   assert.equal(
     planned.remoteConfigs.central.collections.galleries.folder,
     "content/edited-galleries"
+  );
+  assert.equal(
+    planned.remoteConfigs.central.collections.galleries.views.list
+      .quick_filters.user_created.abcdefghijklmno.label,
+    "Named gallery"
   );
   assert.equal(planned.remoteConfigs.central.site.unrelated, "preserved");
   assert.equal(

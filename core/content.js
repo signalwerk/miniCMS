@@ -85,6 +85,11 @@ const REFERENCE_SELECTION_KINDS = new Set([
   "image_point"
 ]);
 const CONNECTOR_NAMES = new Set(["api", "github"]);
+const FILTER_GROUP_MODES = new Set(["all", "any"]);
+const FILTER_NODE_KEYS = {
+  group: new Set(["mode", "children"]),
+  rule: new Set(["field", "operator", "value"])
+};
 
 function contentError(status, message) {
   const error = new Error(message);
@@ -216,6 +221,165 @@ function validateFieldReference(reference, fields, context, status = 500) {
       status,
       `${context} uses unsupported alignment "${configuration.align}".`
     );
+  }
+}
+
+function validateQuickFilterExpression(expression, context, status = 500) {
+  const active = new WeakSet();
+
+  function fail(message) {
+    throw contentError(status, `${context} ${message}`);
+  }
+
+  function visit(node, path, root = false) {
+    if (!isMapping(node)) fail(`${path} must be a mapping.`);
+    if (active.has(node)) fail(`${path} must not contain a cycle.`);
+    active.add(node);
+
+    const group = Object.hasOwn(node, "children");
+    const rule = Object.hasOwn(node, "field") || Object.hasOwn(node, "operator");
+    if (group === rule) {
+      fail(`${path} must be either a group or a rule.`);
+    }
+
+    if (group) {
+      const extra = Object.keys(node).filter(
+        (key) => !FILTER_NODE_KEYS.group.has(key)
+      );
+      if (extra.length) {
+        fail(`${path} uses unsupported key "${extra[0]}".`);
+      }
+      if (!FILTER_GROUP_MODES.has(node.mode)) {
+        fail(`${path} mode must be "all" or "any".`);
+      }
+      if (!Array.isArray(node.children)) {
+        fail(`${path} children must be an array.`);
+      }
+      if (!node.children.length) {
+        fail(`${path} must contain at least one rule or group.`);
+      }
+      node.children.forEach((child, index) =>
+        visit(child, `${path}.children[${index}]`)
+      );
+    } else {
+      const extra = Object.keys(node).filter(
+        (key) => !FILTER_NODE_KEYS.rule.has(key)
+      );
+      if (extra.length) {
+        fail(`${path} uses unsupported key "${extra[0]}".`);
+      }
+      for (const key of ["field", "operator"]) {
+        if (
+          typeof node[key] !== "string" ||
+          !/^[a-z0-9$][a-z0-9._-]*$/i.test(node[key])
+        ) {
+          fail(`${path} ${key} must be a stable field or operator ID.`);
+        }
+      }
+      if (
+        Object.hasOwn(node, "value") &&
+        node.value !== null &&
+        !["string", "number", "boolean"].includes(typeof node.value)
+      ) {
+        fail(`${path} value must be a scalar.`);
+      }
+    }
+
+    active.delete(node);
+    if (root && !group) fail("expression root must be a group.");
+  }
+
+  visit(expression, "expression", true);
+}
+
+function validateQuickFilters(quickFilters, collectionName, status = 500) {
+  if (quickFilters === undefined) return;
+  if (!isMapping(quickFilters)) {
+    throw contentError(
+      status,
+      `Collection "${collectionName}" quick_filters must be a mapping.`
+    );
+  }
+  const unsupported = Object.keys(quickFilters).filter(
+    (key) => !["built_in", "user_created"].includes(key)
+  );
+  if (unsupported.length) {
+    throw contentError(
+      status,
+      `Collection "${collectionName}" quick_filters uses unsupported key "${unsupported[0]}".`
+    );
+  }
+
+  const names = new Set();
+  const ids = new Set();
+  for (const groupName of ["built_in", "user_created"]) {
+    const filters = quickFilters[groupName];
+    if (filters === undefined) continue;
+    if (!isMapping(filters)) {
+      throw contentError(
+        status,
+        `Collection "${collectionName}" quick_filters.${groupName} must be a mapping.`
+      );
+    }
+    for (const [filterId, quickFilter] of Object.entries(filters)) {
+      const idValid =
+        groupName === "user_created"
+          ? ID_PATTERN.test(filterId)
+          : /^[a-z0-9][a-z0-9_-]*$/i.test(filterId);
+      if (!idValid) {
+        throw contentError(
+          status,
+          `Collection "${collectionName}" quick filter ID "${filterId}" is invalid.`
+        );
+      }
+      if (ids.has(filterId)) {
+        throw contentError(
+          status,
+          `Collection "${collectionName}" quick filter IDs must be unique.`
+        );
+      }
+      ids.add(filterId);
+      if (!isMapping(quickFilter)) {
+        throw contentError(
+          status,
+          `Collection "${collectionName}" quick filter "${filterId}" must be a mapping.`
+        );
+      }
+      const extra = Object.keys(quickFilter).filter(
+        (key) => !["label", "expression"].includes(key)
+      );
+      if (extra.length) {
+        throw contentError(
+          status,
+          `Collection "${collectionName}" quick filter "${filterId}" uses unsupported key "${extra[0]}".`
+        );
+      }
+      if (
+        typeof quickFilter.label !== "string" ||
+        !quickFilter.label.trim()
+      ) {
+        throw contentError(
+          status,
+          `Collection "${collectionName}" quick filter "${filterId}" label must be non-empty.`
+        );
+      }
+      const normalizedName = quickFilter.label
+        .normalize("NFKC")
+        .trim()
+        .toLowerCase();
+      if (names.has(normalizedName)) {
+        throw contentError(
+          status,
+          `Collection "${collectionName}" quick filter labels must be unique.`
+        );
+      }
+      names.add(normalizedName);
+      validateQuickFilterExpression(
+        quickFilter.expression,
+        `Collection "${collectionName}" quick filter "${filterId}"`,
+        status
+      );
+    }
   }
 }
 
@@ -980,6 +1144,7 @@ function validateConfig(config, status = 500, { source = false } = {}) {
         status
       );
     }
+    validateQuickFilters(list?.quick_filters, collectionName, status);
     const referenceView = collection.views?.reference;
     if (referenceView) {
       for (const [name, reference] of [

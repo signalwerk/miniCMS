@@ -311,6 +311,204 @@ test("source validation remains strict for local definitions beside aliases", ()
   );
 });
 
+test("validates quick-filter storage without rejecting stale schema semantics", () => {
+  const config = fixtureConfig();
+  config.collections.pages.views = {
+    list: {
+      type: "table",
+      quick_filters: {
+        built_in: {
+          current: {
+            label: "Current",
+            expression: {
+              mode: "all",
+              children: [
+                {
+                  field: "field_removed_later",
+                  operator: "operator_removed_later",
+                  value: "@days(-30)"
+                }
+              ]
+            }
+          }
+        },
+        user_created: {
+          abcdefghijklmno: {
+            label: "Editorial review",
+            expression: {
+              mode: "any",
+              children: [
+                { field: "title", operator: "contains", value: "Beowolf" },
+                {
+                  mode: "all",
+                  children: [
+                    { field: "$updated_at", operator: "is_not_null" }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  };
+
+  const validated = validateConfig(config, 400);
+  assert.equal(
+    validated.collections.pages.views.list.quick_filters.built_in.current
+      .expression.children[0].value,
+    "@days(-30)"
+  );
+  const roundTripped = parseYaml(dumpYaml(validated));
+  assert.deepEqual(
+    roundTripped.collections.pages.views.list.quick_filters,
+    validated.collections.pages.views.list.quick_filters
+  );
+});
+
+test("rejects malformed quick-filter configuration", () => {
+  function quickFilterConfig() {
+    const config = fixtureConfig();
+    config.collections.pages.views = {
+      list: {
+        type: "table",
+        quick_filters: {
+          user_created: {
+            abcdefghijklmno: {
+              label: "Review",
+              expression: {
+                mode: "all",
+                children: [
+                  { field: "title", operator: "contains", value: "draft" }
+                ]
+              }
+            }
+          }
+        }
+      }
+    };
+    return config;
+  }
+
+  const cases = [
+    [
+      (config) => {
+        config.collections.pages.views.list.quick_filters = [];
+      },
+      /quick_filters must be a mapping/
+    ],
+    [
+      (config) => {
+        config.collections.pages.views.list.quick_filters.other = {};
+      },
+      /unsupported key "other"/
+    ],
+    [
+      (config) => {
+        const filters =
+          config.collections.pages.views.list.quick_filters.user_created;
+        filters.short = filters.abcdefghijklmno;
+        delete filters.abcdefghijklmno;
+      },
+      /quick filter ID "short" is invalid/
+    ],
+    [
+      (config) => {
+        config.collections.pages.views.list.quick_filters.built_in = {
+          abcdefghijklmno: {
+            label: "Built in",
+            expression: {
+              mode: "all",
+              children: [{ field: "title", operator: "is_not_empty" }]
+            }
+          }
+        };
+      },
+      /quick filter IDs must be unique/
+    ],
+    [
+      (config) => {
+        config.collections.pages.views.list.quick_filters.user_created
+          .abcdefghijklmno.label = " ";
+      },
+      /label must be non-empty/
+    ],
+    [
+      (config) => {
+        config.collections.pages.views.list.quick_filters.built_in = {
+          duplicate: {
+            label: " review ",
+            expression: {
+              mode: "all",
+              children: [{ field: "title", operator: "is_not_empty" }]
+            }
+          }
+        };
+      },
+      /labels must be unique/
+    ],
+    [
+      (config) => {
+        config.collections.pages.views.list.quick_filters.user_created
+          .abcdefghijklmno.expression = {
+          field: "title",
+          operator: "contains",
+          value: "draft"
+        };
+      },
+      /expression root must be a group/
+    ],
+    [
+      (config) => {
+        config.collections.pages.views.list.quick_filters.user_created
+          .abcdefghijklmno.expression.children = [];
+      },
+      /must contain at least one rule or group/
+    ],
+    [
+      (config) => {
+        config.collections.pages.views.list.quick_filters.user_created
+          .abcdefghijklmno.expression.children[0] = {
+          field: "title",
+          children: [],
+          operator: "contains"
+        };
+      },
+      /either a group or a rule/
+    ],
+    [
+      (config) => {
+        config.collections.pages.views.list.quick_filters.user_created
+          .abcdefghijklmno.expression.children[0].value = { raw: "draft" };
+      },
+      /value must be a scalar/
+    ],
+    [
+      (config) => {
+        config.collections.pages.views.list.quick_filters.user_created
+          .abcdefghijklmno.expression.ui_id = "transient";
+      },
+      /unsupported key "ui_id"/
+    ]
+  ];
+
+  for (const [change, expected] of cases) {
+    const config = quickFilterConfig();
+    change(config);
+    assert.throws(() => validateConfig(config, 400), expected);
+  }
+
+  const cyclic = quickFilterConfig();
+  const expression =
+    cyclic.collections.pages.views.list.quick_filters.user_created
+      .abcdefghijklmno.expression;
+  expression.children = [expression];
+  assert.throws(
+    () => validateConfig(cyclic, 400),
+    /must not contain a cycle/
+  );
+});
+
 test("validates the image processing and cache contract", () => {
   const config = fixtureConfig();
   config.site.image_processing = {

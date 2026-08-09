@@ -29,6 +29,10 @@ import {
 } from "../../../../core/slug.js";
 import { EmptyState, Spinner } from "../Common/Common.jsx";
 import { Field } from "../Fields/Fields.jsx";
+import {
+  focusableElements,
+  isolateFocusSurface
+} from "../../model/focus.js";
 
 function InsertionDialog({
   kind,
@@ -336,11 +340,25 @@ function ConfirmationDialog({
 }) {
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
+  const backdropRef = useRef(null);
+  const dialogRef = useRef(null);
+  const previousFocusRef = useRef(document.activeElement);
   const busy = Boolean(busyAction);
   const hasSecondaryAction = Boolean(onSecondary && secondaryLabel);
 
   useEffect(() => {
+    const previousFocus = previousFocusRef.current;
+    const restoreIsolation = isolateFocusSurface(dialogRef.current);
+    return () => {
+      restoreIsolation();
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
+  }, []);
+
+  useEffect(() => {
     function handleKeyboard(event) {
+      const backdrops = document.querySelectorAll(".dialog-backdrop");
+      if (backdrops[backdrops.length - 1] !== backdropRef.current) return;
       if (isSaveShortcut(event)) {
         if (!hasSecondaryAction) return;
         event.preventDefault();
@@ -350,10 +368,28 @@ function ConfirmationDialog({
       if (event.key === "Escape" && !busy) {
         event.preventDefault();
         onCancel();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current?.contains(event.target)) {
+        return;
+      }
+      const focusable = focusableElements(dialogRef.current);
+      if (!focusable.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     }
-    document.addEventListener("keydown", handleKeyboard);
-    return () => document.removeEventListener("keydown", handleKeyboard);
+    document.addEventListener("keydown", handleKeyboard, true);
+    return () => document.removeEventListener("keydown", handleKeyboard, true);
   }, [busy, hasSecondaryAction, onCancel, onSecondary]);
 
   async function runAction(action, name) {
@@ -375,8 +411,9 @@ function ConfirmationDialog({
   }
 
   return (
-    <div className="dialog-backdrop" role="presentation">
+    <div ref={backdropRef} className="dialog-backdrop" role="presentation">
       <form
+        ref={dialogRef}
         className="dialog confirmation-dialog"
         role="dialog"
         aria-modal="true"

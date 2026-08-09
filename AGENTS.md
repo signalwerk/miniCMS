@@ -389,6 +389,33 @@ Collection list layout belongs under `collections.<name>.views.list`.
 Table columns may define read/edit mode, display, appearance, alignment,
 sorting, and CSS-grid width. System detail fields are `$id`, `$filename`,
 `$storage_path`, `$created_at`, and `$updated_at`.
+Table collections expose one schema-driven advanced-filter builder immediately
+below ordinary search. Applied expressions are ANDed with search and the active
+collection scope; draft expressions, disclosure state, and the activated quick
+filter candidate stay local. The persisted AST is exactly a root
+`{mode: all|any, children}` group containing ordered rule or group children;
+rules store stable `field`, `operator`, and optional scalar `value`. Empty and
+null are distinct, unary operators omit values, nested empty groups are
+invalid, and an empty root means no advanced filter. Evaluation is atomic and
+short-circuiting, captures one current time per query, and never consumes
+formatted table labels.
+Named shortcuts live under `views.list.quick_filters.built_in` and
+`views.list.quick_filters.user_created` as keyed mappings of
+`{label, expression}`. Built-in keys are readable safe config IDs; user keys
+come from `createId()` and match `[a-z0-9]{15}`. Built-ins render first, labels
+are unique across both groups, and only user shortcuts expose update, rename,
+repair, and delete controls in the table. Runtime shortcut writes replace only
+the active collection's `user_created` mapping through `saveConfig`; they do
+not reload records, clear search, change the applied expression, or delete
+independent shortcuts on reset. Core validation enforces storage grammar but
+deliberately retains semantically stale fields/operators so the table can
+disable and repair the complete saved expression after schema changes.
+Filter keywords remain unresolved strings until evaluation. Matching is exact,
+case-sensitive, and whole-input after trimming. Date boundaries and calendar
+offsets use the browser's local time zone, weeks run Monday through Sunday,
+and `@weekday` follows JavaScript with Sunday equal to zero. Relation and tag
+controls display the target's configured reference title but persist and
+compare its stable typed value.
 Reference and tag table cells resolve their visible text through the target
 collection's configured `views.reference.title`; the same labels drive cell
 tooltips, filtering, and sorting, while missing and loading targets never expose
@@ -421,6 +448,9 @@ grip, and delete action visible while collapsed.
   defaults.
 - Read-only metadata renders as plain selectable text, not disabled inputs.
 - Use shared in-app modals, dismissible with Escape; never browser prompts.
+- Shared confirmation and advanced-filter naming dialogs isolate and trap
+  keyboard focus, operate only when they are the topmost backdrop, and restore
+  the invoking control on close.
 - Unsaved-change confirmation offers Cancel, Save, and Discard. Save persists
   the current record and then continues the action that opened the dialog.
   Save is its rightmost/default action and responds to Enter and

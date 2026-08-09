@@ -115,11 +115,11 @@ function systemFieldValue(name, record, collection, item) {
 }
 
 const SYSTEM_FIELD_DEFINITIONS = {
-  $id: { label: "Record ID", display: "code" },
-  $filename: { label: "File name", display: "code" },
-  $storage_path: { label: "Storage path", display: "code" },
-  $updated_at: { label: "Updated", display: "datetime" },
-  $created_at: { label: "Created", display: "datetime" }
+  $id: { label: "Record ID", widget: "string", display: "code" },
+  $filename: { label: "File name", widget: "string", display: "code" },
+  $storage_path: { label: "Storage path", widget: "string", display: "code" },
+  $updated_at: { label: "Updated", widget: "datetime", display: "datetime" },
+  $created_at: { label: "Created", widget: "datetime", display: "datetime" }
 };
 
 function detailField(type, reference) {

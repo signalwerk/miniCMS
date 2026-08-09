@@ -11,6 +11,12 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import "./CollectionTable.scss";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
+import {
+  compileFilterExpression,
+  countFilterRules,
+  createEmptyFilter,
+  filterFieldKind
+} from "../../model/advancedFilter.js";
 import { cx, typeField, typeFields } from "../../model/editor.js";
 import { imageSource } from "../../model/image.js";
 import {
@@ -28,6 +34,7 @@ import {
   ExternalUrlLink,
   Spinner
 } from "../Common/Common.jsx";
+import { AdvancedFilter } from "../AdvancedFilter/AdvancedFilter.jsx";
 
 function getTableValue(item, fieldName, collection) {
   if (!fieldName) return "";
@@ -344,6 +351,7 @@ function CollectionTable({
   onSelect,
   onCreate,
   onOpenPreview,
+  onSaveQuickFilters,
   onEdit
 }) {
   const adapter = useAdapter();
@@ -395,16 +403,59 @@ function CollectionTable({
         : columns.map((column) => column.field),
     [columns, listView.search?.fields]
   );
+  const filterFields = useMemo(() => {
+    const typeNames = new Set([
+      collection.node_type,
+      ...(collection.allowed_types ?? []),
+      ...items.map((item) => item.type)
+    ]);
+    const candidates = new Map();
+    for (const typeName of typeNames) {
+      for (const field of typeFields(nodeTypes[typeName])) {
+        const entries = candidates.get(field.name) ?? [];
+        entries.push(field);
+        candidates.set(field.name, entries);
+      }
+    }
+
+    const compatible = [];
+    for (const [name, definitions] of candidates) {
+      const signatures = new Set(
+        definitions.map((field) =>
+          JSON.stringify([
+            filterFieldKind(field),
+            field.collection || "",
+            field.multiple === true,
+            field.value_field || "",
+            [...(field.allowed_types ?? [])].sort(),
+            field.widget === "select" ? field.options ?? [] : []
+          ])
+        )
+      );
+      if (signatures.size === 1) {
+        compatible.push({ ...definitions[0], name });
+      }
+    }
+    compatible.push(
+      ...Object.entries(SYSTEM_FIELD_DEFINITIONS).map(([name, field]) => ({
+        ...field,
+        name,
+        system: true
+      }))
+    );
+    return compatible;
+  }, [collection.allowed_types, collection.node_type, items, nodeTypes]);
   const relationColumns = useMemo(() => {
     const fields = new Map(columns.map((column) => [column.field, column]));
     for (const fieldName of [
       ...searchFields,
+      ...filterFields.map((field) => field.name),
       listView.sort?.field
     ].filter(Boolean)) {
       if (!fields.has(fieldName)) fields.set(fieldName, { field: fieldName });
     }
     return [...fields.values()];
-  }, [columns, listView.sort?.field, searchFields]);
+  }, [columns, filterFields, listView.sort?.field, searchFields]);
   const relationFields = useMemo(() => {
     const typeNames = new Set([
       collection.node_type,
@@ -543,13 +594,21 @@ function CollectionTable({
       direction: configured?.direction === "desc" ? "desc" : "asc"
     };
   });
+  const [appliedFilter, setAppliedFilter] = useState(createEmptyFilter);
   const tableColumns = columns
     .map((column) => column.width || "minmax(8rem, 1fr)")
     .join(" ");
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const visibleItems = useMemo(() => {
+    const compiledFilter = compileFilterExpression(appliedFilter, {
+      fields: filterFields,
+      getValue: (item, fieldName) =>
+        getTableValue(item, fieldName, collection),
+      now: new Date()
+    });
+    const scopedItems = items.filter(compiledFilter.test);
     const filtered = normalizedSearch
-      ? items.filter((item) => {
+      ? scopedItems.filter((item) => {
           const values = [
             item.id,
             ...searchFields.map((fieldName) => {
@@ -569,7 +628,7 @@ function CollectionTable({
             String(value).toLocaleLowerCase().includes(normalizedSearch)
           );
         })
-      : [...items];
+      : [...scopedItems];
 
     return filtered.sort((left, right) => {
       const leftValue = sortableTableValue(
@@ -601,6 +660,8 @@ function CollectionTable({
   }, [
     collection,
     columns,
+    appliedFilter,
+    filterFields,
     items,
     nodeTypes,
     normalizedSearch,
@@ -622,43 +683,56 @@ function CollectionTable({
 
   return (
     <section className="table-pane">
-      <div className="table-toolbar">
-        <div className="table-toolbar__identity">
-          <strong>{collection.label}</strong>
-          <span>
-            {visibleItems.length === items.length
-              ? `${items.length} records`
-              : `${visibleItems.length} of ${items.length} records`}
-          </span>
-        </div>
-        <div className="search table-search">
-          <Search size={14} />
-          <input
-            value={search}
-            onChange={(event) => onSearch(event.target.value)}
-            placeholder={`Filter ${collection.label.toLowerCase()}…`}
-          />
-          {search && (
-            <button type="button" onClick={() => onSearch("")} title="Clear filter">
-              <X size={13} />
+      <div className="table-controls">
+        <div className="table-toolbar">
+          <div className="table-toolbar__identity">
+            <strong>{collection.label}</strong>
+            <span>
+              {visibleItems.length === items.length
+                ? `${items.length} records`
+                : `${visibleItems.length} of ${items.length} records`}
+            </span>
+          </div>
+          <div className="search table-search">
+            <Search size={14} />
+            <input
+              value={search}
+              onChange={(event) => onSearch(event.target.value)}
+              placeholder={`Filter ${collection.label.toLowerCase()}…`}
+            />
+            {search && (
+              <button type="button" onClick={() => onSearch("")} title="Clear filter">
+                <X size={13} />
+              </button>
+            )}
+          </div>
+          {onOpenPreview && (
+            <button
+              type="button"
+              className="button table-toolbar__preview"
+              disabled={!selectedId}
+              onClick={onOpenPreview}
+            >
+              <Eye size={15} />
+              Preview selected
             </button>
           )}
-        </div>
-        {onOpenPreview && (
-          <button
-            type="button"
-            className="button table-toolbar__preview"
-            disabled={!selectedId}
-            onClick={onOpenPreview}
-          >
-            <Eye size={15} />
-            Preview selected
+          <button type="button" className="button table-toolbar__new" onClick={onCreate}>
+            <Plus size={15} />
+            New {collection.label_singular}
           </button>
-        )}
-        <button type="button" className="button table-toolbar__new" onClick={onCreate}>
-          <Plus size={15} />
-          New {collection.label_singular}
-        </button>
+        </div>
+        <AdvancedFilter
+          fields={filterFields}
+          quickFilters={listView.quick_filters}
+          applied={appliedFilter}
+          disabled={editing}
+          relationOptionsForField={(field) =>
+            relationPresentationForField(field, relationPresentations).options
+          }
+          onApply={setAppliedFilter}
+          onSaveUserQuickFilters={onSaveQuickFilters}
+        />
       </div>
 
       <div className="table-scroll">
@@ -736,9 +810,13 @@ function CollectionTable({
         {!loading && !visibleItems.length && (
           <EmptyState
             icon={Search}
-            title={search ? "No matching records" : `No ${collection.label.toLowerCase()}`}
+            title={
+              search || countFilterRules(appliedFilter)
+                ? "No matching records"
+                : `No ${collection.label.toLowerCase()}`
+            }
           >
-            {search
+            {search || countFilterRules(appliedFilter)
               ? "Try a different filter."
               : `Create the first ${collection.label_singular.toLowerCase()}.`}
           </EmptyState>

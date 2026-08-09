@@ -474,6 +474,65 @@ Reference and tag columns display the target collection's configured
 drive table filtering and sorting. A scalar reference column in edit mode uses
 the same labeled choices; multiple references and tags remain Inspector-edited.
 
+Table search can be combined with the schema-driven **Advanced filters**
+builder directly below it. The builder keeps its draft separate from the
+currently applied expression, supports nested `all`/`any` groups, and combines
+the applied expression with search and the active collection scope using AND.
+Reference, tag, select, and Boolean controls show their configured labels while
+expressions retain the stable typed values.
+
+Named quick filters live in `views.list.quick_filters`. Built-ins are authored
+in Settings; shortcuts saved from the table use crypto-generated
+15-character IDs under `user_created`. Both mappings retain YAML order, while
+the interface always shows built-ins first. Only the label and unresolved
+expression are stored—active state, draft state, resolved dates, and matching
+records are never persisted:
+
+```yaml
+views:
+  list:
+    type: table
+    quick_filters:
+      built_in:
+        updated_this_week:
+          label: Updated this week
+          expression:
+            mode: all
+            children:
+              - field: $updated_at
+                operator: greater_than_or_equal
+                value: "@weekStart()"
+      user_created:
+        k7p4d2m9x1q8v3c:
+          label: Published books
+          expression:
+            mode: all
+            children:
+              - {field: status, operator: equals, value: published}
+              - {field: media, operator: equals, value: book}
+```
+
+An expression root is `{mode: all|any, children: [...]}`. A child is another
+group or `{field, operator, value?}`. Stable operators are `equals`,
+`not_equals`, `contains`, `not_contains`, `starts_with`, `ends_with`,
+`greater_than`, `greater_than_or_equal`, `less_than`, `less_than_or_equal`,
+`is_empty`, `is_not_empty`, `is_null`, and `is_not_null`; the field widget
+limits which ones the editor offers. Empty and null remain distinct, and unary
+operators do not store a value. Structurally valid shortcuts survive later
+schema changes: the table disables a semantically stale shortcut and lets a
+user-created one be loaded for repair instead of applying only part of it.
+
+Keyword values are exact, case-sensitive, whole-input tokens. Supported date
+and time tokens are `@now`, `@yesterday`, `@tomorrow`, `@todayStart`,
+`@todayEnd`, `@weekStart()`, `@weekEnd()`, `@monthStart`, `@monthEnd`,
+`@yearStart`, `@yearEnd`, their documented `.date()` variants, and
+`@days(N)`, `@weeks(N)`, or `@months(N)` for a signed integer `N`. Number
+fields also accept `@second`, `@minute`, `@hour`, `@weekday`, `@day`,
+`@month`, and `@year`; typed tokens are `@null`, `@true`, and `@false`.
+Resolution happens when the filter runs in the browser's local time zone.
+Weeks run Monday through Sunday, while `@weekday` follows JavaScript's local
+calendar convention: Sunday is `0` and Saturday is `6`.
+
 Fields are optional by default. Omit `required` for optional fields and persist
 only `required: true` when a value is mandatory. Optional select fields start
 empty and retain a `None` option so editors can clear a previous selection.
@@ -872,8 +931,8 @@ cleanup. GitHub applies the record and upload deletions in one commit.
 
 The top-bar Settings overlay provides a guided editor for project defaults,
 collections, content types, fields, dropdown options, content areas, table
-columns, hierarchy, references, and inspector layout. Common settings are
-shown first; fields and table columns use compact disclosure rows, while
+columns, built-in quick filters, hierarchy, references, and inspector layout.
+Common settings are shown first; fields and table columns use compact disclosure rows, while
 technical behavior is available in collapsed advanced sections. Every
 supported option has a form control; Settings never exposes raw configuration
 source. New collections and content types choose their connector during
@@ -882,8 +941,8 @@ definitions. Existing connector ownership is shown but is not silently
 changed, because moving content between storage systems is a separate data
 migration. The overlay supports keyboard focus containment, reduced motion,
 and a stacked small-screen layout. Grip handles reorder fields, options, content
-areas, inspector layout, and table columns with the same source preview and
-insertion-line behavior as the content trees. The grip handles support both
+areas, inspector layout, table columns, and built-in quick filters with the
+same source preview and insertion-line behavior as the content trees. The grip handles support both
 pointer and keyboard reordering; list rows do not add redundant up/down
 buttons. Icon settings use a keyboard-accessible picker that previews every
 option from the shared icon registry. Saving validates the complete model

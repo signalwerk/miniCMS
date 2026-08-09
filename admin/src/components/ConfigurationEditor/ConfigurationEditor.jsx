@@ -48,6 +48,15 @@ import {
   iconFor,
   isSaveShortcut
 } from "../../model/editor.js";
+import {
+  filterOperatorsForField,
+  isFilterExpressionEmpty
+} from "../../model/advancedFilter.js";
+import {
+  SYSTEM_FIELD_DEFINITIONS,
+  tableRelationOptions
+} from "../../model/views.js";
+import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import { isGeneratedIdWidget } from "../../../../core/id.js";
 import {
   DEFAULT_IMAGE_PROCESSING,
@@ -70,6 +79,7 @@ import {
 import { ConfirmationDialog } from "../Dialogs/Dialogs.jsx";
 import { DeploymentControl } from "../DeploymentControl/DeploymentControl.jsx";
 import { Spinner } from "../Common/Common.jsx";
+import { FilterExpressionEditor } from "../AdvancedFilter/AdvancedFilter.jsx";
 import "./ConfigurationEditor.scss";
 
 const WIDGET_OPTIONS = [
@@ -3305,6 +3315,300 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
   );
 }
 
+function quickFilterFields(type) {
+  return [
+    ...Object.entries(type?.fields ?? {}).map(([name, field]) => ({
+      ...field,
+      name,
+      label: field.label || labelFromKey(name)
+    })),
+    ...Object.entries(SYSTEM_FIELD_DEFINITIONS).map(([name, field]) => ({
+      ...field,
+      name
+    }))
+  ];
+}
+
+function defaultQuickFilterExpression(fields) {
+  const field = fields[0];
+  if (!field) return { mode: "all", children: [] };
+  const operator = filterOperatorsForField(field).find(
+    (candidate) => candidate.id === "is_not_null"
+  ) ?? filterOperatorsForField(field)[0];
+  return {
+    mode: "all",
+    children: [
+      {
+        field: field.name,
+        operator: operator.id,
+        ...(operator.unary ? {} : { value: "" })
+      }
+    ]
+  };
+}
+
+function uniqueQuickFilterLabel(filters) {
+  const labels = new Set(
+    Object.values(filters ?? {}).map((filter) =>
+      String(filter?.label || "").trim().toLocaleLowerCase()
+    )
+  );
+  const base = "Quick filter";
+  let candidate = base;
+  let suffix = 2;
+  while (labels.has(candidate.toLocaleLowerCase())) {
+    candidate = `${base} ${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function useQuickFilterRelationOptions(fields, collections) {
+  const adapter = useAdapter();
+  const [optionsByField, setOptionsByField] = useState(() => new Map());
+  const targets = [...new Set(
+    fields
+      .filter((field) => ["reference", "tags"].includes(field.widget))
+      .map((field) => field.collection)
+      .filter((name) => typeof name === "string" && collections?.[name])
+  )];
+  const targetKey = targets.join("\u0000");
+
+  useEffect(() => {
+    let active = true;
+    setOptionsByField(new Map());
+    if (!targets.length) return () => {
+      active = false;
+    };
+
+    Promise.all(
+      targets.map(async (name) => {
+        try {
+          const result = await adapter.list(name);
+          return [name, result.items ?? []];
+        } catch {
+          return [name, []];
+        }
+      })
+    ).then((results) => {
+      if (!active) return;
+      const itemsByCollection = new Map(results);
+      setOptionsByField(new Map(
+        fields
+          .filter((field) => itemsByCollection.has(field.collection))
+          .map((field) => [
+            field.name,
+            tableRelationOptions(
+              field,
+              collections[field.collection],
+              itemsByCollection.get(field.collection)
+            )
+          ])
+      ));
+    });
+
+    return () => {
+      active = false;
+    };
+  // Relation targets are reloaded when their collection identities change.
+  // Selecting another Settings section remounts this editor after presentation
+  // changes to a target collection.
+  }, [adapter, targetKey]);
+
+  return (field) => optionsByField.get(field.name) ?? new Map();
+}
+
+function BuiltInQuickFilterEditor({
+  filterKey,
+  filter,
+  fields,
+  relationOptionsForField,
+  expanded,
+  dragHandleProps,
+  onToggle,
+  onChange,
+  onDelete
+}) {
+  const bodyId = `configuration-quick-filter-${slugifyKey(filterKey)}-body`;
+  const label = filter.label || labelFromKey(filterKey);
+
+  return (
+    <article
+      className={cx(
+        "configuration-quick-filter",
+        expanded && "is-open"
+      )}
+    >
+      <div className="configuration-quick-filter__top">
+        <button
+          type="button"
+          className="configuration-drag-handle"
+          title={`Reorder ${label}`}
+          aria-label={`Reorder ${label}`}
+          {...dragHandleProps}
+        >
+          <GripVertical size={15} />
+        </button>
+        <button
+          type="button"
+          className="configuration-quick-filter__toggle"
+          aria-expanded={expanded}
+          aria-controls={bodyId}
+          onClick={onToggle}
+        >
+          <span>
+            <strong>{label}</strong>
+            <code>{filterKey}</code>
+          </span>
+          <ChevronDown size={14} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="configuration-icon-button danger"
+          title={`Delete ${label}`}
+          aria-label={`Delete ${label}`}
+          onClick={onDelete}
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+      {expanded && (
+        <div id={bodyId} className="configuration-quick-filter__body">
+          <FormField label="Quick filter name">
+            <TextInput
+              value={filter.label}
+              onChange={(value) => onChange({ ...filter, label: value })}
+            />
+          </FormField>
+          <FilterExpressionEditor
+            expression={filter.expression}
+            fields={fields}
+            relationOptionsForField={relationOptionsForField}
+            showErrors
+            idPrefix={`configuration-quick-filter-${slugifyKey(filterKey)}`}
+            onChange={(expression) => onChange({ ...filter, expression })}
+          />
+          {isFilterExpressionEmpty(filter.expression) && (
+            <p className="configuration-inline-error" role="alert">
+              <CircleAlert size={14} aria-hidden="true" />
+              Built-in quick filters must contain at least one rule.
+            </p>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function BuiltInQuickFiltersEditor({
+  collection,
+  collections,
+  type,
+  updateCollection,
+  onRequestDelete
+}) {
+  const [expandedKey, setExpandedKey] = useState(null);
+  const fields = useMemo(() => quickFilterFields(type), [type]);
+  const relationOptionsForField = useQuickFilterRelationOptions(
+    fields,
+    collections
+  );
+  const filters = collection.views?.list?.quick_filters?.built_in ?? {};
+  const userFilters = collection.views?.list?.quick_filters?.user_created ?? {};
+  const entries = Object.entries(filters);
+
+  function updateBuiltIn(change) {
+    updateCollection((nextCollection) => {
+      nextCollection.views ??= {};
+      nextCollection.views.list ??= {};
+      nextCollection.views.list.quick_filters ??= {};
+      const quickFilters = nextCollection.views.list.quick_filters;
+      const builtIn = change(quickFilters.built_in ?? {});
+      if (Object.keys(builtIn).length) quickFilters.built_in = builtIn;
+      else delete quickFilters.built_in;
+      if (!Object.keys(quickFilters).length) {
+        delete nextCollection.views.list.quick_filters;
+      }
+    });
+  }
+
+  function addFilter() {
+    if (!fields.length) return;
+    const occupied = { ...userFilters, ...filters };
+    const label = uniqueQuickFilterLabel(occupied);
+    const createdKey = uniqueKey(occupied, label);
+    updateBuiltIn((current) => ({
+      ...current,
+      [createdKey]: {
+        label,
+        expression: defaultQuickFilterExpression(fields)
+      }
+    }));
+    setExpandedKey(createdKey);
+  }
+
+  return (
+    <section className="configuration-card">
+      <div className="configuration-subheading">
+        <div>
+          <strong>Built-in quick filters</strong>
+        </div>
+        <button
+          type="button"
+          className="configuration-small-button"
+          disabled={!fields.length}
+          onClick={addFilter}
+        >
+          <Plus size={13} /> Add quick filter
+        </button>
+      </div>
+      <ConfigurationDndList
+        className="configuration-quick-filters"
+        ariaLabel="Built-in quick filters"
+        items={entries.map(([key, filter]) => ({
+          id: key,
+          label: filter.label || labelFromKey(key)
+        }))}
+        onReorder={(sourceIndex, destinationIndex) =>
+          updateBuiltIn((current) => {
+            const key = Object.keys(current)[sourceIndex];
+            return moveMappingEntryTo(
+              current,
+              key,
+              destinationIndex
+            );
+          })
+        }
+      >
+        {(item, _, { dragHandleProps }) => {
+          const filter = filters[item.id];
+          return (
+            <BuiltInQuickFilterEditor
+              filterKey={item.id}
+              filter={filter}
+              fields={fields}
+              relationOptionsForField={relationOptionsForField}
+              expanded={expandedKey === item.id}
+              dragHandleProps={dragHandleProps}
+              onToggle={() => setExpandedKey((current) =>
+                current === item.id ? null : item.id
+              )}
+              onChange={(value) => updateBuiltIn((current) => ({
+                ...current,
+                [item.id]: value
+              }))}
+              onDelete={() => onRequestDelete(item.id, filter)}
+            />
+          );
+        }}
+      </ConfigurationDndList>
+      {!entries.length && (
+        <p className="configuration-muted">No built-in quick filters.</p>
+      )}
+    </section>
+  );
+}
+
 function ReferenceSelectionsEditor({
   collectionKey,
   collection,
@@ -3493,9 +3797,11 @@ function ReferenceSelectionsEditor({
 function CollectionEditor({
   collectionKey,
   collection,
+  collections,
   nodeTypes,
   updateConfig,
   updateCollection,
+  onDeleteQuickFilter,
   onMove,
   onDelete
 }) {
@@ -3676,11 +3982,20 @@ function CollectionEditor({
       </section>
 
       {listType === "table" && (
-        <TableColumnsEditor
-          collection={collection}
-          type={type}
-          updateCollection={updateCollection}
-        />
+        <>
+          <TableColumnsEditor
+            collection={collection}
+            type={type}
+            updateCollection={updateCollection}
+          />
+          <BuiltInQuickFiltersEditor
+            collection={collection}
+            collections={collections}
+            type={type}
+            updateCollection={updateCollection}
+            onRequestDelete={onDeleteQuickFilter}
+          />
+        </>
       )}
 
       {listType === "tree" && (
@@ -4273,7 +4588,8 @@ export default function ConfigurationEditor({
     const field = draft.node_types[typeKey].fields[fieldKey];
     setConfirmation({
       title: `Delete ${field.label || fieldKey}?`,
-      description: "The field is also removed from inspector groups and collection lists.",
+      description:
+        "The field is also removed from inspector groups and collection lists. Saved quick filters that use it are retained and disabled until repaired.",
       confirmLabel: "Delete field",
       danger: true,
       onConfirm: () => update((next) => {
@@ -4598,9 +4914,31 @@ export default function ConfigurationEditor({
             <CollectionEditor
               collectionKey={selection.key}
               collection={selectedCollection}
+              collections={draft.collections}
               nodeTypes={draft.node_types}
               updateConfig={update}
               updateCollection={(change) => updateCollection(selection.key, change)}
+              onDeleteQuickFilter={(filterKey, filter) => {
+                const label = filter.label || labelFromKey(filterKey);
+                setConfirmation({
+                  title: `Delete “${label}”?`,
+                  description:
+                    "This removes the built-in quick filter from the configuration. User-created quick filters are not changed.",
+                  confirmLabel: "Delete quick filter",
+                  danger: true,
+                  onConfirm: () => updateCollection(selection.key, (nextCollection) => {
+                    const quickFilters = nextCollection.views?.list?.quick_filters;
+                    if (!quickFilters?.built_in) return;
+                    delete quickFilters.built_in[filterKey];
+                    if (!Object.keys(quickFilters.built_in).length) {
+                      delete quickFilters.built_in;
+                    }
+                    if (!Object.keys(quickFilters).length) {
+                      delete nextCollection.views.list.quick_filters;
+                    }
+                  })
+                });
+              }}
               onMove={(direction) => update((next) => {
                 next.collections = moveMappingEntry(next.collections, selection.key, direction);
               })}

@@ -1045,6 +1045,34 @@ export default function App({ PreviewComponent = null }) {
     return result.config;
   }
 
+  async function saveTableQuickFilters(collectionName, userCreated) {
+    if (!config?.collections?.[collectionName]) {
+      throw new Error("The collection is no longer available.");
+    }
+    const nextConfig = structuredClone(config);
+    const nextList = nextConfig.collections[collectionName].views?.list;
+    if (!nextList) {
+      throw new Error("The collection does not define a table view.");
+    }
+    nextList.quick_filters ??= {};
+    if (Object.keys(userCreated ?? {}).length) {
+      nextList.quick_filters.user_created = structuredClone(userCreated);
+    } else {
+      delete nextList.quick_filters.user_created;
+      if (!Object.keys(nextList.quick_filters.built_in ?? {}).length) {
+        delete nextList.quick_filters;
+      }
+    }
+
+    const result = await api.saveConfig(nextConfig);
+    setConfig(result.config);
+    showToast("Quick filters saved");
+    return (
+      result.config.collections?.[collectionName]?.views?.list?.quick_filters
+        ?.user_created ?? {}
+    );
+  }
+
   async function editTableField(item, column, value) {
     if (saving || column.field.startsWith("$")) return;
     if (dirty && record?.id === item.id) {
@@ -2190,6 +2218,9 @@ export default function App({ PreviewComponent = null }) {
                   collectionHasPreview
                     ? () => setTableSurface("preview")
                     : undefined
+                }
+                onSaveQuickFilters={(userCreated) =>
+                  saveTableQuickFilters(collection.name, userCreated)
                 }
                 onEdit={editTableField}
               />
