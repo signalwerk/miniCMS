@@ -1033,8 +1033,13 @@ export default function App({ PreviewComponent = null }) {
   async function saveConfiguration(nextConfig, options) {
     const result = await api.saveConfig(nextConfig, options);
     setConfig(result.config);
+    const renamedActiveCollection =
+      options?.schemaRenames?.collections?.[activeCollection];
     const nextCollection =
-      result.config.collections?.[activeCollection]
+      renamedActiveCollection &&
+      result.config.collections?.[renamedActiveCollection]
+        ? renamedActiveCollection
+        : result.config.collections?.[activeCollection]
         ? activeCollection
         : Object.keys(result.config.collections ?? {})[0];
     if (nextCollection) {

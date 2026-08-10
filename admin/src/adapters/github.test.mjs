@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { dumpYaml } from "../../../core/content.js";
+import { buildInlineReferenceUrl } from "../../../core/inline-reference.js";
 import {
   createGitHubAdapter,
   encodeBase64
@@ -36,6 +37,7 @@ function fixtureConfig() {
         label: "Page",
         fields: {
           title: { widget: "string" },
+          copy: { widget: "markdown" },
           image: { widget: "image", accept: ["image/png", "image/svg+xml"] },
           attachment: { widget: "file", accept: ["*/*"] }
         },
@@ -82,15 +84,20 @@ function makeGitHubFixture({
   treeEntries,
   loadedConfigSha = "config-sha",
   mediaEntriesByHash = {},
-  additionalRecords = []
+  additionalRecords = [],
+  suppliedRecord,
+  blobSourcesBySha = {},
+  configureConfig
 } = {}) {
   const config = fixtureConfig();
-  const record = {
+  configureConfig?.(config);
+  const record = suppliedRecord ?? {
     id: "home",
     type: "page",
     order: 0,
     properties: {
       title: "Home",
+      copy: "",
       image: { hash: RECORD_HASH, filename: "hero.png" }
     },
     slots: {}
@@ -187,6 +194,23 @@ function makeGitHubFixture({
     }
     if (method === "GET" && url.pathname.includes("/git/blobs/")) {
       const sha = decodeURIComponent(url.pathname.split("/").at(-1));
+      if (Object.hasOwn(blobSourcesBySha, sha)) {
+        return json({
+          encoding: "base64",
+          content: encodeBase64(
+            new TextEncoder().encode(blobSourcesBySha[sha])
+          )
+        });
+      }
+      const recordEntry = records.find((candidate) => `${candidate.id}-sha` === sha);
+      if (recordEntry) {
+        return json({
+          encoding: "base64",
+          content: encodeBase64(
+            new TextEncoder().encode(dumpYaml(recordEntry))
+          )
+        });
+      }
       const entry = Object.values(mediaEntriesByHash)
         .flat()
         .find((candidate) => candidate.sha === sha);
@@ -432,6 +456,323 @@ test("moves a collection folder with its config in one Git commit", async () => 
       (call) => call.method === "PATCH" && call.path.includes("/git/refs/")
     ).length,
     1
+  );
+});
+
+test("atomically rekeys schema, moves its folder, and migrates every record", async () => {
+  const record = {
+    id: "home",
+    type: "page",
+    order: 0,
+    properties: {
+      title: "Home",
+      copy: `[Home](${buildInlineReferenceUrl("pages", "home")})`,
+      image: { hash: RECORD_HASH, filename: "hero.png" }
+    },
+    slots: {}
+  };
+  const { adapter, calls, trees } = makeGitHubFixture({
+    suppliedRecord: record
+  });
+  const config = structuredClone(await adapter.config());
+  config.node_types.article = config.node_types.page;
+  delete config.node_types.page;
+  config.collections.articles = config.collections.pages;
+  delete config.collections.pages;
+  config.collections.articles.folder = "content/articles";
+  config.collections.articles.node_type = "article";
+  config.collections.articles.allowed_types = ["article"];
+
+  const saved = await adapter.saveConfig(config, {
+    schemaRenames: {
+      node_types: { page: "article" },
+      collections: { pages: "articles" }
+    }
+  });
+
+  assert.equal(saved.config.collections.articles.folder, "content/articles");
+  assert.equal(trees.length, 1);
+  const migratedEntry = trees[0].find(
+    ({ path }) => path === "content/articles/home.yml"
+  );
+  assert.ok(migratedEntry);
+  assert.match(migratedEntry.content, /^id: home\ntype: article/m);
+  assert.match(
+    migratedEntry.content,
+    /minicms:\/\/reference\/articles\/home/
+  );
+  assert.match(migratedEntry.content, /filename: hero\.png/);
+  assert.ok(
+    trees[0].some(
+      ({ path, sha }) => path === "content/pages/home.yml" && sha === null
+    )
+  );
+  assert.equal(
+    calls.filter(
+      ({ method, path }) => method === "POST" && path.endsWith("/git/commits")
+    ).length,
+    1
+  );
+});
+
+test("rewrites local remote-alias links without moving owner storage", async () => {
+  const record = {
+    id: "home",
+    type: "page",
+    order: 0,
+    properties: {
+      title: "Home",
+      copy: `[Asset](${buildInlineReferenceUrl("shared_assets", "asset-1")})`,
+      image: { hash: RECORD_HASH, filename: "hero.png" }
+    },
+    slots: {}
+  };
+  const { adapter, trees } = makeGitHubFixture({
+    suppliedRecord: record,
+    configureConfig(config) {
+      config.connectors.central = {
+        name: "api",
+        api_url: "https://media.example.test",
+        auth_url: "https://auth.example.test"
+      };
+      config.node_types.shared_asset = {
+        connector: "central",
+        remote_type: "asset"
+      };
+      config.collections.shared_assets = {
+        connector: "central",
+        remote_collection: "assets"
+      };
+    }
+  });
+  const config = structuredClone(await adapter.config());
+  config.collections.library_assets = config.collections.shared_assets;
+  delete config.collections.shared_assets;
+
+  await adapter.saveConfig(config, {
+    schemaRenames: {
+      node_types: {},
+      collections: { shared_assets: "library_assets" }
+    }
+  });
+
+  const migratedEntry = trees[0].find(
+    ({ path }) => path === "content/pages/home.yml"
+  );
+  assert.ok(migratedEntry);
+  assert.match(
+    migratedEntry.content,
+    /minicms:\/\/reference\/library_assets\/asset-1/
+  );
+  assert.equal(
+    trees[0].some(({ path }) => path.startsWith("content/shared_assets")),
+    false
+  );
+});
+
+test("rejects duplicate configured collection folders before Git writes", async () => {
+  const { adapter, calls, trees } = makeGitHubFixture();
+  const config = structuredClone(await adapter.config());
+  config.collections.pages_copy = {
+    ...structuredClone(config.collections.pages),
+    label: "Pages copy"
+  };
+
+  await assert.rejects(
+    adapter.saveConfig(config),
+    /collection folders|overlap|same folder/i
+  );
+  assert.equal(trees.length, 0);
+  assert.equal(
+    calls.filter(({ method }) => ["POST", "PATCH"].includes(method)).length,
+    0
+  );
+});
+
+test("rejects a new collection that would adopt an unconfigured physical folder", async () => {
+  const { adapter, calls, trees } = makeGitHubFixture({
+    treeEntries: [
+      {
+        path: "cms.config.yml",
+        mode: "100644",
+        type: "blob",
+        sha: "config-sha"
+      },
+      {
+        path: "content/pages/home.yml",
+        mode: "100644",
+        type: "blob",
+        sha: "home-sha"
+      },
+      {
+        path: "content/pages-copy/orphan.yml",
+        mode: "100644",
+        type: "blob",
+        sha: "orphan-sha"
+      }
+    ]
+  });
+  const config = structuredClone(await adapter.config());
+  config.collections.pages_copy = {
+    ...structuredClone(config.collections.pages),
+    label: "Pages copy",
+    folder: "content/pages-copy"
+  };
+
+  await assert.rejects(
+    adapter.saveConfig(config),
+    /folder destination conflicts with "content\/pages-copy\/orphan.yml"/
+  );
+  assert.equal(trees.length, 0);
+  assert.equal(
+    calls.filter(({ method }) => ["POST", "PATCH"].includes(method)).length,
+    0
+  );
+});
+
+test("validates migrated records against the next schema before Git writes", async () => {
+  const { adapter, calls, trees } = makeGitHubFixture({
+    suppliedRecord: {
+      id: "home",
+      type: "page",
+      order: 0,
+      properties: {
+        title: "Home",
+        copy: "not an absolute URL",
+        image: { hash: RECORD_HASH, filename: "hero.png" }
+      },
+      slots: {}
+    }
+  });
+  const config = structuredClone(await adapter.config());
+  config.node_types.article = config.node_types.page;
+  config.node_types.article.fields.copy = { widget: "url" };
+  delete config.node_types.page;
+  config.collections.articles = config.collections.pages;
+  delete config.collections.pages;
+  config.collections.articles.folder = "content/articles";
+  config.collections.articles.node_type = "article";
+  config.collections.articles.allowed_types = ["article"];
+
+  await assert.rejects(
+    adapter.saveConfig(config, {
+      schemaRenames: {
+        node_types: { page: "article" },
+        collections: { pages: "articles" }
+      }
+    }),
+    /URL field/
+  );
+  assert.equal(trees.length, 0);
+  assert.equal(
+    calls.filter(({ method }) => ["POST", "PATCH"].includes(method)).length,
+    0
+  );
+});
+
+test("migrates the exact record blobs from the verified snapshot", async () => {
+  const staleRecord = dumpYaml({
+    id: "home",
+    type: "missing",
+    order: 0,
+    properties: {},
+    slots: {}
+  });
+  const { adapter, calls, trees } = makeGitHubFixture({
+    treeEntries: [
+      {
+        path: "cms.config.yml",
+        mode: "100644",
+        type: "blob",
+        sha: "config-sha"
+      },
+      {
+        path: "content/pages/home.yml",
+        mode: "100644",
+        type: "blob",
+        sha: "snapshot-home-sha"
+      }
+    ],
+    blobSourcesBySha: { "snapshot-home-sha": staleRecord }
+  });
+  const config = structuredClone(await adapter.config());
+  config.node_types.article = config.node_types.page;
+  delete config.node_types.page;
+  config.collections.articles = config.collections.pages;
+  delete config.collections.pages;
+  config.collections.articles.folder = "content/articles";
+  config.collections.articles.node_type = "article";
+  config.collections.articles.allowed_types = ["article"];
+
+  await assert.rejects(
+    adapter.saveConfig(config, {
+      schemaRenames: {
+        node_types: { page: "article" },
+        collections: { pages: "articles" }
+      }
+    }),
+    /Record type "missing"|Unknown node type "missing"/
+  );
+  assert.equal(trees.length, 0);
+  assert.ok(
+    calls.some(
+      ({ method, path }) =>
+        method === "GET" && path.endsWith("/git/blobs/snapshot-home-sha")
+    )
+  );
+  assert.equal(
+    calls.filter(({ method }) => ["POST", "PATCH"].includes(method)).length,
+    0
+  );
+});
+
+test("rejects a Git tree at an exact migrated record destination", async () => {
+  const { adapter, calls, trees } = makeGitHubFixture({
+    treeEntries: [
+      {
+        path: "cms.config.yml",
+        mode: "100644",
+        type: "blob",
+        sha: "config-sha"
+      },
+      {
+        path: "content/pages/home.yml",
+        mode: "100644",
+        type: "blob",
+        sha: "home-sha"
+      },
+      {
+        path: "content/pages/home.yaml",
+        mode: "040000",
+        type: "tree",
+        sha: "collision-tree-sha"
+      },
+      {
+        path: "content/pages/home.yaml/kept.txt",
+        mode: "100644",
+        type: "blob",
+        sha: "kept-sha"
+      }
+    ]
+  });
+  const config = structuredClone(await adapter.config());
+  config.collections.articles = config.collections.pages;
+  delete config.collections.pages;
+  config.collections.articles.extension = "yaml";
+
+  await assert.rejects(
+    adapter.saveConfig(config, {
+      schemaRenames: {
+        node_types: {},
+        collections: { pages: "articles" }
+      }
+    }),
+    /Schema migration destination conflicts with "content\/pages\/home\.yaml"/
+  );
+  assert.equal(trees.length, 0);
+  assert.equal(
+    calls.filter(({ method }) => ["POST", "PATCH"].includes(method)).length,
+    0
   );
 });
 

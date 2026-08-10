@@ -420,6 +420,63 @@ test("sends the stored service bearer with every API operation", async () => {
     (call) => call.url.pathname === "/api/config" && call.options.method === "PUT"
   );
   assert.equal(configWrite.options.headers.get("if-match"), '"config-v1"');
+  assert.deepEqual(JSON.parse(configWrite.options.body), {
+    config: { collections: {}, node_types: {} },
+    schema_renames: { node_types: {}, collections: {} }
+  });
+});
+
+test("sends explicit schema renames in the versioned config envelope", async () => {
+  const browser = browserFixture("http://127.0.0.1:4321");
+  let writtenBody = null;
+  const adapter = await createApiAdapter({
+    windowObject: browser.windowObject,
+    fetchImpl: async (input, options = {}) => {
+      const url = new URL(input);
+      if (url.pathname === "/api/auth/session") {
+        return json({
+          authenticated: true,
+          authenticationRequired: false,
+          provider: "local",
+          label: "Local"
+        });
+      }
+      if (options.method === "PUT") {
+        writtenBody = JSON.parse(options.body);
+        return json(
+          { saved: true, config: writtenBody.config },
+          200,
+          { etag: '"config-v2"' }
+        );
+      }
+      return json(
+        { collections: {}, node_types: {} },
+        200,
+        { etag: '"config-v1"' }
+      );
+    }
+  });
+
+  await adapter.config();
+  await adapter.saveConfig(
+    { collections: { articles: {} }, node_types: { article: {} } },
+    {
+      schemaRenames: {
+        node_types: { page: "article" },
+        collections: { pages: "articles" }
+      }
+    }
+  );
+  assert.deepEqual(writtenBody, {
+    config: {
+      collections: { articles: {} },
+      node_types: { article: {} }
+    },
+    schema_renames: {
+      node_types: { page: "article" },
+      collections: { pages: "articles" }
+    }
+  });
 });
 
 test("keeps the loaded config revision after a rejected API save", async () => {

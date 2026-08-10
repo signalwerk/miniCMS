@@ -28,6 +28,7 @@ async function runTests() {
     path.join(packageRoot, "admin", "src", "adapters", "github.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "auth.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "advancedFilter.test.mjs"),
+    path.join(packageRoot, "admin", "src", "model", "configuration.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "editor.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "image.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "imageGeometry.test.mjs"),

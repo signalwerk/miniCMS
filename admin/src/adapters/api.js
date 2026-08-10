@@ -274,7 +274,12 @@ async function createApiAdapter({
     return config;
   }
 
-  async function saveConfig(config) {
+  async function saveConfig(
+    config,
+    {
+      schemaRenames = { node_types: {}, collections: {} }
+    } = {}
+  ) {
     if (!currentConfigEtag) {
       throw new Error(
         "The miniCMS API returned no configuration version. Reload Settings and try again."
@@ -288,7 +293,10 @@ async function createApiAdapter({
           "content-type": "application/json",
           "if-match": currentConfigEtag
         },
-        body: JSON.stringify(config)
+        body: JSON.stringify({
+          config,
+          schema_renames: schemaRenames
+        })
       },
       { includeResponse: true }
     );

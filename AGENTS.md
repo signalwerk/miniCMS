@@ -528,6 +528,19 @@ grip, and delete action visible while collapsed.
   schema. Remote-owned collections and types use the same full forms as local
   definitions, with remote type slots and relations limited to aliases owned by
   that connector.
+- Settings can duplicate and rename collection and content-type keys. A
+  duplicate is a deep schema-only copy inserted after its source, with a fresh
+  `-copy` key (then `-copy2`, and so on); collections receive an empty sibling
+  folder and remote-owned copies receive a fresh owner identity. Renames retain
+  mapping order and rewrite every schema dependency. Concrete collection
+  renames replace the folder basename and pass a composed old-to-new rename
+  plan through the configuration save so storage moves atomically; persisted
+  remote aliases retain their remote identity and folder. Unsaved duplicate
+  renames change their prospective identity/folder without creating a storage
+  rename. Deleting persisted schema reserves its old key locally until that
+  deletion is saved, so a later rename cannot accidentally target a key that
+  still exists in storage. Folder, key, and remote-identity conflicts are
+  rejected before save.
 - Settings must retain visible keyboard focus, trap focus within the active
   modal, restore focus on close, expose selected/expanded states to assistive
   technology, support reduced motion, and remain usable in its stacked
@@ -579,6 +592,15 @@ configuration save, never a separate operation. GitHub reuses existing blob
 SHAs and publishes paths plus config in one non-force commit; empty Git folders
 appear only with the first record. The API uses its versioned configuration
 transaction contract.
+Explicit schema-key renames travel with that configuration save as
+`{node_types, collections}` old-to-new mappings. The default leaf rewrites
+all retained concrete records, including nested types and canonical inline
+references, while a renamed remote alias preserves its owner identity and
+never renames owner storage. GitHub preflights the verified snapshot, all
+record migrations, and configured plus physical folder destinations before
+creating Git objects, then publishes config, folder moves, and YAML rewrites in
+one commit. The API adapter always sends `{config, schema_renames}` under its
+existing `If-Match` transaction.
 The composite exposes deployment suppression only when its trusted bootstrap
 contains GitHub. It propagates the current choice to every active and lazily
 created GitHub leaf, whose single commit boundary owns the `[ci skip]` marker.

@@ -5,6 +5,8 @@ import {
   isRemoteCollection,
   isRemoteNodeType,
   materializeConfig,
+  migrateRecordSchemaKeys,
+  normalizeSchemaRenames,
   planConfigWrites,
   translateInlineReferences,
   translateRecord
@@ -283,6 +285,236 @@ test("translates recursive record types and canonical inline-reference links", (
   );
 });
 
+test("migrates explicit schema keys through records without mutating image assets", () => {
+  const hash = "a".repeat(64);
+  const current = {
+    node_types: {
+      page: {
+        fields: {
+          copy: { widget: "markdown" },
+          attachment: { widget: "file" },
+          image: { widget: "image" }
+        }
+      },
+      card: {
+        fields: {
+          attachment: { widget: "file" }
+        }
+      }
+    },
+    collections: {
+      pages: { folder: "content/pages", node_type: "page" },
+      assets: { folder: "content/assets", node_type: "card" }
+    }
+  };
+  const next = {
+    node_types: {
+      article: structuredClone(current.node_types.page),
+      tile: structuredClone(current.node_types.card)
+    },
+    collections: {
+      articles: { folder: "content/articles", node_type: "article" },
+      media: { folder: "content/media-items", node_type: "tile" }
+    }
+  };
+  const renames = {
+    node_types: { page: "article", card: "tile" },
+    collections: { pages: "articles", assets: "media" }
+  };
+  const oldLink = buildInlineReferenceUrl("assets", "asset-1");
+  const nextLink = buildInlineReferenceUrl("media", "asset-1");
+  const image = { hash, filename: "hero.png", width: 640, height: 480 };
+  const record = {
+    id: "home",
+    type: "page",
+    properties: {
+      copy: `[Asset](${oldLink})`,
+      attachment: `/media/assets/${hash}/brief.pdf`,
+      image
+    },
+    slots: {
+      cards: [{
+        id: "abcdefghijklmno",
+        type: "card",
+        properties: {
+          attachment: `/media/assets/${hash}/nested.pdf`
+        },
+        slots: {}
+      }]
+    }
+  };
+
+  const migrated = migrateRecordSchemaKeys(
+    record,
+    current,
+    next,
+    renames,
+    { storage: "api" }
+  );
+  assert.equal(migrated.type, "article");
+  assert.equal(migrated.slots.cards[0].type, "tile");
+  assert.equal(migrated.properties.copy, `[Asset](${nextLink})`);
+  assert.equal(
+    migrated.properties.attachment,
+    `/media/media/${hash}/brief.pdf`
+  );
+  assert.equal(
+    migrated.slots.cards[0].properties.attachment,
+    `/media/media/${hash}/nested.pdf`
+  );
+  assert.deepEqual(migrated.properties.image, image);
+  assert.notEqual(migrated.properties.image, image);
+  assert.deepEqual(record.properties.image, image);
+
+  const github = migrateRecordSchemaKeys(
+    record,
+    current,
+    next,
+    renames,
+    { storage: "github" }
+  );
+  assert.equal(github.type, "article");
+  assert.equal(
+    github.properties.attachment,
+    `/media/assets/${hash}/brief.pdf`
+  );
+});
+
+test("migrates API file URLs between configured public folders", () => {
+  const hash = "b".repeat(64);
+  const current = {
+    site: { public_folder: "/assets" },
+    node_types: {
+      page: {
+        fields: {
+          attachment: { widget: "file" },
+          noncanonical: { widget: "file" }
+        }
+      }
+    },
+    collections: {
+      files: { folder: "content/files", node_type: "page" }
+    }
+  };
+  const next = {
+    site: { public_folder: "/downloads" },
+    node_types: structuredClone(current.node_types),
+    collections: {
+      library: { folder: "content/library", node_type: "page" }
+    }
+  };
+  const record = {
+    id: "home",
+    type: "page",
+    properties: {
+      attachment: `/assets/files/${hash}/brief%20report.pdf`,
+      noncanonical: `/media/files/${hash}/brief%20report.pdf`
+    },
+    slots: {}
+  };
+
+  const migrated = migrateRecordSchemaKeys(
+    record,
+    current,
+    next,
+    {
+      node_types: {},
+      collections: { files: "library" }
+    },
+    { storage: "api" }
+  );
+
+  assert.equal(
+    migrated.properties.attachment,
+    `/downloads/library/${hash}/brief%20report.pdf`
+  );
+  assert.equal(
+    migrated.properties.noncanonical,
+    `/media/files/${hash}/brief%20report.pdf`
+  );
+});
+
+test("validates schema rename provenance as explicit one-to-one rekeys", () => {
+  const current = {
+    node_types: {
+      page: { fields: {} },
+      card: { fields: {} },
+      remote_image: { connector: "central", remote_type: "image" }
+    },
+    collections: {
+      pages: { folder: "content/pages", node_type: "page" },
+      remote_images: {
+        connector: "central",
+        remote_collection: "images"
+      }
+    }
+  };
+  const next = {
+    node_types: {
+      article: { fields: {} },
+      tile: { fields: {} },
+      library_image: { connector: "central", remote_type: "image" }
+    },
+    collections: {
+      articles: { folder: "content/articles", node_type: "article" },
+      library_images: {
+        connector: "central",
+        remote_collection: "images"
+      }
+    }
+  };
+  assert.deepEqual(
+    normalizeSchemaRenames(
+      {
+        node_types: {
+          page: "article",
+          card: "tile",
+          remote_image: "library_image"
+        },
+        collections: {
+          pages: "articles",
+          remote_images: "library_images"
+        }
+      },
+      current,
+      next
+    ),
+    {
+      node_types: {
+        page: "article",
+        card: "tile",
+        remote_image: "library_image"
+      },
+      collections: {
+        pages: "articles",
+        remote_images: "library_images"
+      }
+    }
+  );
+
+  assert.throws(
+    () => normalizeSchemaRenames(
+      { node_types: { page: "card", card: "tile" }, collections: {} },
+      current,
+      next
+    ),
+    /chains or swaps|already exists/
+  );
+  const changedOwner = structuredClone(next);
+  changedOwner.node_types.library_image.remote_type = "asset";
+  assert.throws(
+    () => normalizeSchemaRenames(
+      {
+        node_types: { remote_image: "library_image" },
+        collections: {}
+      },
+      current,
+      changedOwner
+    ),
+    /preserve its connector and remote identity/
+  );
+});
+
 test("ignores unrelated aliases declared by a remote project", () => {
   const remote = remoteConfig();
   remote.connectors.archive = {
@@ -552,6 +784,56 @@ test("imports exact remote stubs without rewriting their owner", () => {
   });
   assert.deepEqual(planned.changedConnectors, []);
   assert.equal(planned.config.collections.central_videos.node_type, "central_video");
+});
+
+test("rekeys local remote aliases without renaming their owner schema", () => {
+  const source = sourceConfig();
+  const remote = remoteConfig();
+  const effective = materializeConfig({
+    sourceConfig: source,
+    remoteConfigs: { central: remote }
+  }).config;
+  effective.node_types.media_image = effective.node_types.central_image;
+  delete effective.node_types.central_image;
+  effective.collections.media_images = effective.collections.central_images;
+  delete effective.collections.central_images;
+  effective.node_types.central_gallery.fields.lead.collection = "media_images";
+  effective.node_types.central_gallery.fields.lead.allowed_types = [
+    "media_image"
+  ];
+  effective.node_types.central_gallery.fields.copy.blocknote.inline_reference.collection =
+    "media_images";
+  effective.node_types.central_gallery.slots.images.allowed_types = [
+    "media_image"
+  ];
+  effective.collections.media_images.node_type = "media_image";
+  effective.collections.media_images.allowed_types = ["media_image"];
+
+  const planned = planConfigWrites({
+    effectiveConfig: effective,
+    sourceConfig: source,
+    remoteConfigs: { central: remote },
+    schemaRenames: {
+      node_types: { central_image: "media_image" },
+      collections: { central_images: "media_images" }
+    }
+  });
+
+  assert.deepEqual(planned.changedConnectors, []);
+  assert.equal(planned.sourceChanged, true);
+  assert.deepEqual(planned.sourceConfig.node_types.media_image, {
+    connector: "central",
+    remote_type: "image"
+  });
+  assert.deepEqual(planned.sourceConfig.collections.media_images, {
+    connector: "central",
+    remote_collection: "images"
+  });
+  assert.deepEqual(planned.remoteConfigs.central, remote);
+  assert.deepEqual(planned.schemaRenames, {
+    node_types: { central_image: "media_image" },
+    collections: { central_images: "media_images" }
+  });
 });
 
 test("never overwrites an unaliased remote definition or deletes an unlinked one", () => {

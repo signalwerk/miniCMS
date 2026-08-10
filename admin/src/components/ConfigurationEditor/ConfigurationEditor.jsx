@@ -12,6 +12,7 @@ import {
   FolderTree,
   GripVertical,
   Layers3,
+  Pencil,
   Plus,
   Save,
   Search,
@@ -53,9 +54,21 @@ import {
   isFilterExpressionEmpty
 } from "../../model/advancedFilter.js";
 import {
+  createSchemaOperations,
+  deleteSchemaEntryOperation,
+  duplicateSchemaEntry,
+  markSchemaEntryFresh,
+  renameSchemaEntry,
+  schemaRenameError
+} from "../../model/configuration.js";
+import {
   SYSTEM_FIELD_DEFINITIONS,
   tableRelationOptions
 } from "../../model/views.js";
+import {
+  focusableElements,
+  isolateFocusSurface
+} from "../../model/focus.js";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import { isGeneratedIdWidget } from "../../../../core/id.js";
 import {
@@ -898,9 +911,58 @@ function MultiChoice({
   );
 }
 
+function useConfigurationDialogFocus(onCancel) {
+  const backdropRef = useRef(null);
+  const dialogRef = useRef(null);
+  const previousFocusRef = useRef(document.activeElement);
+
+  useEffect(() => {
+    const previousFocus = previousFocusRef.current;
+    const restoreIsolation = isolateFocusSurface(dialogRef.current);
+    return () => {
+      restoreIsolation();
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(event) {
+      const backdrops = document.querySelectorAll(".dialog-backdrop");
+      if (backdrops[backdrops.length - 1] !== backdropRef.current) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current?.contains(event.target)) {
+        return;
+      }
+      const focusable = focusableElements(dialogRef.current);
+      if (!focusable.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [onCancel]);
+
+  return { backdropRef, dialogRef };
+}
+
 function AddEntryDialog({
   title,
   existing,
+  reserved = {},
   label = "Name",
   connectorOptions = [],
   contentTypeOptions = null,
@@ -925,19 +987,17 @@ function AddEntryDialog({
     !name.trim() ||
     !resolvedKey ||
     Object.hasOwn(existing, resolvedKey) ||
+    Object.hasOwn(reserved, resolvedKey) ||
     (contentTypeOptions !== null && !resolvedContentType);
-
-  useEffect(() => {
-    function onKeyDown(event) {
-      if (event.key === "Escape") onCancel();
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onCancel]);
+  const { backdropRef, dialogRef } = useConfigurationDialogFocus(onCancel);
 
   return (
-    <div className="dialog-backdrop configuration-dialog-backdrop">
+    <div
+      ref={backdropRef}
+      className="dialog-backdrop configuration-dialog-backdrop"
+    >
       <form
+        ref={dialogRef}
         className="dialog configuration-add-dialog"
         role="dialog"
         aria-modal="true"
@@ -1028,6 +1088,12 @@ function AddEntryDialog({
               <CircleAlert size={14} /> “{resolvedKey}” already exists.
             </p>
           )}
+          {resolvedKey && Object.hasOwn(reserved, resolvedKey) && (
+            <p className="configuration-inline-error">
+              <CircleAlert size={14} /> “{resolvedKey}” is reserved until the
+              pending deletion is saved.
+            </p>
+          )}
         </div>
         <div className="dialog__footer">
           <button type="button" className="button button--secondary" onClick={onCancel}>
@@ -1035,6 +1101,87 @@ function AddEntryDialog({
           </button>
           <button type="submit" className="button button--primary" disabled={invalid}>
             <Plus size={14} /> Add
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function RenameEntryDialog({
+  config,
+  operations,
+  section,
+  currentKey,
+  onCancel,
+  onRename
+}) {
+  const [key, setKey] = useState(currentKey);
+  const resolvedKey = key.trim();
+  const validationError = schemaRenameError(
+    config,
+    operations,
+    section,
+    currentKey,
+    resolvedKey
+  );
+  const invalid = resolvedKey === currentKey || Boolean(validationError);
+  const kind = section === "collections" ? "collection" : "content type";
+  const { backdropRef, dialogRef } = useConfigurationDialogFocus(onCancel);
+
+  return (
+    <div
+      ref={backdropRef}
+      className="dialog-backdrop configuration-dialog-backdrop"
+    >
+      <form
+        ref={dialogRef}
+        className="dialog configuration-add-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="configuration-rename-dialog-title"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!invalid) onRename(resolvedKey);
+        }}
+      >
+        <div className="dialog__top">
+          <span className="dialog__icon" aria-hidden="true">
+            <Pencil size={18} />
+          </span>
+          <div>
+            <h2 id="configuration-rename-dialog-title">
+              Rename {kind} key
+            </h2>
+          </div>
+          <button type="button" aria-label="Close" onClick={onCancel}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="dialog__body configuration-add-dialog__body">
+          <FormField label="Key">
+            <TextInput autoFocus value={key} onChange={setKey} />
+          </FormField>
+          {validationError && (
+            <p className="configuration-inline-error">
+              <CircleAlert size={14} /> {validationError}
+            </p>
+          )}
+        </div>
+        <div className="dialog__footer">
+          <button
+            type="button"
+            className="button button--secondary"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="button button--primary"
+            disabled={invalid}
+          >
+            <Pencil size={14} /> Rename
           </button>
         </div>
       </form>
@@ -2831,6 +2978,8 @@ function TypeEditor({
   referenceSets,
   updateType,
   onMoveType,
+  onRenameType,
+  onDuplicateType,
   onDeleteType,
   onAdd
 }) {
@@ -2861,6 +3010,22 @@ function TypeEditor({
         meta={typeKey}
         action={
           <div className="configuration-heading-actions">
+            <button
+              type="button"
+              title="Rename content type key"
+              aria-label="Rename content type key"
+              onClick={onRenameType}
+            >
+              <Pencil size={14} />
+            </button>
+            <button
+              type="button"
+              title="Duplicate content type"
+              aria-label="Duplicate content type"
+              onClick={onDuplicateType}
+            >
+              <Copy size={14} />
+            </button>
             <button
               type="button"
               title="Move type up"
@@ -3803,6 +3968,8 @@ function CollectionEditor({
   updateCollection,
   onDeleteQuickFilter,
   onMove,
+  onRename,
+  onDuplicate,
   onDelete
 }) {
   const type = nodeTypes[collection.node_type];
@@ -3831,6 +3998,22 @@ function CollectionEditor({
         meta={collectionKey}
         action={
           <div className="configuration-heading-actions">
+            <button
+              type="button"
+              title="Rename collection key"
+              aria-label="Rename collection key"
+              onClick={onRename}
+            >
+              <Pencil size={14} />
+            </button>
+            <button
+              type="button"
+              title="Duplicate collection"
+              aria-label="Duplicate collection"
+              onClick={onDuplicate}
+            >
+              <Copy size={14} />
+            </button>
             <button
               type="button"
               title="Move collection up"
@@ -4244,13 +4427,17 @@ export default function ConfigurationEditor({
   const [selection, setSelection] = useState({ section: "site", key: null });
   const [search, setSearch] = useState("");
   const [entryDialog, setEntryDialog] = useState(null);
+  const [renameDialog, setRenameDialog] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
+  const [schemaOperations, setSchemaOperations] = useState(
+    createSchemaOperations
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [authenticateConnector, setAuthenticateConnector] = useState("");
   const overlayRef = useRef(null);
   const trustedConnectorsRef = useRef(structuredClone(config.connectors ?? {}));
-  const modalOpen = Boolean(entryDialog || confirmation);
+  const modalOpen = Boolean(entryDialog || renameDialog || confirmation);
   const dirty = useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(savedDraft),
     [draft, savedDraft]
@@ -4334,10 +4521,12 @@ export default function ConfigurationEditor({
     setError("");
     try {
       const saved = await onSave(draft, {
-        authenticateConnector
+        authenticateConnector,
+        schemaRenames: structuredClone(schemaOperations.schemaRenames)
       });
       setDraft(structuredClone(saved));
       setSavedDraft(structuredClone(saved));
+      setSchemaOperations(createSchemaOperations());
       setAuthenticateConnector("");
       return true;
     } catch (saveError) {
@@ -4395,7 +4584,13 @@ export default function ConfigurationEditor({
         }
         return;
       }
-      if (event.key !== "Escape" || entryDialog || confirmation || saving) return;
+      if (
+        event.key !== "Escape" ||
+        entryDialog ||
+        renameDialog ||
+        confirmation ||
+        saving
+      ) return;
       event.preventDefault();
       requestClose();
     }
@@ -4482,7 +4677,60 @@ export default function ConfigurationEditor({
         }
       }
     });
+    if (["collection", "type"].includes(dialog.kind)) {
+      setSchemaOperations((current) =>
+        markSchemaEntryFresh(
+          current,
+          dialog.kind === "collection" ? "collections" : "node_types",
+          key
+        )
+      );
+    }
     setEntryDialog(null);
+  }
+
+  function duplicateEntry(section, key) {
+    setError("");
+    try {
+      const result = duplicateSchemaEntry(
+        draft,
+        schemaOperations,
+        section,
+        key
+      );
+      setDraft(result.config);
+      setSchemaOperations(result.operations);
+      setSelection({
+        section: section === "collections" ? "collections" : "types",
+        key: result.key
+      });
+    } catch (duplicateError) {
+      setError(duplicateError.message);
+    }
+  }
+
+  function renameEntry(nextKey) {
+    if (!renameDialog) return;
+    setError("");
+    try {
+      const result = renameSchemaEntry(
+        draft,
+        schemaOperations,
+        renameDialog.section,
+        renameDialog.key,
+        nextKey
+      );
+      setDraft(result.config);
+      setSchemaOperations(result.operations);
+      setSelection({
+        section:
+          renameDialog.section === "collections" ? "collections" : "types",
+        key: result.key
+      });
+      setRenameDialog(null);
+    } catch (renameError) {
+      setError(renameError.message);
+    }
   }
 
   function entryDialogMapping() {
@@ -4534,6 +4782,9 @@ export default function ConfigurationEditor({
         update((next) => {
           delete next.node_types[typeKey];
         });
+        setSchemaOperations((current) =>
+          deleteSchemaEntryOperation(current, "node_types", typeKey)
+        );
         setSelection({ section: "types", key: Object.keys(draft.node_types).find((key) => key !== typeKey) || null });
       }
     });
@@ -4575,6 +4826,9 @@ export default function ConfigurationEditor({
         update((next) => {
           delete next.collections[collectionKey];
         });
+        setSchemaOperations((current) =>
+          deleteSchemaEntryOperation(current, "collections", collectionKey)
+        );
         setSelection({
           section: "collections",
           key: Object.keys(draft.collections).find((key) => key !== collectionKey) || null
@@ -4714,10 +4968,7 @@ export default function ConfigurationEditor({
       aria-labelledby="configuration-settings-title"
       tabIndex="-1"
     >
-      <header
-        className="configuration-overlay__topbar"
-        inert={modalOpen ? true : undefined}
-      >
+      <header className="configuration-overlay__topbar">
         <span className="configuration-overlay__title">
           <span aria-hidden="true"><Settings2 size={17} /></span>
           <span>
@@ -4769,10 +5020,7 @@ export default function ConfigurationEditor({
         </button>
       </header>
 
-      <div
-        className="configuration-overlay__workspace"
-        inert={modalOpen ? true : undefined}
-      >
+      <div className="configuration-overlay__workspace">
         <aside className="configuration-navigation">
           <div className="configuration-navigation__search">
             <Search size={14} aria-hidden="true" />
@@ -4942,6 +5190,13 @@ export default function ConfigurationEditor({
               onMove={(direction) => update((next) => {
                 next.collections = moveMappingEntry(next.collections, selection.key, direction);
               })}
+              onRename={() => setRenameDialog({
+                section: "collections",
+                key: selection.key
+              })}
+              onDuplicate={() =>
+                duplicateEntry("collections", selection.key)
+              }
               onDelete={() => requestDeleteCollection(selection.key)}
             />
           )}
@@ -4956,6 +5211,13 @@ export default function ConfigurationEditor({
               onMoveType={(direction) => update((next) => {
                 next.node_types = moveMappingEntry(next.node_types, selection.key, direction);
               })}
+              onRenameType={() => setRenameDialog({
+                section: "node_types",
+                key: selection.key
+              })}
+              onDuplicateType={() =>
+                duplicateEntry("node_types", selection.key)
+              }
               onDeleteType={() => requestDeleteType(selection.key)}
               onAdd={(dialog) => {
                 if (dialog.kind === "delete-field") {
@@ -5012,6 +5274,13 @@ export default function ConfigurationEditor({
                       : "Add inspector group"
           }
           existing={entryDialogMapping()}
+          reserved={
+            entryDialog.kind === "collection"
+              ? schemaOperations.retiredEntries.collections
+              : entryDialog.kind === "type"
+                ? schemaOperations.retiredEntries.node_types
+                : {}
+          }
           connectorOptions={
             ["collection", "type"].includes(entryDialog.kind)
               ? creationConnectors
@@ -5024,6 +5293,16 @@ export default function ConfigurationEditor({
           }
           onCancel={() => setEntryDialog(null)}
           onCreate={createEntry}
+        />
+      )}
+      {renameDialog && (
+        <RenameEntryDialog
+          config={draft}
+          operations={schemaOperations}
+          section={renameDialog.section}
+          currentKey={renameDialog.key}
+          onCancel={() => setRenameDialog(null)}
+          onRename={renameEntry}
         />
       )}
       {confirmation && (

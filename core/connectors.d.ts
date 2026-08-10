@@ -64,7 +64,13 @@ export interface MaterializedConfig {
 export interface PlannedConfigWrites extends MaterializedConfig {
   remoteConfigs: Record<string, SourceConfig>;
   changedConnectors: string[];
+  schemaRenames: SchemaRenames;
   sourceChanged: boolean;
+}
+
+export interface SchemaRenames {
+  node_types: Record<string, string>;
+  collections: Record<string, string>;
 }
 
 export function validateSourceConfig(
@@ -88,8 +94,26 @@ export function planConfigWrites(options: {
   sourceConfig: SourceConfig;
   ownershipSourceConfig?: SourceConfig;
   remoteConfigs?: Record<string, SourceConfig>;
+  schemaRenames?: SchemaRenames;
   status?: number;
 }): PlannedConfigWrites;
+
+export function normalizeSchemaRenames(
+  schemaRenames: SchemaRenames | undefined,
+  currentConfig: SourceConfig,
+  nextConfig: SourceConfig,
+  status?: number
+): SchemaRenames;
+
+export function migrateRecordSchemaKeys<
+  T extends Record<string, unknown>
+>(
+  record: T,
+  currentConfig: SourceConfig,
+  nextConfig: SourceConfig,
+  schemaRenames: SchemaRenames,
+  options: { storage: "api" | "github" }
+): T;
 
 export function isRemoteCollection(
   value: unknown

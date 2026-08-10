@@ -1,8 +1,11 @@
 import {
+  assertSafeName,
   contentError,
   validateConfig,
   validateSourceConfig
 } from "./content.js";
+import { parseContentAddressedMediaPath } from "./image-service.js";
+import { imageAssetMediaPath } from "./media.js";
 import {
   buildInlineReferenceUrl,
   parseInlineReferenceUrl
@@ -404,6 +407,249 @@ function sameRemoteOwner(current, next, remoteKey) {
   );
 }
 
+const SCHEMA_RENAME_KINDS = Object.freeze([
+  "node_types",
+  "collections"
+]);
+
+function emptySchemaRenames() {
+  return {
+    node_types: {},
+    collections: {}
+  };
+}
+
+function remoteIdentity(kind, definition) {
+  if (kind === "node_types" && isRemoteNodeType(definition)) {
+    return {
+      connector: definition.connector,
+      remoteName: definition.remote_type
+    };
+  }
+  if (kind === "collections" && isRemoteCollection(definition)) {
+    return {
+      connector: definition.connector,
+      remoteName: definition.remote_collection
+    };
+  }
+  return null;
+}
+
+function normalizeSchemaRenames(
+  schemaRenames,
+  currentConfig,
+  nextConfig,
+  status = 400
+) {
+  const supplied = schemaRenames ?? emptySchemaRenames();
+  if (!isMapping(supplied)) {
+    throw contentError(status, "schemaRenames must be a mapping.");
+  }
+  const extraKinds = Object.keys(supplied).filter(
+    (kind) => !SCHEMA_RENAME_KINDS.includes(kind)
+  );
+  if (extraKinds.length) {
+    throw contentError(
+      status,
+      "schemaRenames may define only node_types and collections."
+    );
+  }
+  if (!isMapping(currentConfig) || !isMapping(nextConfig)) {
+    throw contentError(
+      status,
+      "Schema renames require current and next configurations."
+    );
+  }
+
+  const normalized = emptySchemaRenames();
+  for (const kind of SCHEMA_RENAME_KINDS) {
+    const renames = supplied[kind] ?? {};
+    if (!isMapping(renames)) {
+      throw contentError(status, `schemaRenames.${kind} must be a mapping.`);
+    }
+    const currentDefinitions = currentConfig[kind];
+    const nextDefinitions = nextConfig[kind];
+    if (!isMapping(currentDefinitions) || !isMapping(nextDefinitions)) {
+      throw contentError(
+        status,
+        `Schema renames require ${kind} mappings in both configurations.`
+      );
+    }
+    const sources = new Set(Object.keys(renames));
+    const targets = new Set();
+    for (const [source, target] of Object.entries(renames)) {
+      assertSafeName(source, `${kind} rename source`, status);
+      assertSafeName(target, `${kind} rename target`, status);
+      if (source === target) {
+        throw contentError(
+          status,
+          `${kind} rename "${source}" must change its key.`
+        );
+      }
+      if (targets.has(target)) {
+        throw contentError(
+          status,
+          `${kind} schema rename targets must be one-to-one; "${target}" is repeated.`
+        );
+      }
+      targets.add(target);
+      if (sources.has(target)) {
+        throw contentError(
+          status,
+          `${kind} schema renames cannot contain chains or swaps.`
+        );
+      }
+      const currentDefinition = currentDefinitions[source];
+      const nextDefinition = nextDefinitions[target];
+      if (!currentDefinition) {
+        throw contentError(
+          status,
+          `${kind} rename source "${source}" does not exist in the current configuration.`
+        );
+      }
+      if (Object.hasOwn(nextDefinitions, source)) {
+        throw contentError(
+          status,
+          `${kind} rename source "${source}" must be removed from the next configuration.`
+        );
+      }
+      if (Object.hasOwn(currentDefinitions, target)) {
+        throw contentError(
+          status,
+          `${kind} rename target "${target}" already exists in the current configuration.`
+        );
+      }
+      if (!nextDefinition) {
+        throw contentError(
+          status,
+          `${kind} rename target "${target}" does not exist in the next configuration.`
+        );
+      }
+
+      const currentRemote = remoteIdentity(kind, currentDefinition);
+      const nextRemote = remoteIdentity(kind, nextDefinition);
+      if (Boolean(currentRemote) !== Boolean(nextRemote)) {
+        throw contentError(
+          status,
+          `${kind} rename "${source}" to "${target}" cannot change schema ownership.`
+        );
+      }
+      if (
+        currentRemote &&
+        (currentRemote.connector !== nextRemote.connector ||
+          currentRemote.remoteName !== nextRemote.remoteName)
+      ) {
+        throw contentError(
+          status,
+          `${kind} alias rename "${source}" to "${target}" must preserve its connector and remote identity.`
+        );
+      }
+      normalized[kind][source] = target;
+    }
+  }
+  return normalized;
+}
+
+function migratedApiFileValue(
+  value,
+  collectionRenames,
+  currentConfig,
+  nextConfig
+) {
+  if (typeof value !== "string") return value;
+  const parsed = parseContentAddressedMediaPath(value, currentConfig);
+  const target = parsed?.collection
+    ? collectionRenames[parsed.collection]
+    : null;
+  if (!target) return value;
+  const currentPath = imageAssetMediaPath(
+    { hash: parsed.hash, filename: parsed.filename },
+    {
+      storage: "api",
+      collection: parsed.collection,
+      publicFolder: currentConfig.site?.public_folder ?? "/media"
+    }
+  );
+  if (value !== currentPath) return value;
+  return imageAssetMediaPath(
+    { hash: parsed.hash, filename: parsed.filename },
+    {
+      storage: "api",
+      collection: target,
+      publicFolder: nextConfig.site?.public_folder ?? "/media"
+    }
+  );
+}
+
+function migrateRecordSchemaKeys(
+  record,
+  currentConfig,
+  nextConfig,
+  schemaRenames,
+  { storage } = {}
+) {
+  if (!isMapping(record)) {
+    throw new TypeError("migrateRecordSchemaKeys requires a record mapping.");
+  }
+  if (!["api", "github"].includes(storage)) {
+    throw new TypeError(
+      'migrateRecordSchemaKeys storage must be "api" or "github".'
+    );
+  }
+  const renames = normalizeSchemaRenames(
+    schemaRenames,
+    currentConfig,
+    nextConfig,
+    400
+  );
+  const route = connectorRoutes();
+  for (const kind of SCHEMA_RENAME_KINDS) {
+    const names = new Set([
+      ...Object.keys(currentConfig[kind] ?? {}),
+      ...Object.keys(nextConfig[kind] ?? {})
+    ]);
+    for (const name of names) {
+      route[kind].local_to_remote[name] = renames[kind][name] ?? name;
+      route[kind].remote_to_local[name] = name;
+    }
+  }
+  const migrated = translateRecord(record, route, "local_to_remote");
+  if (storage !== "api" || !Object.keys(renames.collections).length) {
+    return migrated;
+  }
+
+  function migrateFileFields(currentNode, nextNode) {
+    if (!isMapping(currentNode) || !isMapping(nextNode)) return;
+    const fields = currentConfig.node_types?.[currentNode.type]?.fields ?? {};
+    if (isMapping(nextNode.properties)) {
+      for (const [fieldName, field] of Object.entries(fields)) {
+        if (field?.widget !== "file") continue;
+        if (!Object.hasOwn(nextNode.properties, fieldName)) continue;
+        nextNode.properties[fieldName] = migratedApiFileValue(
+          nextNode.properties[fieldName],
+          renames.collections,
+          currentConfig,
+          nextConfig
+        );
+      }
+    }
+    for (const [slotName, currentChildren] of Object.entries(
+      currentNode.slots ?? {}
+    )) {
+      const nextChildren = nextNode.slots?.[slotName];
+      if (!Array.isArray(currentChildren) || !Array.isArray(nextChildren)) {
+        continue;
+      }
+      currentChildren.forEach((child, index) =>
+        migrateFileFields(child, nextChildren[index])
+      );
+    }
+  }
+
+  migrateFileFields(record, migrated);
+  return migrated;
+}
+
 function hasDefinitionBody(definition, remoteKey) {
   return Object.keys(definition ?? {}).some(
     (key) => !["connector", remoteKey].includes(key)
@@ -542,6 +788,7 @@ function planConfigWrites({
   sourceConfig,
   ownershipSourceConfig = sourceConfig,
   remoteConfigs = {},
+  schemaRenames = emptySchemaRenames(),
   status = 500
 } = {}) {
   const currentSource = cloneValue(sourceConfig);
@@ -553,6 +800,12 @@ function planConfigWrites({
   }
 
   const nextSource = collapseConfig(effectiveConfig, status);
+  const normalizedSchemaRenames = normalizeSchemaRenames(
+    schemaRenames,
+    currentSource,
+    nextSource,
+    status
+  );
   const routes = buildRoutes(nextSource, status);
   const nextRemoteConfigs = { ...remoteConfigs };
   const changedConnectors = [];
@@ -582,8 +835,12 @@ function planConfigWrites({
       if (declaration.connector !== connector) continue;
       const draft = effectiveConfig.node_types?.[localName];
       if (!hasDefinitionBody(draft, "remote_type")) continue;
+      const provenanceName =
+        Object.entries(normalizedSchemaRenames.node_types).find(
+          ([, target]) => target === localName
+        )?.[0] ?? localName;
       const currentDeclaration =
-        currentOwnershipSource.node_types?.[localName];
+        currentOwnershipSource.node_types?.[provenanceName];
       if (
         isRemoteNodeType(currentDeclaration) &&
         !sameRemoteOwner(
@@ -625,8 +882,12 @@ function planConfigWrites({
       if (declaration.connector !== connector) continue;
       const draft = effectiveConfig.collections?.[localName];
       if (!hasDefinitionBody(draft, "remote_collection")) continue;
+      const provenanceName =
+        Object.entries(normalizedSchemaRenames.collections).find(
+          ([, target]) => target === localName
+        )?.[0] ?? localName;
       const currentDeclaration =
-        currentOwnershipSource.collections?.[localName];
+        currentOwnershipSource.collections?.[provenanceName];
       if (
         isRemoteCollection(currentDeclaration) &&
         !sameRemoteOwner(
@@ -679,6 +940,7 @@ function planConfigWrites({
     ...materialized,
     remoteConfigs: nextRemoteConfigs,
     changedConnectors,
+    schemaRenames: normalizedSchemaRenames,
     sourceChanged: !sameValue(currentSource, nextSource)
   };
 }
@@ -688,6 +950,8 @@ export {
   isRemoteCollection,
   isRemoteNodeType,
   materializeConfig,
+  migrateRecordSchemaKeys,
+  normalizeSchemaRenames,
   planConfigWrites,
   translateInlineReferences,
   translateRecord,

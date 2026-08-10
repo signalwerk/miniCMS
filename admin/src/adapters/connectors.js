@@ -603,7 +603,13 @@ async function createConnectorAdapter({
     };
   }
 
-  async function saveConfig(config, { authenticateConnector = "" } = {}) {
+  async function saveConfig(
+    config,
+    {
+      authenticateConnector = "",
+      schemaRenames = { node_types: {}, collections: {} }
+    } = {}
+  ) {
     if (!currentSourceConfig) await loadConfig();
     const collapsed = collapseConfig(config);
     const referenced = assertTrustedReferences(collapsed);
@@ -615,7 +621,8 @@ async function createConnectorAdapter({
       sourceConfig: currentSourceConfig,
       ownershipSourceConfig:
         provisionalOwnershipSourceConfig ?? currentSourceConfig,
-      remoteConfigs: nextRemoteConfigs
+      remoteConfigs: nextRemoteConfigs,
+      schemaRenames
     });
     const savedConnectors = [];
     const savedRemoteConfigs = { ...nextRemoteConfigs };
@@ -646,7 +653,10 @@ async function createConnectorAdapter({
     let result = { saved: true, config: currentSourceConfig };
     if (plan.sourceChanged) {
       try {
-        result = await adapters.get("default").saveConfig(plan.sourceConfig);
+        result = await adapters.get("default").saveConfig(
+          plan.sourceConfig,
+          { schemaRenames: plan.schemaRenames }
+        );
       } catch (error) {
         const message = String(error.message || error).replace(/\.+$/, "");
         const partial = savedConnectors.length

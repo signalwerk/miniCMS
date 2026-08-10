@@ -140,8 +140,12 @@ function fakeConnector(
       call("config");
       return structuredClone(currentConfig);
     },
-    async saveConfig(nextConfig) {
-      call("saveConfig", structuredClone(nextConfig));
+    async saveConfig(nextConfig, options) {
+      call(
+        "saveConfig",
+        structuredClone(nextConfig),
+        options === undefined ? undefined : structuredClone(options)
+      );
       const saveConfigError = behavior.saveConfigErrors?.length
         ? behavior.saveConfigErrors.shift()
         : behavior.saveConfigError;
@@ -701,6 +705,60 @@ test("saves collapsed source config only through the active default connector", 
     remote_collection: "images"
   });
   assert.equal(result.config.node_types.shared_image.fields.file.widget, "image");
+});
+
+test("passes local concrete and alias rekeys only to the default leaf", async () => {
+  const calls = [];
+  const adapter = await createConnectorAdapter({
+    sourceConfig: sourceConfig(),
+    connectorFactory: async ({ key }) =>
+      fakeConnector(
+        key,
+        key === "central" ? remoteConfig() : sourceConfig(),
+        calls
+      )
+  });
+  const effective = await adapter.config();
+  effective.node_types.article = effective.node_types.page;
+  delete effective.node_types.page;
+  effective.node_types.library_image = effective.node_types.shared_image;
+  delete effective.node_types.shared_image;
+  effective.node_types.article.fields.image.collection = "library_images";
+  effective.collections.articles = effective.collections.pages;
+  delete effective.collections.pages;
+  effective.collections.articles.node_type = "article";
+  effective.collections.library_images = effective.collections.shared_images;
+  delete effective.collections.shared_images;
+  effective.collections.library_images.node_type = "library_image";
+
+  const schemaRenames = {
+    node_types: {
+      page: "article",
+      shared_image: "library_image"
+    },
+    collections: {
+      pages: "articles",
+      shared_images: "library_images"
+    }
+  };
+  const result = await adapter.saveConfig(effective, { schemaRenames });
+  const writes = calls.filter((entry) => entry.method === "saveConfig");
+
+  assert.deepEqual(writes.map((entry) => entry.key), ["default"]);
+  assert.deepEqual(writes[0].args[1], { schemaRenames });
+  assert.deepEqual(writes[0].args[0].node_types.library_image, {
+    connector: "central",
+    remote_type: "image"
+  });
+  assert.deepEqual(writes[0].args[0].collections.library_images, {
+    connector: "central",
+    remote_collection: "images"
+  });
+  assert.equal(result.config.collections.articles.node_type, "article");
+  assert.equal(
+    result.config.node_types.article.fields.image.collection,
+    "library_images"
+  );
 });
 
 test("saves edited remote schema only through its owner", async () => {

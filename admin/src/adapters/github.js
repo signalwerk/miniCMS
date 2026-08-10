@@ -20,7 +20,11 @@ import {
   recordMediaStoragePaths,
   sha256Hex
 } from "../../../core/media.js";
-import { isRemoteCollection } from "../../../core/connectors.js";
+import {
+  isRemoteCollection,
+  migrateRecordSchemaKeys,
+  normalizeSchemaRenames
+} from "../../../core/connectors.js";
 import { createGitHubAuth } from "./github-auth.js";
 
 const API_VERSION = "2026-03-10";
@@ -91,12 +95,17 @@ function recordTimestamp(commit) {
   );
 }
 
-function collectionFolderMoves(currentConfig, nextConfig) {
+function renamedSourceName(renames, target) {
+  return Object.entries(renames).find(([, name]) => name === target)?.[0] ?? target;
+}
+
+function collectionFolderMoves(currentConfig, nextConfig, schemaRenames) {
   const moves = [];
   for (const [name, nextCollection] of Object.entries(
     nextConfig.collections ?? {}
   )) {
-    const currentCollection = currentConfig.collections?.[name];
+    const sourceName = renamedSourceName(schemaRenames.collections, name);
+    const currentCollection = currentConfig.collections?.[sourceName];
     if (
       !currentCollection ||
       isRemoteCollection(currentCollection) ||
@@ -106,7 +115,7 @@ function collectionFolderMoves(currentConfig, nextConfig) {
     }
     const from = normalizeRepositoryPath(
       currentCollection.folder,
-      `Collection "${name}" folder`
+      `Collection "${sourceName}" folder`
     );
     const to = normalizeRepositoryPath(
       nextCollection.folder,
@@ -119,9 +128,49 @@ function collectionFolderMoves(currentConfig, nextConfig) {
         `Collection "${name}" folder cannot move into or contain its previous folder.`
       );
     }
-    moves.push({ collection: name, from, to });
+    moves.push({ collection: name, sourceCollection: sourceName, from, to });
   }
   return moves;
+}
+
+function newConcreteCollectionFolders(
+  currentConfig,
+  nextConfig,
+  schemaRenames
+) {
+  const additions = [];
+  for (const [name, definition] of Object.entries(
+    nextConfig.collections ?? {}
+  )) {
+    if (isRemoteCollection(definition)) continue;
+    const sourceName = renamedSourceName(schemaRenames.collections, name);
+    if (currentConfig.collections?.[sourceName]) continue;
+    additions.push({
+      collection: name,
+      folder: normalizeRepositoryPath(
+        definition.folder,
+        `Collection "${name}" folder`
+      )
+    });
+  }
+  return additions;
+}
+
+function assertNewCollectionFoldersAvailable(entries, additions) {
+  for (const addition of additions) {
+    const collision = entries.find((entry) => {
+      return (
+        pathWithin(entry.path, addition.folder) ||
+        (entry.type !== "tree" && pathWithin(addition.folder, entry.path))
+      );
+    });
+    if (collision) {
+      throw contentError(
+        409,
+        `New collection "${addition.collection}" folder destination conflicts with "${collision.path}".`
+      );
+    }
+  }
 }
 
 function pathWithin(path, directory) {
@@ -185,6 +234,15 @@ function movedTreeChanges(entries, moves) {
   );
   for (const addition of additions) changes.set(addition.path, addition);
   return [...changes.values()];
+}
+
+function directRecordEntry(entry, collection) {
+  if (entry.type !== "blob") return false;
+  const extension = String(collection.extension || "yml").replace(/^\./, "");
+  const prefix = `${collection.folder}/`;
+  if (!entry.path.startsWith(prefix)) return false;
+  const relative = entry.path.slice(prefix.length);
+  return !relative.includes("/") && relative.endsWith(`.${extension}`);
 }
 
 function createGitHubAdapter({
@@ -407,6 +465,20 @@ function createGitHubAdapter({
     return result.tree;
   }
 
+  async function snapshotBlobText(entry) {
+    const result = await githubRequest(
+      `${repositoryApi}/git/blobs/${encodeURIComponent(entry.sha)}`,
+      { authRequired: true }
+    );
+    if (result?.encoding !== "base64" || typeof result.content !== "string") {
+      throw contentError(
+        502,
+        `GitHub did not return record blob "${entry.path}" as base64.`
+      );
+    }
+    return decodeBase64(result.content);
+  }
+
   function assertCurrentConfigBlob(entries) {
     const entry = entries.find(({ path }) => path === configPath);
     const matches =
@@ -419,6 +491,149 @@ function createGitHubAdapter({
         `The ${branch} configuration changed while you were editing. Reload and try again.`
       );
     }
+  }
+
+  async function schemaMigrationChanges({
+    current,
+    next,
+    schemaRenames,
+    entries
+  }) {
+    if (
+      !Object.keys(schemaRenames.node_types).length &&
+      !Object.keys(schemaRenames.collections).length
+    ) {
+      return [];
+    }
+
+    const tasks = [];
+    for (const [sourceName, sourceDefinition] of Object.entries(
+      current.collections ?? {}
+    )) {
+      if (isRemoteCollection(sourceDefinition)) continue;
+      const targetName = schemaRenames.collections[sourceName] ?? sourceName;
+      const targetDefinition = next.collections?.[targetName];
+      if (!targetDefinition || isRemoteCollection(targetDefinition)) continue;
+      const sourceCollection = {
+        name: sourceName,
+        ...sourceDefinition,
+        folder: normalizeRepositoryPath(
+          sourceDefinition.folder,
+          `Collection "${sourceName}" folder`
+        )
+      };
+      const targetCollection = {
+        name: targetName,
+        ...targetDefinition,
+        folder: normalizeRepositoryPath(
+          targetDefinition.folder,
+          `Collection "${targetName}" folder`
+        )
+      };
+      for (const entry of entries) {
+        if (!directRecordEntry(entry, sourceCollection)) continue;
+        tasks.push({
+          entry,
+          sourceName,
+          sourceCollection,
+          targetCollection
+        });
+      }
+    }
+
+    const records = [];
+    const concurrency = 8;
+    for (let offset = 0; offset < tasks.length; offset += concurrency) {
+      const chunk = tasks.slice(offset, offset + concurrency);
+      const settled = await Promise.allSettled(
+        chunk.map(
+          async ({
+            entry,
+            sourceName,
+            sourceCollection,
+            targetCollection
+          }) => {
+            let record;
+            try {
+              record = parseYaml(await snapshotBlobText(entry));
+              validateRecord(record, sourceCollection, current, 409);
+            } catch (error) {
+              if (error?.status) throw error;
+              throw contentError(
+                409,
+                `Collection "${sourceName}" record "${entry.path}" cannot be migrated: ${error.message || error}`
+              );
+            }
+            const expectedSourcePath = recordPath(
+              sourceCollection,
+              record.id
+            );
+            if (entry.path !== expectedSourcePath) {
+              throw contentError(
+                409,
+                `Collection "${sourceName}" record "${entry.path}" does not match its record id "${record.id}".`
+              );
+            }
+            const migrated = migrateRecordSchemaKeys(
+              record,
+              current,
+              next,
+              schemaRenames,
+              { storage: "github" }
+            );
+            validateRecord(migrated, targetCollection, next, 409);
+            return {
+              sourcePath: entry.path,
+              targetPath: recordPath(targetCollection, migrated.id),
+              record,
+              migrated
+            };
+          }
+        )
+      );
+      const failure = settled.find(({ status }) => status === "rejected");
+      if (failure) throw failure.reason;
+      records.push(
+        ...settled.map(({ value }) => value)
+      );
+    }
+
+    const sourcePaths = new Set(records.map(({ sourcePath }) => sourcePath));
+    const targetPaths = new Set();
+    for (const { sourcePath, targetPath } of records) {
+      if (targetPaths.has(targetPath)) {
+        throw contentError(
+          409,
+          `Schema migration records collide at "${targetPath}".`
+        );
+      }
+      targetPaths.add(targetPath);
+      if (targetPath === sourcePath || sourcePaths.has(targetPath)) continue;
+      const collision = entries.find(
+        (entry) => entry.path === targetPath
+      );
+      if (collision) {
+        throw contentError(
+          409,
+          `Schema migration destination conflicts with "${collision.path}".`
+        );
+      }
+    }
+
+    const changes = [];
+    for (const { sourcePath, targetPath, record, migrated } of records) {
+      if (
+        sourcePath === targetPath &&
+        JSON.stringify(record) === JSON.stringify(migrated)
+      ) {
+        continue;
+      }
+      if (sourcePath !== targetPath) {
+        changes.push({ path: sourcePath, delete: true });
+      }
+      changes.push({ path: targetPath, text: dumpYaml(migrated) });
+    }
+    return changes;
   }
 
   async function createTextBlob(source) {
@@ -850,24 +1065,62 @@ function createGitHubAdapter({
     recordCache.delete(path);
   }
 
-  async function saveConfig(config) {
+  async function saveConfig(
+    config,
+    {
+      schemaRenames = { node_types: {}, collections: {} }
+    } = {}
+  ) {
     await ensureAuthenticated();
     const validated = validateSourceConfig(config, 400);
     if (currentConfigBlobSha === undefined) await loadConfig();
     const current = await ensureConfig();
-    const moves = collectionFolderMoves(current, validated);
+    const normalizedSchemaRenames = normalizeSchemaRenames(
+      schemaRenames,
+      current,
+      validated,
+      400
+    );
+    const moves = collectionFolderMoves(
+      current,
+      validated,
+      normalizedSchemaRenames
+    );
+    const addedFolders = newConcreteCollectionFolders(
+      current,
+      validated,
+      normalizedSchemaRenames
+    );
+    const hasSchemaRenames = [
+      ...Object.keys(normalizedSchemaRenames.node_types),
+      ...Object.keys(normalizedSchemaRenames.collections)
+    ].length > 0;
     const snapshot = await repositorySnapshot();
     const entries = await snapshotTree(snapshot, {
-      recursive: moves.length > 0
+      recursive:
+        moves.length > 0 || hasSchemaRenames || addedFolders.length > 0
     });
     assertCurrentConfigBlob(entries);
+    assertNewCollectionFoldersAvailable(entries, addedFolders);
     const folderChanges = moves.length
       ? movedTreeChanges(entries, moves)
       : [];
+    const recordChanges = await schemaMigrationChanges({
+      current,
+      next: validated,
+      schemaRenames: normalizedSchemaRenames,
+      entries
+    });
+    const combinedChanges = new Map(
+      folderChanges.map((change) => [change.path, change])
+    );
+    for (const change of recordChanges) {
+      combinedChanges.set(change.path, change);
+    }
     const nextConfigBlobSha = await createTextBlob(dumpYaml(validated));
     await commitChanges(
       [
-        ...folderChanges,
+        ...combinedChanges.values(),
         {
           path: configPath,
           mode: "100644",
@@ -875,14 +1128,16 @@ function createGitHubAdapter({
           sha: nextConfigBlobSha
         }
       ],
-      moves.length === 1
+      hasSchemaRenames
+        ? "Rename miniCMS schema keys"
+        : moves.length === 1
         ? `Move ${moves[0].collection} collection folder`
         : moves.length > 1
           ? "Move collection folders"
           : "Update miniCMS configuration",
       snapshot
     );
-    if (moves.length) recordCache.clear();
+    if (moves.length || hasSchemaRenames) recordCache.clear();
     currentConfig = validated;
     currentConfigBlobSha = nextConfigBlobSha;
     return { saved: true, config: validated };
