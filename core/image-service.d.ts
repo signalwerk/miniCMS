@@ -36,10 +36,17 @@ export interface ImageOperation {
 }
 
 export interface ContentAddressedMediaPath {
-  readonly collection: string;
+  readonly collection: string | null;
   readonly sha: string;
+  readonly hash: string;
   readonly filename: string;
   readonly path: string;
+}
+
+export interface ImageAsset {
+  readonly hash: string;
+  readonly filename: string;
+  readonly [key: string]: unknown;
 }
 
 export interface ParsedImageServiceUrl {
@@ -52,7 +59,7 @@ export interface ParsedImageServiceUrl {
   readonly format: ImageFormat | "json" | "svg";
 }
 
-export type ImageSource = string | { src: string; [key: string]: unknown };
+export type ImageSource = ImageAsset;
 
 export interface ImageServiceOptions {
   baseUrl?: string;
@@ -73,6 +80,7 @@ export interface ImageServiceOptions {
   quality?: number;
   operations?: string | ImageOperation[];
   info?: boolean;
+  collection?: string;
 }
 
 export const DEFAULT_IMAGE_PROCESSING: Readonly<NormalizedImageProcessingConfig>;
@@ -84,12 +92,13 @@ export function buildImageServiceUrl(
   options?: ImageServiceOptions
 ): string;
 export function buildImageServiceMediaUrl(
-  value: string,
-  options?: Pick<ImageServiceOptions, "baseUrl" | "config">
+  value: string | ImageAsset,
+  options?: Pick<ImageServiceOptions, "baseUrl" | "config" | "collection">
 ): string;
 export function imageServiceMediaPath(
-  value: string,
-  config?: ImageServiceOptions["config"]
+  value: string | ImageAsset,
+  config?: ImageServiceOptions["config"],
+  collection?: string
 ): string;
 export function imageServicePath(
   value: ImageSource,

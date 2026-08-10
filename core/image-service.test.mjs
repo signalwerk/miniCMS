@@ -17,6 +17,7 @@ import {
 
 const CONTENT_SHA =
   "c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc";
+const imageValue = (filename) => ({ hash: CONTENT_SHA, filename });
 const imageSource = (filename, collection = "images") =>
   `/media/${collection}/${CONTENT_SHA}/${filename}`;
 
@@ -25,11 +26,13 @@ test("builds a readable canonical URL for content-addressed media", () => {
   assert.deepEqual(parseContentAddressedMediaPath(source), {
     collection: "images",
     sha: CONTENT_SHA,
+    hash: CONTENT_SHA,
     filename: "big-picture.jpg",
     path: source
   });
   assert.equal(
-    imageServicePath(source, {
+    imageServicePath(imageValue("big-picture.jpg"), {
+      collection: "images",
       config: {
         site: {
           image_processing: {
@@ -48,9 +51,10 @@ test("builds a readable canonical URL for content-addressed media", () => {
 });
 
 test("preserves both JPEG output extensions", () => {
-  const source = imageSource("photo.png");
+  const source = imageValue("photo.png");
   for (const format of ["jpg", "jpeg"]) {
     const route = imageServicePath(source, {
+      collection: "images",
       width: 320,
       height: 240,
       format
@@ -72,13 +76,15 @@ test("preserves both JPEG output extensions", () => {
 });
 
 test("parses canonical relative and absolute derivative URLs", () => {
-  const source = imageSource("big-picture.jpg");
+  const source = imageValue("big-picture.jpg");
   const relative = buildImageServiceUrl(source, {
+    collection: "images",
     width: 800,
     height: 600,
     fit: "inside"
   });
   const absolute = buildImageServiceUrl(source, {
+    collection: "images",
     baseUrl: "https://images.example.com",
     width: 800,
     height: 600,
@@ -104,7 +110,7 @@ test("parses canonical relative and absolute derivative URLs", () => {
     ...parseImageServiceUrl(relative),
     baseUrl: "https://images.example.com"
   });
-  assert.equal(parseImageServiceUrl(source), null);
+  assert.equal(parseImageServiceUrl(imageSource("big-picture.jpg")), null);
   assert.equal(
     parseImageServiceUrl(relative.replace("quality@82", "quality@082")),
     null
@@ -147,33 +153,35 @@ test("parses canonical relative and absolute derivative URLs", () => {
   );
 });
 
-test("rejects image-service sources outside the content-addressed layout", () => {
+test("rejects legacy image-service sources", () => {
   assert.throws(
     () => imageServicePath("/media/Big Picture.jpg"),
-    /<collection>\/<sha256>\/<filename>/
+    /hash and original filename/
   );
 });
 
-test("uses exact SVG passthrough and preserves external image URLs", () => {
-  const source = imageSource("vector.svg");
+test("uses exact SVG passthrough and rejects external image values", () => {
+  const source = imageValue("vector.svg");
   assert.equal(
-    imageServicePath(source),
+    imageServicePath(source, { collection: "images" }),
     `/v1/media/images/${CONTENT_SHA}/noop/vector.svg`
   );
   assert.equal(
     buildImageServiceUrl(source, {
+      collection: "images",
       baseUrl: "https://images.example.com"
     }),
     `https://images.example.com/v1/media/images/${CONTENT_SHA}/noop/vector.svg`
   );
-  assert.equal(
-    buildImageServiceUrl("https://cdn.example.com/already.webp", {
+  assert.throws(
+    () => buildImageServiceUrl("https://cdn.example.com/already.webp", {
       baseUrl: "https://images.example.com"
     }),
-    "https://cdn.example.com/already.webp"
+    /hash and original filename/
   );
   assert.throws(
     () => buildImageServiceUrl(source, {
+      collection: "images",
       baseUrl: "https://images.example.com/base/path"
     }),
     /origin/
@@ -181,14 +189,15 @@ test("uses exact SVG passthrough and preserves external image URLs", () => {
 });
 
 test("builds an info route for the original source metadata", () => {
-  const source = `content/media/images/${CONTENT_SHA}/photo.png`;
+  const source = imageValue("photo.png");
   assert.equal(
-    buildImageServiceUrl(source, { info: true }),
+    buildImageServiceUrl(source, { info: true, collection: "images" }),
     `/v1/media/images/${CONTENT_SHA}/noop/photo.json`
   );
   assert.equal(
     buildImageServiceUrl(source, {
       info: true,
+      collection: "images",
       width: 320,
       height: 180,
       quality: 25
@@ -241,8 +250,8 @@ test("maps API-backed raw media into the fixed service namespace", () => {
   );
   assert.equal(
     imageServicePath(
-      `/assets/library/images/${CONTENT_SHA}/photo.jpg`,
-      { config }
+      imageValue("photo.jpg"),
+      { config, collection: "images" }
     ),
     `/v1/media/images/${CONTENT_SHA}/resize@width:2400,height:2400,fit:inside;quality@82/photo.webp`
   );
@@ -255,6 +264,7 @@ test("maps API-backed raw media into the fixed service namespace", () => {
     {
       collection: "images",
       sha,
+      hash: sha,
       filename: "vector.svg",
       path: `/media/images/${sha}/vector.svg`
     }
@@ -262,7 +272,7 @@ test("maps API-backed raw media into the fixed service namespace", () => {
 });
 
 test("display-specific sizes can downsample further but never exceed project limits", () => {
-  const source = imageSource("photo.jpg");
+  const source = imageValue("photo.jpg");
   const config = {
     site: {
       image_processing: { width: 1200, height: 900 }
@@ -271,6 +281,7 @@ test("display-specific sizes can downsample further but never exceed project lim
   assert.match(
     buildImageServiceUrl(source, {
       config,
+      collection: "images",
       width: 320,
       height: 320
     }),
@@ -279,6 +290,7 @@ test("display-specific sizes can downsample further but never exceed project lim
   assert.match(
     buildImageServiceUrl(source, {
       config,
+      collection: "images",
       width: 5000,
       height: 5000
     }),
@@ -454,11 +466,44 @@ test("normalizes service origins and maps configured public media paths", () => 
 });
 
 test("rejects unsafe or non-canonical content-addressed paths", () => {
-  assert.throws(() => imageServicePath("/media/../secret.jpg"), /traverse/);
+  assert.throws(
+    () => imageServicePath("/media/../secret.jpg"),
+    /hash and original filename/
+  );
+  assert.equal(parseContentAddressedMediaPath("/media/../secret.jpg"), null);
   assert.equal(
     parseContentAddressedMediaPath(
       "/media/images/ABCDEF/not-content-addressed.png"
     ),
     null
+  );
+});
+
+test("parses canonical GitHub media paths with encoded NFC filenames", () => {
+  const filename = "Grüße aus Zürich (final).jpg";
+  const path = `/media/${CONTENT_SHA}/Gr%C3%BC%C3%9Fe%20aus%20Z%C3%BCrich%20%28final%29.jpg`;
+  assert.deepEqual(parseContentAddressedMediaPath(path), {
+    collection: null,
+    sha: CONTENT_SHA,
+    hash: CONTENT_SHA,
+    filename,
+    path
+  });
+  assert.equal(
+    buildImageServiceMediaUrl(path),
+    path
+  );
+  assert.equal(
+    parseContentAddressedMediaPath(path.replace("%20", "+")),
+    null
+  );
+});
+
+test("derives a readable derivative name from the original asset filename", () => {
+  assert.equal(
+    imageServicePath(imageValue("Grüße aus Zürich (final).jpg"), {
+      collection: "images"
+    }).split("/").at(-1),
+    "gru-e-aus-zurich-final.webp"
   );
 });

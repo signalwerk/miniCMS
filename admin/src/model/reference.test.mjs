@@ -60,7 +60,8 @@ const item = {
   properties: {
     uuid: "image-uuid",
     file: {
-      src: "/media/example.jpg",
+      hash: "c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc",
+      filename: "example.jpg",
       regions: [
         { id: "landscape", label: "Landscape", x: 10, y: 20 },
         { id: "landscape", label: "Duplicate", x: 0, y: 0 }
@@ -155,11 +156,14 @@ test("resolves reference presentation and target-published selections", () => {
 });
 
 test("uses a reference image only when the target explicitly publishes one", () => {
-  assert.equal(referenceImageSource(item, {}, collection), "");
-  assert.equal(referenceImageSource(item, { image: "   " }, collection), "");
-  assert.equal(
+  assert.equal(referenceImageSource(item, {}, collection), null);
+  assert.equal(referenceImageSource(item, { image: "   " }, collection), null);
+  assert.deepEqual(
     referenceImageSource(item, { image: "file" }, collection),
-    "/media/example.jpg"
+    {
+      hash: "c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc",
+      filename: "example.jpg"
+    }
   );
   assert.equal(
     referenceImageSource(
@@ -167,7 +171,7 @@ test("uses a reference image only when the target explicitly publishes one", () 
       { image: "file" },
       collection
     ),
-    ""
+    null
   );
 });
 
@@ -689,7 +693,7 @@ test("validates only supplied visible required fields with widget-aware emptines
       tags: [],
       related: { ref: "", selections: { crop: "ignored" } },
       contributors: [],
-      image: { src: "", regions: [{ id: "abcdefghijklmno" }] },
+      image: { regions: [{ id: "abcdefghijklmno" }] },
       file: "",
       hidden_required: ""
     }
@@ -713,8 +717,11 @@ test("validates only supplied visible required fields with widget-aware emptines
       tags: ["abc123def456ghi"],
       related: false,
       contributors: [false],
-      image: { src: "/media/image.jpg" },
-      file: { path: "/media/document.pdf" }
+      image: {
+        hash: "c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc",
+        filename: "image.jpg"
+      },
+      file: "/media/document.pdf"
     }
   };
   assert.deepEqual(

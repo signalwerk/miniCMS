@@ -1,13 +1,9 @@
 import { FileText, Upload } from "lucide-react";
-import { useRef, useState } from "react";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
-import {
-  DEFAULT_FILE_ACCEPT,
-  acceptTokens,
-  mediaAcceptErrorMessage,
-  mediaFileMatchesAccept
-} from "../../../../core/media.js";
+import { DEFAULT_FILE_ACCEPT } from "../../../../core/media.js";
+import { cx } from "../../model/editor.js";
 import { Spinner } from "../Common/Common.jsx";
+import { useMediaUpload } from "./MediaUpload.jsx";
 import "./FileUploadField.scss";
 
 function filenameFromPath(value) {
@@ -22,34 +18,25 @@ function filenameFromPath(value) {
 
 function FileUploadField({ id, field, value, collectionName, onChange }) {
   const adapter = useAdapter();
-  const inputRef = useRef(null);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState("");
-  const acceptedTypes = acceptTokens(field.accept ?? DEFAULT_FILE_ACCEPT);
-
-  async function upload(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!mediaFileMatchesAccept(file, acceptedTypes)) {
-      setError(mediaAcceptErrorMessage(file, acceptedTypes));
-      event.target.value = "";
-      return;
-    }
-    setUploading(true);
-    setError("");
-    try {
-      const result = await adapter.uploadMedia(file, collectionName);
-      onChange(result.path);
-    } catch (uploadError) {
-      setError(uploadError.message);
-    } finally {
-      setUploading(false);
-      event.target.value = "";
-    }
-  }
+  const upload = useMediaUpload({
+    accept: field.accept,
+    defaultAccept: DEFAULT_FILE_ACCEPT,
+    collectionName,
+    widget: "file",
+    onUploaded: (result) => onChange(result.path)
+  });
 
   return (
-    <div className="file-upload-field">
+    <div
+      className={cx(
+        "file-upload-field",
+        "media-upload-drop-target",
+        upload.dragging && "is-dragging"
+      )}
+      aria-busy={upload.uploading}
+      {...upload.dropProps}
+    >
+      {upload.dragging && <span className="media-upload-drop-hint">Drop file to upload</span>}
       {value ? (
         <a
           className="file-upload-field__file"
@@ -73,19 +60,19 @@ function FileUploadField({ id, field, value, collectionName, onChange }) {
         <button
           type="button"
           className="button button--secondary"
-          disabled={uploading}
-          onClick={() => inputRef.current?.click()}
+          disabled={upload.uploading}
+          onClick={() => upload.inputRef.current?.click()}
         >
-          {uploading ? <Spinner small /> : <Upload size={14} />}
+          {upload.uploading ? <Spinner small /> : <Upload size={14} />}
           {value ? "Replace" : "Upload"}
         </button>
         {value && (
           <button
             type="button"
             className="button button--secondary"
-            disabled={uploading}
+            disabled={upload.uploading}
             onClick={() => {
-              setError("");
+              upload.setError("");
               onChange("");
             }}
           >
@@ -94,18 +81,18 @@ function FileUploadField({ id, field, value, collectionName, onChange }) {
         )}
       </div>
       <input
-        ref={inputRef}
+        ref={upload.inputRef}
         id={id}
         className="visually-hidden"
         type="file"
-        accept={acceptedTypes.join(",")}
-        onChange={upload}
+        {...upload.inputProps}
       />
-      {error && (
+      {upload.error && (
         <small className="field-error" role="alert">
-          {error}
+          {upload.error}
         </small>
       )}
+      {upload.duplicateDialog}
     </div>
   );
 }

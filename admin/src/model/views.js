@@ -1,5 +1,5 @@
 import { typeField, typeFields } from "./editor.js";
-import { imageSource } from "./image.js";
+import { imageFilename } from "./image.js";
 import {
   hasReferenceValue,
   normalizeReferenceValue,
@@ -70,7 +70,7 @@ function displayValue(value, field, relationPresentation) {
   }
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (field.display === "image" || field.widget === "image") {
-    return imageSource(value) || "—";
+    return imageFilename(value) || "—";
   }
   if (field.display === "date" || field.widget === "datetime") {
     const date = new Date(value);

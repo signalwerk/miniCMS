@@ -266,10 +266,12 @@ would create competing write queues for one branch.
 Raw files use `resolveMediaUrl`; images use the separate `resolveImageUrl`
 capability. The owning local collection accompanies every media request so the
 composite can choose the right connector. API mode builds image-service URLs
-and uploads to `/media/<collection>/<sha256>/<filename>`. GitHub preserves its
-flat repository-media layout and raw-media URL behavior. The filesystem
-service scopes accepted upload types to fields reachable from the receiving
-collection and its nested slot types.
+from an image's hash and filename. API raw URLs use
+`/media/<collection>/<sha256>/<filename>` while GitHub raw URLs use
+`<public_folder>/<sha256>/<encoded-filename>` and store the bytes at
+`<media_folder>/<sha256>/<filename>`. The filesystem service scopes accepted
+upload types to fields reachable from the receiving collection and its nested
+slot types.
 
 `minicms build` is project-independent: it does not inspect or copy consumer
 configuration, content, media, preview code, or site output.
@@ -749,12 +751,14 @@ therefore assign display numbers from the occurrence array, look up each full
 record in the map, and render its own accessible markers, list entries,
 anchors, and backlinks without widening the miniCMS preview contract.
 
-Image fields keep their compact path-string value until a region or point is
-added. Annotated values expand without losing backwards compatibility:
+Every non-empty image field stores its lowercase SHA-256 and Unicode-NFC
+original basename. `src` is transient resolved content and is never persisted;
+the same mapping expands with annotation data when needed:
 
 ```yaml
 file:
-  src: /media/example.jpg
+  hash: c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc
+  filename: Example photograph.jpg
   width: 1200
   height: 800
   regions:
@@ -869,6 +873,15 @@ download:
     - "*/*"
 ```
 
+Both upload widgets accept one file from the picker or by drag and drop. A
+GitHub upload computes SHA-256 in the browser. If that hash already exists, an
+accessible three-action dialog lets the editor cancel, reuse the existing
+asset, or upload another copy with a collision-safe filename suffix. API-owned
+storage silently reuses identical bytes; a development API backed by a GitHub
+project returns the same duplicate choices and receives the selected
+`reuse`/`copy` mode on the retry. Image fields persist only `{hash, filename}`
+plus annotations; file fields retain their raw path string.
+
 API image processing is project-configured and editable under the advanced
 Project settings:
 
@@ -910,11 +923,13 @@ New API uploads use a readable, content-addressed route. For example:
 /v1/media/images/<sha256>/resize@width:1600,height:900,fit:inside;quality@82/photo.webp
 ```
 
-The API route builder accepts only
-`/media/<collection>/<sha256>/<filename>` sources. Encoded identifiers and flat
-service paths are rejected. The configured cache schema is the first path
-segment; generated raster files mirror the remaining canonical URL hierarchy
-below the service cache root.
+The raw-media parser accepts canonical API
+`/media/<collection>/<sha256>/<encoded-filename>` and GitHub
+`/media/<sha256>/<encoded-filename>` paths. Image derivative construction uses
+the structured asset plus its owning collection, so derivative routes always
+retain the three-segment service namespace. The configured cache schema is the
+first path segment; generated raster files mirror the remaining canonical URL
+hierarchy below the service cache root.
 
 A collection can own those uploaded files. When enabled, record deletion names
 the affected files in its confirmation and removes upload values from `file`
@@ -927,7 +942,9 @@ collections:
 ```
 
 Only paths inside the configured `site.media_folder` are eligible for this
-cleanup. GitHub applies the record and upload deletions in one commit.
+cleanup. GitHub scans concrete collections before deleting and preserves a
+media path still referenced by another record; it applies the remaining record
+and upload deletions in one commit.
 
 The top-bar Settings overlay provides a guided editor for project defaults,
 collections, content types, fields, dropdown options, content areas, table
@@ -984,7 +1001,7 @@ contains only the browser adapter for this contract:
 - `PUT /api/collections/:collection/:id`
 - `POST /api/collections/:collection/:id/rename`
 - `DELETE /api/collections/:collection/:id`
-- `POST /api/media/:collection?filename=<name>`
+- `POST /api/media/:collection?filename=<name>&widget=<image|file>&duplicate=<reuse|copy>`
 - `GET|HEAD /media/:collection/:sha256/:filename`
 - `GET|HEAD /:schema/media/:collection/:sha256/:operations/:filename.:format`
 

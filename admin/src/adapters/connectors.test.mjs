@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createConnectorAdapter } from "./connectors.js";
 
+const TEST_SHA = "a".repeat(64);
+
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -86,7 +88,10 @@ function record(id, type, title = id) {
     id,
     type,
     order: 0,
-    properties: { title, file: "/media/images/hash/image.jpg" },
+    properties: {
+      title,
+      file: { hash: TEST_SHA, filename: "image.jpg" }
+    },
     slots: {}
   };
 }
@@ -170,20 +175,20 @@ function fakeConnector(
     async remove(collection, id) {
       call("remove", collection, id);
     },
-    async uploadMedia(file, collection) {
-      call("uploadMedia", file.name, collection);
-      return { path: `/media/${collection}/hash/${file.name}` };
+    async uploadMedia(file, collection, options) {
+      call("uploadMedia", file.name, collection, options);
+      return { hash: TEST_SHA, filename: file.name };
     },
-    resolveMediaUrl(path) {
-      call("resolveMediaUrl", path);
+    resolveMediaUrl(path, options) {
+      call("resolveMediaUrl", path, options);
       return `${key}:raw:${path}`;
     },
     resolveImageUrl(path, options) {
       call("resolveImageUrl", path, options);
       return `${key}:image:${path}`;
     },
-    async getImageInfo(path) {
-      call("getImageInfo", path);
+    async getImageInfo(path, options) {
+      call("getImageInfo", path, options);
       return { source: key, width: 100, height: 50 };
     },
     ...(behavior.deployment
@@ -624,7 +629,10 @@ test("selects development and routes collection operations through remote aliase
   assert.equal(saved.item.type, "shared_image");
   await adapter.rename("shared_images", "hero", "renamed");
   await adapter.remove("shared_images", "renamed");
-  await adapter.uploadMedia({ name: "new.jpg" }, "shared_images");
+  await adapter.uploadMedia({ name: "new.jpg" }, "shared_images", {
+    widget: "image",
+    duplicate: "reuse"
+  });
   for (const method of ["record", "save", "rename", "remove"]) {
     assert.equal(
       calls.find(
@@ -638,23 +646,24 @@ test("selects development and routes collection operations through remote aliase
       (entry) =>
         entry.key === "central" &&
         entry.method === "uploadMedia" &&
-        entry.args[1] === "images"
+        entry.args[1] === "images" &&
+        entry.args[2].duplicate === "reuse"
     )
   );
 
   assert.equal(
-    adapter.resolveImageUrl("/media/example.jpg", {
+    adapter.resolveImageUrl({ hash: TEST_SHA, filename: "example.jpg" }, {
       collection: "shared_images",
       width: 320
     }),
-    "central:image:/media/example.jpg"
+    `central:image:[object Object]`
   );
   assert.equal(
     adapter.resolveMediaUrl("/media/document.pdf", { collection: "pages" }),
     "development:raw:/media/document.pdf"
   );
   assert.deepEqual(
-    await adapter.getImageInfo("/media/example.jpg", {
+    await adapter.getImageInfo({ hash: TEST_SHA, filename: "example.jpg" }, {
       collection: "shared_images"
     }),
     { source: "central", width: 100, height: 50 }
@@ -662,7 +671,7 @@ test("selects development and routes collection operations through remote aliase
   const imageCall = calls.find(
     (entry) => entry.key === "central" && entry.method === "resolveImageUrl"
   );
-  assert.deepEqual(imageCall.args[1], { width: 320 });
+  assert.deepEqual(imageCall.args[1], { width: 320, collection: "images" });
 });
 
 test("saves collapsed source config only through the active default connector", async () => {

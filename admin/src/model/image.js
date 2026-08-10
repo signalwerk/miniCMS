@@ -1,5 +1,6 @@
 import { normalizeImageRotation } from "./imageGeometry.js";
 import { createId } from "../../../core/id.js";
+import { imageAsset } from "../../../core/media.js";
 
 function integer(value, fallback = 0) {
   const number = Number(value);
@@ -27,20 +28,11 @@ function annotationId(value) {
 }
 
 function normalizeImageValue(value) {
-  if (typeof value === "string") {
+  const asset = imageAsset(value);
+  if (!asset) {
     return {
-      src: value,
-      width: null,
-      height: null,
-      regions: [],
-      points: [],
-      extra: {}
-    };
-  }
-
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {
-      src: "",
+      hash: "",
+      filename: "",
       width: null,
       height: null,
       regions: [],
@@ -50,8 +42,11 @@ function normalizeImageValue(value) {
   }
 
   const {
-    src,
-    path,
+    hash: _hash,
+    filename: _filename,
+    src: _resolvedSource,
+    path: _legacyPath,
+    sha: _legacyHash,
     width,
     height,
     regions,
@@ -67,9 +62,24 @@ function normalizeImageValue(value) {
       : {}),
     ...extraProperties
   };
+  for (const key of [
+    "hash",
+    "filename",
+    "src",
+    "path",
+    "sha",
+    "width",
+    "height",
+    "regions",
+    "points",
+    "extra"
+  ]) {
+    delete extra[key];
+  }
 
   return {
-    src: String(src ?? path ?? ""),
+    hash: asset.hash,
+    filename: asset.filename,
     width: positiveInteger(width),
     height: positiveInteger(height),
     regions: Array.isArray(regions)
@@ -144,16 +154,13 @@ function refreshImageAnnotationIds(value) {
 
 function compactImageValue(value) {
   const image = normalizeImageValue(value);
-  if (!image.src) return "";
-
-  const hasAnnotations = image.regions.length > 0 || image.points.length > 0;
-  const hasDimensions = image.width !== null || image.height !== null;
-  const hasExtra = Object.keys(image.extra).length > 0;
-  if (!hasAnnotations && !hasDimensions && !hasExtra) return image.src;
+  const asset = imageAsset(image);
+  if (!asset) return "";
 
   return {
-    src: image.src,
     ...image.extra,
+    hash: asset.hash,
+    filename: asset.filename,
     ...(image.width !== null ? { width: image.width } : {}),
     ...(image.height !== null ? { height: image.height } : {}),
     ...(image.regions.length ? { regions: image.regions } : {}),
@@ -161,8 +168,21 @@ function compactImageValue(value) {
   };
 }
 
-function imageSource(value) {
-  return normalizeImageValue(value).src;
+function imageAssetValue(value) {
+  return imageAsset(value);
+}
+
+function imageFilename(value) {
+  return imageAsset(value)?.filename || "";
+}
+
+function imageAssetKey(value) {
+  const asset = imageAsset(value);
+  return asset ? `${asset.hash}:${asset.filename}` : "";
+}
+
+function hasImageValue(value) {
+  return Boolean(imageAsset(value));
 }
 
 function imageInfoCoordinateSize(value) {
@@ -208,8 +228,11 @@ export {
   createImageAnnotationId,
   ensureImageAnnotationIds,
   imageCoordinateSize,
+  imageAssetKey,
+  imageAssetValue,
+  imageFilename,
   imageInfoCoordinateSize,
-  imageSource,
+  hasImageValue,
   normalizeImageValue,
   refreshImageAnnotationIds
 };

@@ -18,7 +18,8 @@ import { createFilesystemContentAdapter } from "./fs.js";
 
 const IMAGE_SHA = "a".repeat(64);
 const FILE_SHA = "b".repeat(64);
-const IMAGE_SOURCE = `/media/images/${IMAGE_SHA}/picture.jpg`;
+const IMAGE_ASSET = Object.freeze({ hash: IMAGE_SHA, filename: "picture.jpg" });
+const GITHUB_IMAGE_SOURCE = `/media/${IMAGE_SHA}/picture.jpg`;
 const FILE_SOURCE = `/media/files/${FILE_SHA}/research.pdf`;
 
 const configuration = `connectors:
@@ -115,7 +116,8 @@ properties:
   uuid: image-uuid
   title: Picture
   file:
-    src: ${IMAGE_SOURCE}
+    hash: ${IMAGE_SHA}
+    filename: picture.jpg
     width: 800
     height: 600
   download: ${FILE_SOURCE}
@@ -146,7 +148,7 @@ test("loads every configured collection and resolves references from YAML", asyn
   assert.deepEqual(pages.items.map((item) => item.id), ["home", "second"]);
   assert.equal(
     pages.items[0].slots.content[0].properties.asset.record.properties.file.src,
-    `/research${IMAGE_SOURCE}`
+    `/research${GITHUB_IMAGE_SOURCE}`
   );
   assert.deepEqual((await adapter.list("notes")).items, []);
   assert.equal((await adapter.list("images")).items.length, 1);
@@ -162,13 +164,13 @@ test("accepts a dedicated image resolver without changing file resolution", asyn
   const adapter = await createFilesystemContentAdapter({
     projectRoot: root,
     resolveMediaUrl: (value) => `/raw${value}`,
-    resolveImageUrl: (value) => `/image-service${value}`
+    resolveImageUrl: (value) => `/image-service/${value.filename}`
   });
 
   const page = await adapter.get("pages", "home");
   assert.equal(
     page.item.slots.content[0].properties.asset.record.properties.file.src,
-    `/image-service${IMAGE_SOURCE}`
+    "/image-service/picture.jpg"
   );
 });
 
@@ -252,7 +254,7 @@ slots: {}
     properties: {
       content_id: "aaaaaaaaaaaaaaa",
       title: "Central hero",
-      file: `/media/images/${IMAGE_SHA}/hero.jpg`
+      file: { hash: IMAGE_SHA, filename: "hero.jpg" }
     },
     slots: {}
   };
@@ -275,7 +277,7 @@ slots: {}
         },
         resolveImageUrl: (value, context) => {
           mediaCalls.push({ kind: "image", value, context });
-          return `https://media.example.test/derived${value}`;
+          return `https://media.example.test/derived/media/${context.collection}/${value.hash}/${value.filename}`;
         }
       }
     }
@@ -287,7 +289,7 @@ slots: {}
   assert.equal(resolved.type, "shared_image");
   assert.equal(resolved.properties.title, "Central hero");
   assert.equal(
-    resolved.properties.file,
+    resolved.properties.file.src,
     `https://media.example.test/derived/media/images/${IMAGE_SHA}/hero.jpg`
   );
   assert.deepEqual(mediaCalls.at(-1).context, { collection: "images" });
@@ -322,7 +324,7 @@ slots: {}
   const automaticallyResolved = (await automatic.get("pages", "home"))
     .item.properties.hero.record;
   assert.equal(
-    new URL(automaticallyResolved.properties.file).origin,
+    new URL(automaticallyResolved.properties.file.src).origin,
     "https://media.example.test"
   );
   assert.deepEqual(
@@ -347,10 +349,11 @@ test("can use the image service independently from content persistence", async (
 
   assert.equal(
     imageRecord.properties.file.src,
-    buildImageServiceUrl(IMAGE_SOURCE, {
+    buildImageServiceUrl(IMAGE_ASSET, {
       baseUrl: "https://images.example.test",
       config: adapter.config(),
-      fit: "inside"
+      fit: "inside",
+      collection: "images"
     })
   );
   assert.equal(imageRecord.properties.download, FILE_SOURCE);
@@ -367,7 +370,7 @@ test("keeps GitHub-backed images and files on public media URLs", async (t) => {
 
   assert.equal(
     imageRecord.properties.file.src,
-    `/project${IMAGE_SOURCE}`
+    `/project${GITHUB_IMAGE_SOURCE}`
   );
   assert.equal(
     imageRecord.properties.download,
@@ -398,10 +401,11 @@ test("uses the shared media service defaults for an API default connector", asyn
 
   assert.equal(
     imageRecord.properties.file.src,
-    buildImageServiceUrl(IMAGE_SOURCE, {
+    buildImageServiceUrl(IMAGE_ASSET, {
       baseUrl: "https://content.example.test",
       config: adapter.config(),
-      fit: "inside"
+      fit: "inside",
+      collection: "images"
     })
   );
   assert.equal(
@@ -423,7 +427,7 @@ test("supports an absolute public base without changing external media URLs", as
   const page = await adapter.get("pages", "home");
   assert.equal(
     page.item.slots.content[0].properties.asset.record.properties.file.src,
-    `https://example.test/project${IMAGE_SOURCE}`
+    `https://example.test/project${GITHUB_IMAGE_SOURCE}`
   );
 });
 

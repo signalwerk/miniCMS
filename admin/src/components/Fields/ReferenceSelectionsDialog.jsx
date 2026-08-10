@@ -4,8 +4,9 @@ import { createPortal } from "react-dom";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import { cx } from "../../model/editor.js";
 import {
-  imageInfoCoordinateSize,
-  imageSource
+  imageAssetKey,
+  imageAssetValue,
+  imageInfoCoordinateSize
 } from "../../model/image.js";
 import {
   boundedImageRegion,
@@ -109,8 +110,9 @@ function ReferenceSelectionsDialog({
     definitions.find((definition) => definition.options?.field)?.options.field ||
     referenceView.image;
   const sourceValue = referenceItemValue(item, sourceField, collection);
-  const sourcePath = imageSource(sourceValue);
-  const source = adapter.resolveImageUrl(sourcePath, {
+  const sourceAsset = imageAssetValue(sourceValue);
+  const sourceKey = imageAssetKey(sourceValue);
+  const source = adapter.resolveImageUrl(sourceAsset, {
     width: 1600,
     height: 1600,
     fit: "inside",
@@ -119,12 +121,12 @@ function ReferenceSelectionsDialog({
   const storedWidth = positiveNumber(sourceValue?.width);
   const storedHeight = positiveNumber(sourceValue?.height);
   const needsServiceInfo = Boolean(
-    sourcePath &&
+    sourceAsset &&
       !(storedWidth && storedHeight) &&
       typeof adapter.getImageInfo === "function"
   );
   const activeSourceInfo =
-    sourceInfo.source === sourcePath ? sourceInfo : null;
+    sourceInfo.source === sourceKey ? sourceInfo : null;
   const informationSize =
     activeSourceInfo?.status === "ready"
       ? imageInfoCoordinateSize(activeSourceInfo.value)
@@ -216,20 +218,20 @@ function ReferenceSelectionsDialog({
     let active = true;
     setNaturalSize(null);
     if (!needsServiceInfo) {
-      setSourceInfo({ source: sourcePath, status: "idle", value: null });
+      setSourceInfo({ source: sourceKey, status: "idle", value: null });
       return () => {
         active = false;
       };
     }
 
-    setSourceInfo({ source: sourcePath, status: "loading", value: null });
+    setSourceInfo({ source: sourceKey, status: "loading", value: null });
     adapter
-      .getImageInfo(sourcePath, { collection: collection.name })
+      .getImageInfo(sourceAsset, { collection: collection.name })
       .then((information) => {
         if (!active) return;
         if (information === null) {
           setSourceInfo({
-            source: sourcePath,
+            source: sourceKey,
             status: "bypass",
             value: null
           });
@@ -239,7 +241,7 @@ function ReferenceSelectionsDialog({
           throw new Error("The image information contains no dimensions.");
         }
         setSourceInfo({
-          source: sourcePath,
+          source: sourceKey,
           status: "ready",
           value: information
         });
@@ -247,7 +249,7 @@ function ReferenceSelectionsDialog({
       .catch(() => {
         if (active) {
           setSourceInfo({
-            source: sourcePath,
+            source: sourceKey,
             status: "error",
             value: null
           });
@@ -256,7 +258,7 @@ function ReferenceSelectionsDialog({
     return () => {
       active = false;
     };
-  }, [adapter, collection.name, needsServiceInfo, sourcePath]);
+  }, [adapter, collection.name, needsServiceInfo, sourceKey]);
 
   function setSelection(name, selectedValue) {
     const next = { ...draft };

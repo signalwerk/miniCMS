@@ -7,6 +7,9 @@ const DEFAULT_IMAGE_ACCEPT = Object.freeze([
   "image/svg+xml"
 ]);
 const DEFAULT_FILE_ACCEPT = Object.freeze(["*/*"]);
+const IMAGE_HASH_PATTERN = /^[a-f0-9]{64}$/;
+const MEDIA_COLLECTION_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
+const MAX_MEDIA_FILENAME_BYTES = 255;
 
 const MIME_EXTENSIONS = new Map([
   ["image/jpeg", new Set([".jpg", ".jpeg"])],
@@ -178,29 +181,127 @@ function mediaFileMatchesAccept(file, accept = DEFAULT_IMAGE_ACCEPT) {
   );
 }
 
+function utf8Length(value) {
+  return new TextEncoder().encode(value).length;
+}
+
+function normalizedMediaFilename(value) {
+  if (typeof value !== "string") return "";
+  const filename = value.normalize("NFC");
+  if (
+    !filename ||
+    filename === "." ||
+    filename === ".." ||
+    utf8Length(filename) > MAX_MEDIA_FILENAME_BYTES ||
+    /[\\/\u0000-\u001f\u007f]/.test(filename)
+  ) {
+    return "";
+  }
+  return filename;
+}
+
+function imageAsset(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const hash = typeof value.hash === "string" ? value.hash : "";
+  const filename = normalizedMediaFilename(value.filename);
+  if (!IMAGE_HASH_PATTERN.test(hash) || !filename) return null;
+  return Object.freeze({ hash, filename });
+}
+
+function isCanonicalImageAsset(value) {
+  const asset = imageAsset(value);
+  return Boolean(
+    asset &&
+      value.hash === asset.hash &&
+      value.filename === asset.filename
+  );
+}
+
+async function sha256Hex(value, cryptoImplementation = globalThis.crypto) {
+  const bytes = value instanceof Uint8Array
+    ? value
+    : value instanceof ArrayBuffer
+      ? new Uint8Array(value)
+      : ArrayBuffer.isView(value)
+        ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+        : null;
+  if (!bytes || typeof cryptoImplementation?.subtle?.digest !== "function") {
+    throw new TypeError("SHA-256 hashing is not available.");
+  }
+  const digest = new Uint8Array(
+    await cryptoImplementation.subtle.digest("SHA-256", bytes)
+  );
+  return [...digest]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function mediaFilenameWithSuffix(filename, suffix) {
+  const normalized = normalizedMediaFilename(filename);
+  if (!normalized || !Number.isInteger(suffix) || suffix < 2) return "";
+  const extensionIndex = normalized.lastIndexOf(".");
+  const hasExtension = extensionIndex > 0;
+  let stem = hasExtension ? normalized.slice(0, extensionIndex) : normalized;
+  const extension = hasExtension ? normalized.slice(extensionIndex) : "";
+  const ending = `-${suffix}${extension}`;
+  while (stem && utf8Length(`${stem}${ending}`) > MAX_MEDIA_FILENAME_BYTES) {
+    stem = [...stem].slice(0, -1).join("");
+  }
+  return normalizedMediaFilename(`${stem || "file"}${ending}`);
+}
+
+function encodeMediaSegment(value) {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+}
+
+function imageAssetMediaPath(
+  value,
+  {
+    storage = "api",
+    collection,
+    publicFolder = "/media"
+  } = {}
+) {
+  const asset = imageAsset(value);
+  if (!asset) return "";
+  const prefix = String(publicFolder || "/media").replace(/\/+$/, "");
+  if (storage === "github") {
+    return `${prefix}/${asset.hash}/${encodeMediaSegment(asset.filename)}`;
+  }
+  if (storage !== "api") return "";
+  const collectionName = String(collection ?? "");
+  if (!MEDIA_COLLECTION_PATTERN.test(collectionName)) return "";
+  return `${prefix}/${encodeMediaSegment(collectionName)}/${asset.hash}/${encodeMediaSegment(asset.filename)}`;
+}
+
 function mediaValueSource(value) {
   if (typeof value === "string") return value.trim();
-  if (value && typeof value === "object" && typeof value.src === "string") {
-    return value.src.trim();
-  }
   return "";
 }
 
 function recordMediaSources(record, config) {
-  const sources = new Set();
+  const sources = [];
   const visit = (node) => {
     const fields = config?.node_types?.[node?.type]?.fields ?? {};
     for (const [fieldName, field] of Object.entries(fields)) {
       if (!["image", "file"].includes(field?.widget)) continue;
-      const source = mediaValueSource(node?.properties?.[fieldName]);
-      if (source) sources.add(source);
+      const value = node?.properties?.[fieldName];
+      if (field.widget === "image") {
+        const asset = imageAsset(value);
+        if (asset) sources.push({ widget: "image", value: asset });
+      } else {
+        const source = mediaValueSource(value);
+        if (source) sources.push({ widget: "file", value: source });
+      }
     }
     for (const children of Object.values(node?.slots ?? {})) {
       if (Array.isArray(children)) children.forEach(visit);
     }
   };
   if (record && typeof record === "object") visit(record);
-  return [...sources];
+  return sources;
 }
 
 function mediaStoragePath(source, config) {
@@ -221,23 +322,79 @@ function mediaStoragePath(source, config) {
     return null;
   }
   relativePath = relativePath.split(/[?#]/, 1)[0];
-  const segments = relativePath.split("/");
+  let segments;
+  try {
+    segments = relativePath.split("/").map((segment) => decodeURIComponent(segment));
+  } catch {
+    return null;
+  }
   if (
     !relativePath ||
     relativePath.includes("\\") ||
-    segments.some((segment) => !segment || segment === "." || segment === "..")
+    segments.some(
+      (segment) =>
+        !segment ||
+        segment === "." ||
+        segment === ".." ||
+        segment.includes("/") ||
+        segment.includes("\\") ||
+        /[\u0000-\u001f\u007f]/.test(segment)
+    )
   ) {
     return null;
   }
   return `${mediaFolder}/${segments.join("/")}`;
 }
 
-function recordMediaStoragePaths(record, config) {
+function apiMediaStoragePath(source, config) {
+  const storagePath = mediaStoragePath(source, config);
+  if (!storagePath) return null;
+  const mediaFolder = String(
+    config?.site?.media_folder || "content/media"
+  ).replace(/^\/+|\/+$/g, "");
+  const relative = storagePath.slice(mediaFolder.length + 1);
+  const segments = relative.split("/");
+  if (segments.length !== 3 || !IMAGE_HASH_PATTERN.test(segments[1])) {
+    return null;
+  }
+  return `${mediaFolder}/${segments[0]}/${segments[1]}/asset.dat`;
+}
+
+function recordMediaStoragePaths(record, config, options = {}) {
+  const storage = options.storage || "github";
+  const mediaFolder = String(
+    config?.site?.media_folder || "content/media"
+  ).replace(/^\/+|\/+$/g, "");
+  const collection = String(options.collection ?? "");
+  const paths = recordMediaSources(record, config).flatMap((entry) => {
+    if (entry.widget === "image") {
+      if (storage === "api") {
+        if (!MEDIA_COLLECTION_PATTERN.test(collection)) return [];
+        return [`${mediaFolder}/${collection}/${entry.value.hash}/asset.dat`];
+      }
+      return [`${mediaFolder}/${entry.value.hash}/${entry.value.filename}`];
+    }
+    const path = storage === "api"
+      ? apiMediaStoragePath(entry.value, config)
+      : mediaStoragePath(entry.value, config);
+    return path ? [path] : [];
+  });
+  return [...new Set(paths)];
+}
+
+function recordMediaFilenames(record, config) {
   return [
     ...new Set(
-      recordMediaSources(record, config)
-        .map((source) => mediaStoragePath(source, config))
-        .filter(Boolean)
+      recordMediaSources(record, config).map((entry) => {
+        if (entry.widget === "image") return entry.value.filename;
+        const pathname = entry.value.split(/[?#]/, 1)[0];
+        const encoded = pathname.split("/").filter(Boolean).pop() || pathname;
+        try {
+          return decodeURIComponent(encoded);
+        } catch {
+          return encoded;
+        }
+      })
     )
   ];
 }
@@ -245,16 +402,24 @@ function recordMediaStoragePaths(record, config) {
 export {
   DEFAULT_FILE_ACCEPT,
   DEFAULT_IMAGE_ACCEPT,
+  IMAGE_HASH_PATTERN,
   acceptTokens,
   configuredCollectionMediaAccept,
   configuredImageAccept,
   configuredMediaAccept,
+  imageAsset,
+  imageAssetMediaPath,
+  isCanonicalImageAsset,
+  mediaFilenameWithSuffix,
   mediaAcceptErrorMessage,
   mediaFileMatchesAccept,
   mediaFileMimeType,
   mediaStoragePath,
   mediaValueSource,
+  normalizedMediaFilename,
+  recordMediaFilenames,
   recordMediaSources,
   recordMediaStoragePaths,
+  sha256Hex,
   validateMediaAccept
 };

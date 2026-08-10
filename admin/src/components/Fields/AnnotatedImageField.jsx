@@ -15,7 +15,10 @@ import {
   compactImageValue,
   createImageAnnotationId,
   ensureImageAnnotationIds,
+  imageAssetKey,
+  imageAssetValue,
   imageCoordinateSize,
+  imageFilename,
   imageInfoCoordinateSize,
   normalizeImageValue
 } from "../../model/image.js";
@@ -27,14 +30,10 @@ import {
   resizedImageRegion,
   steppedImageRotation
 } from "../../model/imageGeometry.js";
-import {
-  DEFAULT_IMAGE_ACCEPT,
-  acceptTokens,
-  mediaAcceptErrorMessage,
-  mediaFileMatchesAccept
-} from "../../../../core/media.js";
+import { DEFAULT_IMAGE_ACCEPT } from "../../../../core/media.js";
 import { cx } from "../../model/editor.js";
 import { Spinner } from "../Common/Common.jsx";
+import { useMediaUpload } from "./MediaUpload.jsx";
 import "./AnnotatedImageField.scss";
 
 const REGION_HANDLES = [
@@ -80,7 +79,6 @@ function arrowDelta(event) {
 
 function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
   const api = useAdapter();
-  const inputRef = useRef(null);
   const canvasRef = useRef(null);
   const closeButtonRef = useRef(null);
   const dialogRef = useRef(null);
@@ -96,16 +94,16 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
   });
   const [selection, setSelection] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState("");
   const serializedValue = JSON.stringify(value ?? "");
+  const asset = imageAssetValue(image);
+  const assetKey = imageAssetKey(image);
   const rotationInstructionsId = `${id}-rotation-instructions`;
   const storedImageSize = imageCoordinateSize(image);
   const needsServiceInfo = Boolean(
-    image.src && !storedImageSize && typeof api.getImageInfo === "function"
+    asset && !storedImageSize && typeof api.getImageInfo === "function"
   );
   const activeSourceInfo =
-    sourceInfo.source === image.src ? sourceInfo : null;
+    sourceInfo.source === assetKey ? sourceInfo : null;
   const mayUseNaturalSize =
     !needsServiceInfo || activeSourceInfo?.status === "bypass";
   const imageSize = imageCoordinateSize(
@@ -118,7 +116,15 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
     activeSourceInfo?.status === "error"
       ? "The original image dimensions could not be read."
       : "";
-  const displayedError = error || sourceInfoError;
+  const mediaUpload = useMediaUpload({
+    accept: field.accept,
+    defaultAccept: DEFAULT_IMAGE_ACCEPT,
+    collectionName,
+    widget: "image",
+    onUploaded: (result) =>
+      replaceValue({ hash: result.hash, filename: result.filename })
+  });
+  const displayedError = mediaUpload.error || sourceInfoError;
 
   useEffect(() => {
     const nextImage = normalizeImageValue(value);
@@ -130,25 +136,25 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
     setNaturalImageSize(null);
     setSelection(null);
     interactionRef.current = null;
-  }, [image.src, image.width, image.height]);
+  }, [assetKey, image.width, image.height]);
 
   useEffect(() => {
     let active = true;
     if (!needsServiceInfo) {
-      setSourceInfo({ source: image.src, status: "idle", value: null });
+      setSourceInfo({ source: assetKey, status: "idle", value: null });
       return () => {
         active = false;
       };
     }
 
-    setSourceInfo({ source: image.src, status: "loading", value: null });
+    setSourceInfo({ source: assetKey, status: "loading", value: null });
     api
-      .getImageInfo(image.src, { collection: collectionName })
+      .getImageInfo(asset, { collection: collectionName })
       .then((information) => {
         if (!active) return;
         if (information === null) {
           setSourceInfo({
-            source: image.src,
+            source: assetKey,
             status: "bypass",
             value: null
           });
@@ -158,7 +164,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
           throw new Error("The image information contains no dimensions.");
         }
         setSourceInfo({
-          source: image.src,
+          source: assetKey,
           status: "ready",
           value: information
         });
@@ -166,7 +172,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
       .catch(() => {
         if (active) {
           setSourceInfo({
-            source: image.src,
+            source: assetKey,
             status: "error",
             value: null
           });
@@ -175,7 +181,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
     return () => {
       active = false;
     };
-  }, [api, collectionName, image.src, needsServiceInfo]);
+  }, [api, assetKey, collectionName, needsServiceInfo]);
 
   useEffect(() => {
     if (!editorOpen) return undefined;
@@ -235,28 +241,6 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
     setSelection(null);
     interactionRef.current = null;
     onChange(nextValue);
-  }
-
-  async function upload(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const acceptedTypes = acceptTokens(field.accept);
-    if (!mediaFileMatchesAccept(file, acceptedTypes)) {
-      setError(mediaAcceptErrorMessage(file, acceptedTypes));
-      event.target.value = "";
-      return;
-    }
-    setUploading(true);
-    setError("");
-    try {
-      const result = await api.uploadMedia(file, collectionName);
-      replaceValue(result.path);
-    } catch (uploadError) {
-      setError(uploadError.message);
-    } finally {
-      setUploading(false);
-      event.target.value = "";
-    }
   }
 
   function updateRegion(index, change) {
@@ -489,7 +473,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
       onPointerCancel={endPointer}
     >
       <img
-        src={api.resolveImageUrl(image.src, {
+        src={api.resolveImageUrl(asset, {
           width: 2048,
           height: 2048,
           fit: "inside",
@@ -498,7 +482,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
         alt=""
         draggable={false}
         onLoad={(event) => {
-          setError("");
+          mediaUpload.setError("");
           setNaturalImageSize({
             width: event.currentTarget.naturalWidth,
             height: event.currentTarget.naturalHeight
@@ -506,7 +490,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
         }}
         onError={() => {
           setNaturalImageSize(null);
-          setError("The image could not be loaded.");
+          mediaUpload.setError("The image could not be loaded.");
         }}
       />
       {imageSize && image.regions.map((region, index) => {
@@ -715,9 +699,20 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
   const dialogTitleId = `${id}-annotation-dialog-title`;
 
   return (
-    <div className="image-field">
+    <div
+      className={cx(
+        "image-field",
+        "media-upload-drop-target",
+        mediaUpload.dragging && "is-dragging"
+      )}
+      aria-busy={mediaUpload.uploading}
+      {...mediaUpload.dropProps}
+    >
+      {mediaUpload.dragging && (
+        <span className="media-upload-drop-hint">Drop image to upload</span>
+      )}
       <div className="image-field__stage">
-        {image.src ? (
+        {asset ? (
           <button
             type="button"
             className="image-field__preview-button"
@@ -726,7 +721,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
           >
             <img
               className="image-field__preview"
-              src={api.resolveImageUrl(image.src, {
+              src={api.resolveImageUrl(asset, {
                 width: 640,
                 height: 480,
                 fit: "inside",
@@ -734,7 +729,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
               })}
               alt=""
               onLoad={(event) => {
-                setError("");
+                mediaUpload.setError("");
                 setNaturalImageSize({
                   width: event.currentTarget.naturalWidth,
                   height: event.currentTarget.naturalHeight
@@ -742,7 +737,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
               }}
               onError={() => {
                 setNaturalImageSize(null);
-                setError("The image could not be loaded.");
+                mediaUpload.setError("The image could not be loaded.");
               }}
             />
             {annotationCount > 0 && (
@@ -763,13 +758,13 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
         <button
           type="button"
           className="button button--secondary"
-          disabled={uploading}
-          onClick={() => inputRef.current?.click()}
+          disabled={mediaUpload.uploading}
+          onClick={() => mediaUpload.inputRef.current?.click()}
         >
-          {uploading ? <Spinner small /> : <Upload size={14} />}
-          {image.src ? "Replace" : "Upload image"}
+          {mediaUpload.uploading ? <Spinner small /> : <Upload size={14} />}
+          {asset ? "Replace" : "Upload image"}
         </button>
-        {image.src && (
+        {asset && (
           <button
             ref={editorTriggerRef}
             type="button"
@@ -781,11 +776,11 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
             {annotationCount > 0 && <span>{annotationCount}</span>}
           </button>
         )}
-        {image.src && (
+        {asset && (
           <button
             type="button"
             className="button button--secondary"
-            disabled={uploading}
+            disabled={mediaUpload.uploading}
             onClick={() => replaceValue("")}
           >
             Clear
@@ -793,18 +788,22 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
         )}
       </div>
 
-      {image.src && <code className="image-field__path">{image.src}</code>}
+      {asset && (
+        <code className="image-field__path">
+          {asset.hash}/{imageFilename(image)}
+        </code>
+      )}
       <input
-        ref={inputRef}
+        ref={mediaUpload.inputRef}
         id={id}
         className="visually-hidden"
         type="file"
-        accept={acceptTokens(field.accept || DEFAULT_IMAGE_ACCEPT).join(",")}
-        onChange={upload}
+        {...mediaUpload.inputProps}
       />
       {displayedError && (
-        <small className="field-error">{displayedError}</small>
+        <small className="field-error" role="alert">{displayedError}</small>
       )}
+      {mediaUpload.duplicateDialog}
 
       {editorOpen && createPortal(
         <div
@@ -831,7 +830,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
               </span>
               <div>
                 <h2 id={dialogTitleId}>Regions &amp; points</h2>
-                <p>{imageSize ? `${imageSize.width} × ${imageSize.height} px` : image.src}</p>
+                <p>{imageSize ? `${imageSize.width} × ${imageSize.height} px` : imageFilename(image)}</p>
               </div>
               <button
                 ref={closeButtonRef}

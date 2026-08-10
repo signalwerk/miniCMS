@@ -6,6 +6,10 @@ import {
   inlineReferenceOccurrencesInMarkdown
 } from "./index.js";
 
+const HERO_HASH = "a".repeat(64);
+const POSTER_HASH = "b".repeat(64);
+const SOURCE_HASH = "c".repeat(64);
+
 const config = {
   site: { name: "Adapter fixture" },
   node_types: {
@@ -110,7 +114,8 @@ const image = {
     uuid: "hero-uuid",
     title: "Hero",
     file: {
-      src: "/media/hero.jpg",
+      hash: HERO_HASH,
+      filename: "hero.jpg",
       width: 1200,
       height: 800,
       regions: [
@@ -152,7 +157,8 @@ const home = {
     },
     download: "/media/research.pdf",
     poster: {
-      src: "/media/poster.png",
+      hash: POSTER_HASH,
+      filename: "poster.png",
       width: 640,
       height: 480,
       regions: []
@@ -211,9 +217,9 @@ function sourceAdapter(
         ? value
         : `/project${value}`;
     },
-    ...(options.resolveImageUrl
-      ? { resolveImageUrl: options.resolveImageUrl }
-      : {})
+    resolveImageUrl:
+      options.resolveImageUrl ??
+      ((asset) => `/project/media/${encodeURIComponent(asset.filename)}`)
   });
   return { adapter, counters, records: byCollection };
 }
@@ -267,6 +273,8 @@ test("returns one stable data envelope with deeply resolved content", async () =
   });
   assert.equal(data.item.properties.download, "/project/media/research.pdf");
   assert.deepEqual(data.item.properties.poster, {
+    hash: POSTER_HASH,
+    filename: "poster.png",
     src: "/project/media/poster.png",
     width: 640,
     height: 480,
@@ -288,7 +296,7 @@ test("returns one stable data envelope with deeply resolved content", async () =
 test("resolves images independently while files keep the raw media resolver", async () => {
   const { adapter } = sourceAdapter(undefined, {
     resolveImageUrl(value) {
-      return `/processed${value}.webp`;
+      return `/processed/media/${encodeURIComponent(value.filename)}.webp`;
     }
   });
   const data = await adapter.get("pages", "home");
@@ -340,7 +348,8 @@ test("passes the owning collection to file and image resolvers", async () => {
     calls.some(
       (call) =>
         call.kind === "image" &&
-        call.value === "/media/poster.png" &&
+        call.value.hash === POSTER_HASH &&
+        call.value.filename === "poster.png" &&
         call.collection === "pages"
     )
   );
@@ -348,7 +357,8 @@ test("passes the owning collection to file and image resolvers", async () => {
     calls.some(
       (call) =>
         call.kind === "image" &&
-        call.value === "/media/hero.jpg" &&
+        call.value.hash === HERO_HASH &&
+        call.value.filename === "hero.jpg" &&
         call.collection === "images"
     )
   );
@@ -432,7 +442,7 @@ function markdownReferenceFixture() {
     properties: {
       content_id: "aaaaaaaaaaaaaaa",
       title: "First source",
-      image: "/media/first-source.jpg"
+      image: { hash: SOURCE_HASH, filename: "first-source.jpg" }
     },
     slots: {}
   };
@@ -509,9 +519,13 @@ test("resolves configured inline Markdown references without changing storage", 
     resolved.references[hrefs.first].record.properties.title,
     "First source"
   );
-  assert.equal(
+  assert.deepEqual(
     resolved.references[hrefs.first].record.properties.image,
-    "/project/media/first-source.jpg"
+    {
+      hash: SOURCE_HASH,
+      filename: "first-source.jpg",
+      src: "/project/media/first-source.jpg"
+    }
   );
   assert.deepEqual(resolved.references[hrefs.missing], {
     collection: "sources",

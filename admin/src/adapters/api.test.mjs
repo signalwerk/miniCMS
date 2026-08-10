@@ -11,6 +11,8 @@ import { createAdapter } from "./index.js";
 const TEST_SHA = "a".repeat(64);
 const HERO_SOURCE = `/media/images/${TEST_SHA}/hero.png`;
 const HUGE_SOURCE = `/media/images/${TEST_SHA}/huge.jpg`;
+const HERO_ASSET = Object.freeze({ hash: TEST_SHA, filename: "hero.png" });
+const HUGE_ASSET = Object.freeze({ hash: TEST_SHA, filename: "huge.jpg" });
 
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
@@ -198,12 +200,14 @@ test("uses the direct local API origin for requests and media", async () => {
     `http://127.0.0.1:8787${HERO_SOURCE}`
   );
   assert.equal(
-    adapter.resolveImageUrl(HERO_SOURCE, {
+    adapter.resolveImageUrl(HERO_ASSET, {
+      collection: "images",
       width: 640,
       fit: "inside"
     }),
-    buildImageServiceUrl(HERO_SOURCE, {
+    buildImageServiceUrl(HERO_ASSET, {
       baseUrl: "http://127.0.0.1:8787",
+      collection: "images",
       config: null,
       width: 640,
       fit: "inside"
@@ -262,22 +266,26 @@ test("uses the active API capability and its latest config for images and info",
   });
 
   await adapter.config();
-  const options = { width: 2048, fit: "inside" };
+  const options = { collection: "images", width: 2048, fit: "inside" };
   assert.equal(
-    adapter.resolveImageUrl(HUGE_SOURCE, options),
-    buildImageServiceUrl(HUGE_SOURCE, {
+    adapter.resolveImageUrl(HUGE_ASSET, options),
+    buildImageServiceUrl(HUGE_ASSET, {
       ...options,
       baseUrl: "http://127.0.0.1:4321",
       config
     })
   );
-  assert.deepEqual(await adapter.getImageInfo(HUGE_SOURCE), information);
+  assert.deepEqual(
+    await adapter.getImageInfo(HUGE_ASSET, { collection: "images" }),
+    information
+  );
   assert.equal(
     calls.at(-1).url.toString(),
-    buildImageServiceUrl(HUGE_SOURCE, {
+    buildImageServiceUrl(HUGE_ASSET, {
       baseUrl: "http://127.0.0.1:4321",
       config,
-      info: true
+      info: true,
+      collection: "images"
     })
   );
   assert.equal(calls.at(-1).options.headers, undefined);
@@ -466,10 +474,53 @@ test("requires collection context for API media uploads", async () => {
       })
   });
 
-  assert.throws(
-    () => adapter.uploadMedia({ name: "hero.png", type: "image/png" }),
+  await assert.rejects(
+    adapter.uploadMedia({ name: "hero.png", type: "image/png" }),
     /collection is required/
   );
+});
+
+test("returns duplicate upload choices and forwards the explicit resolution", async () => {
+  const browser = browserFixture("http://127.0.0.1:4321");
+  const uploads = [];
+  const duplicate = {
+    duplicate: true,
+    existing: { hash: TEST_SHA, filename: "existing.png" },
+    copy: { hash: TEST_SHA, filename: "hero-2.png" }
+  };
+  const adapter = await createApiAdapter({
+    windowObject: browser.windowObject,
+    fetchImpl: async (input, options = {}) => {
+      const url = new URL(input);
+      if (url.pathname === "/api/auth/session") {
+        return json({
+          authenticated: true,
+          authenticationRequired: false,
+          provider: "local",
+          label: "Local"
+        });
+      }
+      uploads.push({ url, options });
+      return url.searchParams.has("duplicate")
+        ? json({ hash: TEST_SHA, filename: "hero-2.png" })
+        : json(duplicate, 409);
+    }
+  });
+  const file = { name: "hero.png", type: "image/png" };
+  assert.deepEqual(
+    await adapter.uploadMedia(file, "images", { widget: "image" }),
+    duplicate
+  );
+  assert.equal(uploads[0].url.searchParams.get("widget"), "image");
+  assert.equal(uploads[0].url.searchParams.has("duplicate"), false);
+  assert.deepEqual(
+    await adapter.uploadMedia(file, "images", {
+      widget: "image",
+      duplicate: "copy"
+    }),
+    { hash: TEST_SHA, filename: "hero-2.png" }
+  );
+  assert.equal(uploads[1].url.searchParams.get("duplicate"), "copy");
 });
 
 test("clears and publishes an unauthenticated API session after a 401", async () => {

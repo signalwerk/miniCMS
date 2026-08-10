@@ -1,4 +1,5 @@
 import { inlineReferenceOccurrencesInMarkdown } from "../core/inline-reference.js";
+import { imageAsset } from "../core/media.js";
 
 function isMapping(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -440,14 +441,12 @@ function createContentAdapter({
         ? sourceApi.resolveImageUrl
         : sourceApi.resolveMediaUrl;
     const context = { collection: collectionName };
-    if (typeof value === "string") {
+    if (widget === "file" && typeof value === "string") {
       return value ? await resolveUrl(value, context) : value;
     }
-    if (widget === "image" && isMapping(value)) {
+    if (widget === "image" && imageAsset(value)) {
       const image = cloneValue(value);
-      if (typeof image.src === "string" && image.src) {
-        image.src = await resolveUrl(image.src, context);
-      }
+      image.src = await resolveUrl(imageAsset(value), context);
       return image;
     }
     return cloneValue(value);

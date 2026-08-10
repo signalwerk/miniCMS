@@ -4,7 +4,11 @@ import {
   normalizeHttpOrigin,
   validateImageProcessingConfig
 } from "./image-service.js";
-import { acceptTokens, validateMediaAccept } from "./media.js";
+import {
+  acceptTokens,
+  isCanonicalImageAsset,
+  validateMediaAccept
+} from "./media.js";
 
 const YAML_OPTIONS = {
   schema: yaml.JSON_SCHEMA
@@ -99,6 +103,13 @@ function contentError(status, message) {
 
 function isMapping(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasLegacyImageSourceKeys(value) {
+  return (
+    isMapping(value) &&
+    ["src", "path", "sha"].some((key) => Object.hasOwn(value, key))
+  );
 }
 
 function isReferenceScalar(value) {
@@ -921,6 +932,19 @@ function validateConfig(config, status = 500, { source = false } = {}) {
       ) {
         field.accept = acceptTokens(field.accept);
       }
+      if (
+        field.widget === "image" &&
+        field.default !== undefined &&
+        field.default !== "" &&
+        (
+          !isCanonicalImageAsset(field.default) ||
+          hasLegacyImageSourceKeys(field.default)
+        )
+      ) {
+        fail(
+          `Image field "${typeName}.${fieldName}" default must be empty or contain a canonical hash and original filename.`
+        );
+      }
       if (field.visible_when !== undefined) {
         if (
           !isMapping(field.visible_when) ||
@@ -1622,6 +1646,21 @@ function validateRecord(record, collection, config, status = 400) {
         throw contentError(
           status,
           `URL field "${node.type}.${fieldName}" must be empty or contain an absolute HTTP or HTTPS URL.`
+        );
+      }
+      if (
+        field.widget === "image" &&
+        (
+          value !== "" &&
+          (
+            !isCanonicalImageAsset(value) ||
+            hasLegacyImageSourceKeys(value)
+          )
+        )
+      ) {
+        throw contentError(
+          status,
+          `Image field "${node.type}.${fieldName}" must be empty or contain a hash and original filename.`
         );
       }
     }

@@ -552,6 +552,35 @@ test("normalizes legacy image accept strings to the array config shape", () => {
   ]);
 });
 
+test("requires canonical image defaults without persisted source keys", () => {
+  const hash = "a".repeat(64);
+  const config = fixtureConfig();
+  config.node_types.page.fields.image = {
+    widget: "image",
+    default: { hash, filename: "Grüße.png" }
+  };
+  assert.deepEqual(validateConfig(config).node_types.page.fields.image.default, {
+    hash,
+    filename: "Grüße.png"
+  });
+
+  for (const defaultValue of [
+    "/media/legacy.png",
+    { src: "/media/legacy.png" },
+    { hash, filename: "Gru\u0308ße.png" },
+    { hash, filename: "image.png", src: "/resolved.png" },
+    { hash, filename: "image.png", path: "/legacy.png" },
+    { hash, filename: "image.png", sha: hash }
+  ]) {
+    const invalid = fixtureConfig();
+    invalid.node_types.page.fields.image = {
+      widget: "image",
+      default: defaultValue
+    };
+    assert.throws(() => validateConfig(invalid, 400), /canonical hash/);
+  }
+});
+
 test("accepts generated ID fields and normalizes the legacy UUID widget", () => {
   const config = fixtureConfig();
   config.node_types.page.fields.content_id = { widget: "id" };
@@ -970,6 +999,57 @@ test("requires persisted URL values to be empty or use HTTP(S)", () => {
           config
         ),
       /must be empty or contain an absolute HTTP or HTTPS URL/
+    );
+  }
+});
+
+test("requires canonical persisted image assets and rejects legacy source keys", () => {
+  const hash = "a".repeat(64);
+  const config = fixtureConfig();
+  config.node_types.page.fields.image = { widget: "image" };
+  validateConfig(config);
+  const collection = { name: "pages", ...config.collections.pages };
+  const record = {
+    id: "home",
+    type: "page",
+    order: 0,
+    properties: {
+      title: "Home",
+      image: {
+        hash,
+        filename: "Grüße.png",
+        width: 1200,
+        height: 800,
+        regions: []
+      }
+    },
+    slots: {}
+  };
+  assert.equal(validateRecord(record, collection, config), record);
+  assert.equal(
+    validateRecord(
+      { ...record, properties: { ...record.properties, image: "" } },
+      collection,
+      config
+    ).properties.image,
+    ""
+  );
+
+  for (const image of [
+    "/media/legacy.png",
+    { src: "/media/legacy.png" },
+    { hash, filename: "Gru\u0308ße.png" },
+    { hash, filename: "image.png", src: "/resolved.png" },
+    { hash, filename: "image.png", path: "/legacy.png" },
+    { hash, filename: "image.png", sha: hash }
+  ]) {
+    assert.throws(
+      () => validateRecord(
+        { ...record, properties: { ...record.properties, image } },
+        collection,
+        config
+      ),
+      /hash and original filename/
     );
   }
 });

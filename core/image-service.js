@@ -1,3 +1,5 @@
+import { imageAsset, imageAssetMediaPath } from "./media.js";
+
 const IMAGE_FITS = Object.freeze([
   "cover",
   "contain",
@@ -185,6 +187,11 @@ function sourcePath(value) {
 }
 
 function imageSourceExtension(value) {
+  const asset = imageAsset(value);
+  if (asset) {
+    const index = asset.filename.lastIndexOf(".");
+    return index > 0 ? asset.filename.slice(index + 1).toLowerCase() : "";
+  }
   const pathname = sourcePath(value);
   if (!pathname || isExternalImageSource(pathname)) return "";
   const filename = pathname.split("/").pop() || "";
@@ -201,8 +208,9 @@ function utf8Bytes(value) {
 }
 
 function imageServiceSlug(value) {
-  const pathname = sourcePath(value);
-  const filename = pathname.split("/").pop() || "image";
+  const asset = imageAsset(value);
+  const pathname = asset ? "" : sourcePath(value);
+  const filename = asset?.filename || pathname.split("/").pop() || "image";
   const extensionIndex = filename.lastIndexOf(".");
   const stem = extensionIndex > 0 ? filename.slice(0, extensionIndex) : filename;
   const slug = stem
@@ -565,10 +573,24 @@ function configuredOperations(processing, overrides) {
 }
 
 function imageServicePath(value, options = {}) {
-  const configuredSource = sourcePath(value);
-  if (!configuredSource || isExternalImageSource(configuredSource)) {
-    return configuredSource;
+  if (value === "" || value === null || value === undefined) return "";
+  const asset = imageAsset(value);
+  if (!asset) {
+    throw imageServiceError(
+      "Image-service sources must contain a hash and original filename."
+    );
   }
+  const assetPath = imageAssetMediaPath(asset, {
+    storage: "api",
+    collection: options.collection,
+    publicFolder: "/media"
+  });
+  if (!assetPath) {
+    throw imageServiceError(
+      "Image-service asset references require a collection."
+    );
+  }
+  const configuredSource = sourcePath(assetPath);
   const addressedSource = parseContentAddressedMediaPath(
     configuredSource,
     options.config
@@ -597,7 +619,7 @@ function imageServicePath(value, options = {}) {
     addressedSource.collection,
     addressedSource.sha,
     stack,
-    `${imageServiceSlug(source)}.${format}`
+    `${imageServiceSlug(asset)}.${format}`
   ].join("/");
 }
 
@@ -752,7 +774,21 @@ function prependImageServiceOperations(value, operations) {
   return `${derivative.baseUrl}${route}`;
 }
 
-function imageServiceMediaPath(value, config) {
+function imageServiceMediaPath(value, config, collection) {
+  const asset = imageAsset(value);
+  if (asset) {
+    const route = imageAssetMediaPath(asset, {
+      storage: "api",
+      collection,
+      publicFolder: "/media"
+    });
+    if (!route) {
+      throw imageServiceError(
+        "Media-service asset references require a collection."
+      );
+    }
+    return route;
+  }
   const source = typeof value === "string" ? value : "";
   if (!source || isExternalImageSource(source)) return source;
   const suffixIndex = source.search(/[?#]/);
@@ -786,35 +822,62 @@ function safeMediaSegment(value) {
 }
 
 function parseContentAddressedMediaPath(value, config) {
-  const route = imageServiceMediaPath(value, config);
+  let route;
+  try {
+    route = imageServiceMediaPath(value, config);
+  } catch {
+    return null;
+  }
   if (!route || isExternalImageSource(route)) return null;
   const pathname = route.split(/[?#]/, 1)[0];
   if (!pathname.startsWith("/media/")) return null;
   const segments = pathname.slice("/media/".length).split("/");
-  if (segments.length !== 3) return null;
-  const [collection, sha, filename] = segments;
+  if (![2, 3].includes(segments.length)) return null;
+  const collection = segments.length === 3 ? segments[0] : null;
+  const sha = segments.at(-2);
+  const encodedFilename = segments.at(-1);
+  let filename = "";
+  try {
+    filename = decodeURIComponent(encodedFilename);
+  } catch {
+    return null;
+  }
+  const asset = imageAsset({ hash: sha, filename });
+  const canonicalPath = asset
+    ? imageAssetMediaPath(asset, {
+        storage: collection ? "api" : "github",
+        collection,
+        publicFolder: "/media"
+      })
+    : "";
   if (
-    !safeMediaSegment(collection) ||
+    (collection !== null && !safeMediaSegment(collection)) ||
     !CONTENT_SHA_PATTERN.test(sha) ||
-    !safeMediaSegment(filename)
+    !asset ||
+    pathname !== canonicalPath
   ) {
     return null;
   }
   return Object.freeze({
     collection,
     sha,
+    hash: sha,
     filename,
-    path: `/media/${collection}/${sha}/${filename}`
+    path: canonicalPath
   });
 }
 
 function buildImageServiceMediaUrl(value, options = {}) {
-  const route = imageServiceMediaPath(value, options.config);
+  const route = imageServiceMediaPath(
+    value,
+    options.config,
+    options.collection
+  );
   if (!route || isExternalImageSource(route)) return route;
   const addressed = parseContentAddressedMediaPath(route);
   if (!addressed) {
     throw imageServiceError(
-      "Media-service sources must use /media/<collection>/<sha256>/<filename>."
+      "Media-service sources must use /media/<sha256>/<filename> or /media/<collection>/<sha256>/<filename>."
     );
   }
   const suffixIndex = route.search(/[?#]/);

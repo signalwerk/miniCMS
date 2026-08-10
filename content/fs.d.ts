@@ -2,6 +2,7 @@ import type {
   CmsConfig,
   ContentAdapter,
   ContentSource,
+  ImageAsset,
   MediaResolutionContext
 } from "./index.js";
 
@@ -21,7 +22,7 @@ export interface FilesystemContentAdapterOptions {
     context: MediaResolutionContext
   ) => string | Promise<string>;
   resolveImageUrl?: (
-    path: string,
+    asset: ImageAsset,
     context: MediaResolutionContext
   ) => string | Promise<string>;
   imageServiceBaseUrl?: string;

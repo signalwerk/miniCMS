@@ -10,18 +10,42 @@ import {
   validateRecord
 } from "../../../core/content.js";
 import {
-  configuredMediaAccept,
+  configuredCollectionMediaAccept,
+  imageAsset,
+  imageAssetMediaPath,
   mediaAcceptErrorMessage,
   mediaFileMatchesAccept,
-  recordMediaStoragePaths
+  mediaFilenameWithSuffix,
+  normalizedMediaFilename,
+  recordMediaStoragePaths,
+  sha256Hex
 } from "../../../core/media.js";
-import { sanitizeFilenameStem } from "../../../core/slug.js";
 import { isRemoteCollection } from "../../../core/connectors.js";
 import { createGitHubAuth } from "./github-auth.js";
 
 const API_VERSION = "2026-03-10";
 const CI_SKIP_MARKER = "[ci skip]";
 const CI_SKIP_PATTERN = /\[ci skip\]/i;
+
+function normalizeMediaRepositoryPath(value) {
+  if (typeof value !== "string" || !value || value.includes("\\")) {
+    throw contentError(400, "Invalid media path.");
+  }
+  const normalized = value.replace(/^\/+|\/+$/g, "");
+  const segments = normalized.split("/");
+  const filename = normalizedMediaFilename(segments.at(-1));
+  if (
+    segments.length < 2 ||
+    !filename ||
+    filename !== segments.at(-1) ||
+    segments.slice(0, -1).some(
+      (segment) => !segment || !/^[a-z0-9._-]+$/i.test(segment)
+    )
+  ) {
+    throw contentError(400, "Invalid media path.");
+  }
+  return [...segments.slice(0, -1), filename].join("/");
+}
 
 function deploymentCommitMessage(message, skipDeployments) {
   const value = String(message);
@@ -296,8 +320,10 @@ function createGitHubAdapter({
     return result;
   }
 
-  async function readRepositoryFile(path) {
-    const normalized = normalizeRepositoryPath(path);
+  async function readRepositoryFile(path, { media = false } = {}) {
+    const normalized = media
+      ? normalizeMediaRepositoryPath(path)
+      : normalizeRepositoryPath(path);
     const query = new URLSearchParams({ ref: branch });
     const result = await githubRequest(
       `${repositoryApi}/contents/${encodePath(normalized)}?${query}`
@@ -456,7 +482,9 @@ function createGitHubAdapter({
 
     const tree = await Promise.all(
       changes.map(async (change) => {
-        const path = normalizeRepositoryPath(change.path);
+        const path = change.media
+          ? normalizeMediaRepositoryPath(change.path)
+          : normalizeRepositoryPath(change.path);
         if (change.delete) {
           return {
             path,
@@ -731,6 +759,34 @@ function createGitHubAdapter({
     };
   }
 
+  async function mediaPathsUsedByOtherRecords(
+    config,
+    deletingCollection,
+    deletingId,
+    loadedDeletingItems
+  ) {
+    const used = new Set();
+    for (const [name, definition] of Object.entries(config.collections ?? {})) {
+      if (isRemoteCollection(definition)) continue;
+      const result = name === deletingCollection && loadedDeletingItems
+        ? loadedDeletingItems
+        : await list(name);
+      for (const item of result.items ?? []) {
+        if (name === deletingCollection && item.id === deletingId) continue;
+        const path = recordPath(definition, item.id);
+        const record = recordCache.get(path)?.record ??
+          await readRecord(definition, item.id);
+        for (const mediaPath of recordMediaStoragePaths(record, config, {
+          storage: "github",
+          collection: name
+        })) {
+          used.add(mediaPath);
+        }
+      }
+    }
+    return used;
+  }
+
   async function remove(collectionName, id) {
     await ensureAuthenticated();
     const { config, collection } = await collectionConfiguration(collectionName);
@@ -754,12 +810,24 @@ function createGitHubAdapter({
       );
     }
     const mediaPaths = collection.delete_files_with_record
-      ? recordMediaStoragePaths(record, config)
+      ? recordMediaStoragePaths(record, config, {
+          storage: "github",
+          collection: collectionName
+        })
       : [];
+    const usedMediaPaths = mediaPaths.length
+      ? await mediaPathsUsedByOtherRecords(
+          config,
+          collectionName,
+          id,
+          collectionItems
+        )
+      : new Set();
     const existingMediaPaths = [];
     for (const mediaPath of mediaPaths) {
+      if (usedMediaPaths.has(mediaPath)) continue;
       try {
-        await readRepositoryFile(mediaPath);
+        await readRepositoryFile(mediaPath, { media: true });
         existingMediaPaths.push(mediaPath);
       } catch (error) {
         if (error.status !== 404) throw error;
@@ -770,6 +838,7 @@ function createGitHubAdapter({
         { path, delete: true },
         ...existingMediaPaths.map((mediaPath) => ({
           path: mediaPath,
+          media: true,
           delete: true
         }))
       ],
@@ -816,13 +885,33 @@ function createGitHubAdapter({
     return { saved: true, config: validated };
   }
 
-  async function uploadMedia(file) {
+  function mediaResult(config, hash, filename) {
+    const asset = imageAsset({ hash, filename });
+    const mediaFolder = normalizeRepositoryPath(
+      config.site?.media_folder || "content/media",
+      "media folder"
+    );
+    return {
+      hash: asset.hash,
+      filename: asset.filename,
+      path: imageAssetMediaPath(asset, {
+        storage: "github",
+        publicFolder: config.site?.public_folder || "/media"
+      }),
+      storage_path: `${mediaFolder}/${asset.hash}/${asset.filename}`
+    };
+  }
+
+  async function uploadMedia(file, collectionName, options = {}) {
     await ensureAuthenticated();
-    const config = await ensureConfig();
-    const extension = file.name
-      .slice(file.name.lastIndexOf("."))
-      .toLowerCase();
-    const acceptedTypes = configuredMediaAccept(config);
+    const { config, collection } = await collectionConfiguration(collectionName);
+    const acceptedTypes = configuredCollectionMediaAccept(
+      config,
+      collection,
+      ["image", "file"].includes(options.widget)
+        ? options.widget
+        : ["image", "file"]
+    );
     if (!mediaFileMatchesAccept(file, acceptedTypes)) {
       throw contentError(
         400,
@@ -834,38 +923,68 @@ function createGitHubAdapter({
       throw contentError(413, "Uploads must be smaller than 20 MB.");
     }
 
+    const filename = normalizedMediaFilename(file.name);
+    if (!filename) {
+      throw contentError(400, "The uploaded filename is not safe to store.");
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const cryptoImplementation = windowObject?.crypto?.subtle
+      ? windowObject.crypto
+      : globalThis.crypto;
+    const hash = await sha256Hex(bytes, cryptoImplementation);
+
     const mediaFolder = normalizeRepositoryPath(
       config.site?.media_folder || "content/media",
       "media folder"
     );
-    const entries = await listDirectory(mediaFolder);
+    const entries = (await listDirectory(`${mediaFolder}/${hash}`))
+      .filter((entry) => entry.type === "file")
+      .sort((left, right) => left.name.localeCompare(right.name));
     const existingNames = new Set(
       entries.map((entry) => entry.name.toLowerCase())
     );
-    const base = sanitizeFilenameStem(
-      extension ? file.name.slice(0, -extension.length) : file.name,
-      "image"
-    );
-    let filename = `${base}${extension}`;
+    const existingEntry =
+      entries.find((entry) => entry.name.toLowerCase() === filename.toLowerCase()) ||
+      entries[0];
+    let storedFilename = filename;
     let suffix = 2;
-    while (existingNames.has(filename.toLowerCase())) {
-      filename = `${base}-${suffix}${extension}`;
+    while (existingNames.has(storedFilename.toLowerCase())) {
+      storedFilename = mediaFilenameWithSuffix(filename, suffix);
       suffix += 1;
     }
-    const storagePath = `${mediaFolder}/${filename}`;
-    const bytes = new Uint8Array(await file.arrayBuffer());
+
+    if (existingEntry && options.duplicate === "reuse") {
+      return { ...mediaResult(config, hash, existingEntry.name), reused: true };
+    }
+    if (existingEntry && options.duplicate !== "copy") {
+      return {
+        duplicate: true,
+        existing: mediaResult(config, hash, existingEntry.name),
+        copy: mediaResult(config, hash, storedFilename)
+      };
+    }
+
+    const storagePath = `${mediaFolder}/${hash}/${storedFilename}`;
     await commitChanges(
-      [{ path: storagePath, bytes }],
-      `Upload media ${filename}`
+      [{ path: storagePath, bytes, media: true }],
+      `Upload media ${storedFilename}`
     );
-    const publicFolder = String(
-      config.site?.public_folder || "/media"
-    ).replace(/\/+$/, "");
-    return {
-      filename,
-      path: `${publicFolder}/${filename}`,
-      storage_path: storagePath
-    };
+    return mediaResult(config, hash, storedFilename);
+  }
+
+  function rawRepositoryUrl(repositoryPath) {
+    const rawPath = [
+      owner,
+      repository,
+      ...branch.split("/"),
+      ...repositoryPath.split("/")
+    ]
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+    const cacheKey = lastCommitSha
+      ? `?minicms=${encodeURIComponent(lastCommitSha)}`
+      : "";
+    return `https://raw.githubusercontent.com/${rawPath}${cacheKey}`;
   }
 
   function resolveMediaUrl(path) {
@@ -884,23 +1003,33 @@ function createGitHubAdapter({
       config.site?.media_folder || "content/media",
       "media folder"
     );
-    const repositoryPath = `${mediaFolder}/${relativeMediaPath}`;
-    const rawPath = [
-      owner,
-      repository,
-      ...branch.split("/"),
-      ...repositoryPath.split("/")
-    ]
-      .map((segment) => encodeURIComponent(segment))
-      .join("/");
-    const cacheKey = lastCommitSha
-      ? `?minicms=${encodeURIComponent(lastCommitSha)}`
-      : "";
-    return `https://raw.githubusercontent.com/${rawPath}${cacheKey}`;
+    let decodedRelativePath;
+    try {
+      decodedRelativePath = relativeMediaPath
+        .split("/")
+        .map((segment) => decodeURIComponent(segment))
+        .join("/");
+    } catch {
+      throw contentError(400, "Invalid media path.");
+    }
+    return rawRepositoryUrl(
+      normalizeMediaRepositoryPath(`${mediaFolder}/${decodedRelativePath}`)
+    );
   }
 
-  function resolveImageUrl(path) {
-    return resolveMediaUrl(path);
+  function resolveImageUrl(value) {
+    const asset = imageAsset(value);
+    if (!asset) return "";
+    const config = currentConfig || bootstrapConfig;
+    const mediaFolder = normalizeRepositoryPath(
+      config.site?.media_folder || "content/media",
+      "media folder"
+    );
+    return rawRepositoryUrl(
+      normalizeMediaRepositoryPath(
+        `${mediaFolder}/${asset.hash}/${asset.filename}`
+      )
+    );
   }
 
   return {

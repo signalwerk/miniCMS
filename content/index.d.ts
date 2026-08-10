@@ -1,4 +1,7 @@
-import type { ImageProcessingConfig } from "../core/image-service.js";
+import type {
+  ImageAsset,
+  ImageProcessingConfig
+} from "../core/image-service.js";
 export { prependImageServiceOperations } from "../core/image-service.js";
 export type { ImageOperation } from "../core/image-service.js";
 export {
@@ -17,6 +20,15 @@ export type {
 
 export type UnknownMapping = Record<string, unknown>;
 export type ReferenceScalar = string | number | boolean;
+export type { ImageAsset } from "../core/image-service.js";
+
+export interface ResolvedImage extends ImageAsset {
+  src: string;
+  width?: number;
+  height?: number;
+  regions?: UnknownMapping[];
+  points?: UnknownMapping[];
+}
 
 export interface CmsConnector extends UnknownMapping {
   name: "api" | "github";
@@ -150,7 +162,7 @@ export interface ContentSource {
     context: MediaResolutionContext
   ) => MaybePromise<string>;
   resolveImageUrl?: (
-    value: string,
+    value: ImageAsset,
     context: MediaResolutionContext
   ) => MaybePromise<string>;
 }
@@ -168,7 +180,7 @@ export interface ContentAdapterOptions {
     context: MediaResolutionContext
   ) => MaybePromise<string>;
   resolveImageUrl?: (
-    value: string,
+    value: ImageAsset,
     context: MediaResolutionContext
   ) => MaybePromise<string>;
 }

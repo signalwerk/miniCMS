@@ -592,10 +592,15 @@ async function createConnectorAdapter({
     };
   }
 
-  function mediaAdapter(options = {}) {
-    return options.collection
-      ? connectorRoute(options.collection).adapter
-      : adapters.get("default");
+  function mediaRoute(options = {}) {
+    if (!options.collection) {
+      return { adapter: adapters.get("default"), collection: undefined };
+    }
+    const route = connectorRoute(options.collection);
+    return {
+      adapter: route.adapter,
+      collection: route.remoteCollection
+    };
   }
 
   async function saveConfig(config, { authenticateConnector = "" } = {}) {
@@ -770,21 +775,32 @@ async function createConnectorAdapter({
       const route = connectorRoute(collectionName);
       return route.adapter.remove(route.remoteCollection, id);
     },
-    uploadMedia(file, collectionName) {
+    uploadMedia(file, collectionName, options = {}) {
       const route = connectorRoute(collectionName);
-      return route.adapter.uploadMedia(file, route.remoteCollection);
+      return route.adapter.uploadMedia(
+        file,
+        route.remoteCollection,
+        options
+      );
     },
     resolveMediaUrl(path, options = {}) {
-      return mediaAdapter(options).resolveMediaUrl(path);
+      const route = mediaRoute(options);
+      return route.adapter.resolveMediaUrl(path, {
+        collection: route.collection
+      });
     },
     resolveImageUrl(path, options = {}) {
+      const route = mediaRoute(options);
       const { collection: _collection, ...imageOptions } = options;
-      return mediaAdapter(options).resolveImageUrl(path, imageOptions);
+      return route.adapter.resolveImageUrl(path, {
+        ...imageOptions,
+        collection: route.collection
+      });
     },
     getImageInfo(path, options = {}) {
-      const target = mediaAdapter(options);
-      return typeof target.getImageInfo === "function"
-        ? target.getImageInfo(path)
+      const route = mediaRoute(options);
+      return typeof route.adapter.getImageInfo === "function"
+        ? route.adapter.getImageInfo(path, { collection: route.collection })
         : Promise.resolve(null);
     },
     destroy() {

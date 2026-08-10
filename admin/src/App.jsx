@@ -32,7 +32,7 @@ import {
   slugTemplateFieldNames,
   uniqueFilenameStem
 } from "../../core/slug.js";
-import { recordMediaStoragePaths } from "../../core/media.js";
+import { recordMediaFilenames } from "../../core/media.js";
 import {
   DEFAULT_LAYOUT_PREFERENCES,
   LAYOUT_STORAGE_KEY,
@@ -1679,26 +1679,23 @@ export default function App({ PreviewComponent = null }) {
     const count = selectedItems.length;
     const singular = collection?.label_singular?.toLowerCase() || "record";
     const plural = collection?.label?.toLowerCase() || "records";
-    const deletedFilePaths = collection?.delete_files_with_record
+    const deletedFilenames = collection?.delete_files_with_record
       ? [
           ...new Set(
             selectedItems.flatMap((item) =>
-              recordMediaStoragePaths(item, config)
+              recordMediaFilenames(item, config)
             )
           )
         ]
       : [];
-    const deletedFilenames = deletedFilePaths.map(
-      (filePath) => filePath.split("/").pop() || filePath
-    );
     const recordWarning =
       count === 1
         ? `This permanently removes “${selectedItems[0].title}” and its YAML file.`
         : `This permanently removes the ${count} selected records and their YAML files.`;
     const fileWarning = deletedFilenames.length
       ? deletedFilenames.length === 1
-        ? ` The uploaded file “${deletedFilenames[0]}” will also be permanently deleted.`
-        : ` ${deletedFilenames.length} uploaded files will also be permanently deleted: ${deletedFilenames
+        ? ` The uploaded file “${deletedFilenames[0]}” will also be permanently deleted when no other record uses it.`
+        : ` Unshared uploaded files will also be permanently deleted: ${deletedFilenames
             .map((filename) => `“${filename}”`)
             .join(", ")}.`
       : "";

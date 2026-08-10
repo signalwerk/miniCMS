@@ -6,11 +6,39 @@ import {
   configuredCollectionMediaAccept,
   configuredImageAccept,
   configuredMediaAccept,
+  imageAsset,
+  imageAssetMediaPath,
+  isCanonicalImageAsset,
+  mediaFilenameWithSuffix,
   mediaFileMatchesAccept,
+  normalizedMediaFilename,
   recordMediaSources,
   recordMediaStoragePaths,
+  sha256Hex,
   validateMediaAccept
 } from "./media.js";
+
+test("normalizes safe image identities and builds encoded storage URLs", async () => {
+  const hash = "a".repeat(64);
+  const decomposed = "Gru\u0308ße (final).png";
+  const filename = "Grüße (final).png";
+  assert.equal(normalizedMediaFilename(decomposed), filename);
+  assert.deepEqual(imageAsset({ hash, filename: decomposed }), {
+    hash,
+    filename
+  });
+  assert.equal(isCanonicalImageAsset({ hash, filename: decomposed }), false);
+  assert.equal(isCanonicalImageAsset({ hash, filename }), true);
+  assert.equal(
+    imageAssetMediaPath({ hash, filename }, { storage: "github" }),
+    `/media/${hash}/Gr%C3%BC%C3%9Fe%20%28final%29.png`
+  );
+  assert.equal(mediaFilenameWithSuffix(filename, 2), "Grüße (final)-2.png");
+  assert.equal(
+    await sha256Hex(new TextEncoder().encode("abc")),
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+  );
+});
 
 test("matches configurable media MIME types, extensions, and wildcards", () => {
   assert.equal(
@@ -171,20 +199,48 @@ test("resolves only configured upload fields inside the media folder", () => {
   const record = {
     type: "asset",
     properties: {
-      image: { src: "/media/preview.png", regions: [] },
-      file: "/media/report.pdf",
+      image: {
+        hash: "c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc",
+        filename: "preview.png",
+        regions: []
+      },
+      file: "/media/assets/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/report.pdf",
       reference: "/media/shared.pdf"
     }
   };
 
   assert.deepEqual(recordMediaSources(record, config), [
-    "/media/preview.png",
-    "/media/report.pdf"
+    {
+      widget: "image",
+      value: {
+        hash: "c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc",
+        filename: "preview.png"
+      }
+    },
+    {
+      widget: "file",
+      value: "/media/assets/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/report.pdf"
+    }
   ]);
-  assert.deepEqual(recordMediaStoragePaths(record, config), [
-    "content/media/preview.png",
-    "content/media/report.pdf"
-  ]);
+  assert.deepEqual(
+    recordMediaStoragePaths(record, config, {
+      storage: "github",
+      collection: "assets"
+    }),
+    [
+      "content/media/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/preview.png",
+      "content/media/assets/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/report.pdf"
+    ]
+  );
+  assert.deepEqual(
+    recordMediaStoragePaths(record, config, {
+      storage: "api",
+      collection: "assets"
+    }),
+    [
+      "content/media/assets/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/asset.dat"
+    ]
+  );
 });
 
 test("validates array accept-list syntax and reads the legacy string shape", () => {

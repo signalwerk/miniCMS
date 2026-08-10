@@ -8,7 +8,7 @@ import {
   uniqueFilenameStem
 } from "../../../core/slug.js";
 import { defaultProperties } from "./editor.js";
-import { imageSource } from "./image.js";
+import { hasImageValue, imageAssetValue } from "./image.js";
 
 const REFERENCE_CREATE_WIDGETS = new Set(["string", "text", "markdown"]);
 
@@ -292,12 +292,10 @@ function requiredReferenceFieldHasValue(field, value) {
     return hasReferenceValue(normalizeReferenceValue(value).ref);
   }
   if (field?.widget === "image") {
-    return Boolean(imageSource(value).trim());
+    return hasImageValue(value);
   }
   if (field?.widget === "file") {
-    if (typeof value === "string") return Boolean(value.trim());
-    if (!isMapping(value)) return false;
-    return Boolean(String(value.src ?? value.path ?? "").trim());
+    return typeof value === "string" && Boolean(value.trim());
   }
   if (typeof value === "string") return Boolean(value.trim());
   if (Array.isArray(value)) return value.length > 0;
@@ -667,8 +665,8 @@ function referenceImageSource(item, view, collection) {
   const field =
     typeof view?.image === "string" ? view.image.trim() : "";
   return field
-    ? imageSource(referenceItemValue(item, field, collection))
-    : "";
+    ? imageAssetValue(referenceItemValue(item, field, collection))
+    : null;
 }
 
 function referenceSelectionDefinitions(field, collection) {

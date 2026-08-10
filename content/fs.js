@@ -19,6 +19,7 @@ import {
   buildImageServiceUrl,
   normalizeHttpOrigin
 } from "../core/image-service.js";
+import { imageAssetMediaPath } from "../core/media.js";
 import { createContentAdapter } from "./index.js";
 
 function rootPath(value) {
@@ -156,11 +157,12 @@ function createApiContentSource({
         config: await config()
       });
     },
-    async resolveImageUrl(value) {
+    async resolveImageUrl(value, context = {}) {
       return buildImageServiceUrl(value, {
         baseUrl: apiOrigin,
         config: await config(),
-        fit: "inside"
+        fit: "inside",
+        collection: context.collection
       });
     }
   };
@@ -429,6 +431,22 @@ async function createFilesystemContentAdapter({
           config
         })
     : (value) => publicUrl(value, publicBase);
+  const defaultImageResolver = apiBackend
+    ? (value, context) =>
+        buildImageServiceUrl(value, {
+          baseUrl: apiUrl,
+          config,
+          fit: "inside",
+          collection: context.collection
+        })
+    : (value) =>
+        publicUrl(
+          imageAssetMediaPath(value, {
+            storage: "github",
+            publicFolder: config.site?.public_folder || "/media"
+          }),
+          publicBase
+        );
   async function connectorMediaResolver(value, context = {}) {
     if (resolveMediaUrl) return resolveMediaUrl(value, context);
     const route = context.collection
@@ -470,10 +488,20 @@ async function createFilesystemContentAdapter({
       return buildImageServiceUrl(value, {
         baseUrl: imageServiceBaseUrl ?? apiUrl,
         config,
-        fit: "inside"
+        fit: "inside",
+        collection: context.collection
       });
     }
-    return connectorMediaResolver(value, context);
+    if (!apiBackend && resolveMediaUrl) {
+      return resolveMediaUrl(
+        imageAssetMediaPath(value, {
+          storage: "github",
+          publicFolder: config.site?.public_folder || "/media"
+        }),
+        context
+      );
+    }
+    return defaultImageResolver(value, context);
   }
   return createContentAdapter({
     config,

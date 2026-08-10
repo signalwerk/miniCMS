@@ -1,0 +1,59 @@
+@use "../../styles/typography" as *;
+
+.media-upload-drop-target {
+  position: relative;
+}
+
+.media-upload-drop-target.is-dragging {
+  outline: 2px solid var(--lime);
+  outline-offset: 2px;
+}
+
+.media-upload-drop-hint {
+  @extend %type-normal-bold;
+  position: absolute;
+  z-index: 4;
+  inset: 4px;
+  display: grid;
+  place-items: center;
+  color: #11120f;
+  background: color-mix(in srgb, var(--lime) 88%, transparent);
+  border: 1px solid var(--lime);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.media-duplicate-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.media-duplicate-dialog__files {
+  display: grid;
+  gap: 7px;
+  padding: 14px 18px;
+  color: #bfc1b8;
+}
+
+.media-duplicate-dialog__files span {
+  display: flex;
+  min-width: 0;
+  gap: 7px;
+  align-items: center;
+}
+
+.media-duplicate-dialog__files strong {
+  overflow: hidden;
+  color: #e7e8e1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 620px) {
+  .media-duplicate-dialog .dialog__footer {
+    align-items: stretch;
+  }
+
+  .media-duplicate-dialog .dialog__footer .button {
+    width: 100%;
+  }
+}

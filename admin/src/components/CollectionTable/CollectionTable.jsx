@@ -18,7 +18,7 @@ import {
   filterFieldKind
 } from "../../model/advancedFilter.js";
 import { cx, typeField, typeFields } from "../../model/editor.js";
-import { imageSource } from "../../model/image.js";
+import { imageAssetValue } from "../../model/image.js";
 import {
   hasReferenceValue,
   normalizeReferenceValue
@@ -291,7 +291,7 @@ function TableCell({
       />
     );
   } else if (field.display === "image") {
-    const source = adapter.resolveImageUrl(imageSource(value), {
+    const source = adapter.resolveImageUrl(imageAssetValue(value), {
       width: 320,
       height: 320,
       fit: "inside",

@@ -11,6 +11,12 @@ import {
 } from "./github-auth.js";
 import { createAdapter } from "./index.js";
 
+const RECORD_HASH = "a".repeat(64);
+const BINARY_HASH =
+  "054edec1d0211f624fed0cbca9d4f9400b0e491c43742af2c5b0abebf0c990d8";
+const SVG_HASH =
+  "d4dc56669143034f31aa309635d4113d9ad76a02b1739da22c965ed2049be9e6";
+
 function fixtureConfig() {
   return {
     connectors: {
@@ -30,6 +36,12 @@ function fixtureConfig() {
         label: "Page",
         fields: {
           title: { widget: "string" },
+          image: { widget: "image", accept: ["image/png", "image/svg+xml"] }
+        },
+        slots: { content: { allowed_types: ["image_block"] } }
+      },
+      image_block: {
+        fields: {
           image: { widget: "image", accept: ["image/png", "image/svg+xml"] }
         }
       }
@@ -65,17 +77,26 @@ function repositoryFile(path, source, sha = "blob-sha") {
   };
 }
 
-function makeGitHubFixture({ treeEntries, loadedConfigSha = "config-sha" } = {}) {
+function makeGitHubFixture({
+  treeEntries,
+  loadedConfigSha = "config-sha",
+  mediaEntriesByHash = {},
+  additionalRecords = []
+} = {}) {
   const config = fixtureConfig();
   const record = {
     id: "home",
     type: "page",
     order: 0,
-    properties: { title: "Home", image: "/media/hero.png" },
+    properties: {
+      title: "Home",
+      image: { hash: RECORD_HASH, filename: "hero.png" }
+    },
     slots: {}
   };
   const calls = [];
   const trees = [];
+  const records = [record, ...additionalRecords];
   const repositoryTree = treeEntries ?? [
     { path: "cms.config.yml", mode: "100644", type: "blob", sha: "config-sha" },
     { path: "content", mode: "040000", type: "tree", sha: "content-tree" },
@@ -106,29 +127,53 @@ function makeGitHubFixture({ treeEntries, loadedConfigSha = "config-sha" } = {})
       );
     }
     if (method === "GET" && url.pathname.endsWith("/contents/content/pages")) {
-      return json([
-        {
+      return json(records.map((entry) => ({
           type: "file",
-          name: "home.yml",
-          path: "content/pages/home.yml",
-          sha: "home-sha"
-        }
-      ]);
+          name: `${entry.id}.yml`,
+          path: `content/pages/${entry.id}.yml`,
+          sha: `${entry.id}-sha`
+        })));
     }
     if (
       method === "GET" &&
-      url.pathname.endsWith("/contents/content/pages/home.yml")
+      url.pathname.includes("/contents/content/pages/")
     ) {
-      return json(repositoryFile("content/pages/home.yml", dumpYaml(record), "home-sha"));
+      const id = decodeURIComponent(url.pathname.split("/").at(-1))
+        .replace(/\.yml$/, "");
+      const found = records.find((entry) => entry.id === id);
+      return found
+        ? json(repositoryFile(
+            `content/pages/${id}.yml`,
+            dumpYaml(found),
+            `${id}-sha`
+          ))
+        : json({ message: "Not Found" }, 404);
     }
     if (
       method === "GET" &&
-      url.pathname.endsWith("/contents/content/media/hero.png")
+      url.pathname.endsWith(
+        `/contents/content/media/${RECORD_HASH}/hero.png`
+      )
     ) {
-      return json(repositoryFile("content/media/hero.png", "image", "hero-sha"));
+      return json(
+        repositoryFile(
+          `content/media/${RECORD_HASH}/hero.png`,
+          "image",
+          "hero-sha"
+        )
+      );
     }
     if (method === "GET" && url.pathname.endsWith("/contents/content/media")) {
       return json([]);
+    }
+    if (
+      method === "GET" &&
+      url.pathname.includes("/contents/content/media/")
+    ) {
+      const hash = url.pathname.split("/").at(-1);
+      return Object.hasOwn(mediaEntriesByHash, hash)
+        ? json(mediaEntriesByHash[hash])
+        : json({ message: "Not Found" }, 404);
     }
     if (method === "GET" && url.pathname.endsWith("/commits")) {
       return json([
@@ -218,14 +263,14 @@ test("reads repository configuration and collection records", async () => {
     /^https:\/\/raw\.githubusercontent\.com\/signalwerk\/example\/main\/content\/media\/hero%20image\.png/
   );
   assert.equal(
-    adapter.resolveImageUrl("/media/hero image.png", {
+    adapter.resolveImageUrl({ hash: RECORD_HASH, filename: "hero image.png" }, {
       width: 320,
       height: 320,
       fit: "inside",
       format: "webp",
       quality: 70
     }),
-    adapter.resolveMediaUrl("/media/hero image.png")
+    `https://raw.githubusercontent.com/signalwerk/example/main/content/media/${RECORD_HASH}/hero%20image.png`
   );
 });
 
@@ -478,8 +523,38 @@ test("deletes a record and its configured upload in one Git commit", async () =>
     trees[0].map(({ path, sha }) => ({ path, sha })),
     [
       { path: "content/pages/home.yml", sha: null },
-      { path: "content/media/hero.png", sha: null }
+      { path: `content/media/${RECORD_HASH}/hero.png`, sha: null }
     ]
+  );
+});
+
+test("preserves an upload referenced only by nested content in another record", async () => {
+  const nestedRecord = {
+    id: "nested-user",
+    type: "page",
+    order: 1,
+    properties: { title: "Nested user", image: "" },
+    slots: {
+      content: [{
+        id: "nested-image",
+        type: "image_block",
+        properties: {
+          image: { hash: RECORD_HASH, filename: "hero.png" }
+        },
+        slots: {}
+      }]
+    }
+  };
+  const { adapter, trees } = makeGitHubFixture({
+    additionalRecords: [nestedRecord]
+  });
+  await adapter.config();
+
+  await adapter.remove("pages", "home");
+
+  assert.deepEqual(
+    trees[0].map(({ path, sha }) => ({ path, sha })),
+    [{ path: "content/pages/home.yml", sha: null }]
   );
 });
 
@@ -495,9 +570,17 @@ test("uploads binary media through a blob and commit", async () => {
     }
   };
 
-  const result = await adapter.uploadMedia(file, "images");
-  assert.equal(result.path, "/media/hero-image.png");
-  assert.equal(trees[0][0].path, "content/media/hero-image.png");
+  const result = await adapter.uploadMedia(file, "pages", { widget: "image" });
+  assert.deepEqual(result, {
+    hash: BINARY_HASH,
+    filename: "Hero Image.png",
+    path: `/media/${BINARY_HASH}/Hero%20Image.png`,
+    storage_path: `content/media/${BINARY_HASH}/Hero Image.png`
+  });
+  assert.equal(
+    trees[0][0].path,
+    `content/media/${BINARY_HASH}/Hero Image.png`
+  );
   assert.equal(trees[0][0].sha, "uploaded-blob");
   assert.ok(calls.some((call) => call.path.endsWith("/git/blobs")));
 });
@@ -514,12 +597,76 @@ test("uses configured image types for GitHub media uploads", async () => {
     }
   };
 
-  assert.equal((await adapter.uploadMedia(svg)).path, "/media/diagram.svg");
-  assert.equal(trees[0][0].path, "content/media/diagram.svg");
+  assert.equal(
+    (await adapter.uploadMedia(svg, "pages", { widget: "image" })).path,
+    `/media/${SVG_HASH}/Diagram.svg`
+  );
+  assert.equal(trees[0][0].path, `content/media/${SVG_HASH}/Diagram.svg`);
 
   await assert.rejects(
-    () => adapter.uploadMedia({ ...svg, name: "Photo.jpg", type: "image/jpeg" }),
+    () => adapter.uploadMedia(
+      { ...svg, name: "Photo.jpg", type: "image/jpeg" },
+      "pages",
+      { widget: "image" }
+    ),
     /configured accepted file type.*Received MIME type: image\/jpeg\./
+  );
+});
+
+test("requires a duplicate-hash choice before reusing or copying GitHub media", async () => {
+  const existing = {
+    type: "file",
+    name: "Existing.png",
+    path: `content/media/${BINARY_HASH}/Existing.png`,
+    sha: "existing-blob"
+  };
+  const { adapter, trees } = makeGitHubFixture({
+    mediaEntriesByHash: { [BINARY_HASH]: [existing] }
+  });
+  await adapter.config();
+  const file = {
+    name: "Existing.png",
+    size: 4,
+    type: "image/png",
+    async arrayBuffer() {
+      return Uint8Array.from([0, 1, 2, 3]).buffer;
+    }
+  };
+
+  assert.deepEqual(await adapter.uploadMedia(file, "pages", { widget: "image" }), {
+    duplicate: true,
+    existing: {
+      hash: BINARY_HASH,
+      filename: "Existing.png",
+      path: `/media/${BINARY_HASH}/Existing.png`,
+      storage_path: `content/media/${BINARY_HASH}/Existing.png`
+    },
+    copy: {
+      hash: BINARY_HASH,
+      filename: "Existing-2.png",
+      path: `/media/${BINARY_HASH}/Existing-2.png`,
+      storage_path: `content/media/${BINARY_HASH}/Existing-2.png`
+    }
+  });
+  assert.equal(trees.length, 0);
+
+  assert.equal(
+    (await adapter.uploadMedia(file, "pages", {
+      widget: "image",
+      duplicate: "reuse"
+    })).reused,
+    true
+  );
+  assert.equal(trees.length, 0);
+
+  const copied = await adapter.uploadMedia(file, "pages", {
+    widget: "image",
+    duplicate: "copy"
+  });
+  assert.equal(copied.filename, "Existing-2.png");
+  assert.equal(
+    trees.at(-1)[0].path,
+    `content/media/${BINARY_HASH}/Existing-2.png`
   );
 });
 

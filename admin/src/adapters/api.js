@@ -1,9 +1,9 @@
 import {
   buildImageServiceMediaUrl,
   buildImageServiceUrl,
-  isExternalImageSource,
   normalizeHttpOrigin
 } from "../../../core/image-service.js";
+import { imageAsset } from "../../../core/media.js";
 import { requestGitHubAuthorization } from "./github-auth.js";
 
 function browserWindow(windowObject) {
@@ -305,16 +305,15 @@ async function createApiAdapter({
     });
   }
 
-  async function getImageInfo(source) {
-    const normalizedSource = typeof source === "string" ? source.trim() : "";
-    if (!normalizedSource || isExternalImageSource(normalizedSource)) {
-      return null;
-    }
+  async function getImageInfo(source, options = {}) {
+    const asset = imageAsset(source);
+    if (!asset) return null;
     const response = await fetchImpl(
-      buildImageServiceUrl(normalizedSource, {
+      buildImageServiceUrl(asset, {
         baseUrl: apiOrigin,
         config: currentConfig,
-        info: true
+        info: true,
+        collection: options.collection
       })
     );
     const body = await parseResponseBody(response);
@@ -330,20 +329,34 @@ async function createApiAdapter({
     return body;
   }
 
-  function uploadMedia(file, collectionName) {
+  async function uploadMedia(file, collectionName, options = {}) {
     if (typeof collectionName !== "string" || !collectionName) {
       throw new Error("A collection is required when uploading media.");
     }
-    return request(
-      `/api/media/${encodeURIComponent(collectionName)}?filename=${encodeURIComponent(file.name)}`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": file.type || "application/octet-stream"
-        },
-        body: file
+    const query = new URLSearchParams({ filename: file.name });
+    if (["image", "file"].includes(options.widget)) {
+      query.set("widget", options.widget);
+    }
+    if (["reuse", "copy"].includes(options.duplicate)) {
+      query.set("duplicate", options.duplicate);
+    }
+    try {
+      return await request(
+        `/api/media/${encodeURIComponent(collectionName)}?${query}`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": file.type || "application/octet-stream"
+          },
+          body: file
+        }
+      );
+    } catch (error) {
+      if (error?.status === 409 && error?.body?.duplicate === true) {
+        return error.body;
       }
-    );
+      throw error;
+    }
   }
 
   const adapter = {
@@ -356,10 +369,11 @@ async function createApiAdapter({
     },
     login,
     logout,
-    resolveMediaUrl(path) {
+    resolveMediaUrl(path, options = {}) {
       return buildImageServiceMediaUrl(path, {
         baseUrl: apiOrigin,
-        config: currentConfig
+        config: currentConfig,
+        collection: options.collection
       });
     },
     resolveImageUrl,
