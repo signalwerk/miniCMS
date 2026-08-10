@@ -905,12 +905,13 @@ function createGitHubAdapter({
   async function uploadMedia(file, collectionName, options = {}) {
     await ensureAuthenticated();
     const { config, collection } = await collectionConfiguration(collectionName);
+    if (!["image", "file"].includes(options.widget)) {
+      throw contentError(400, 'The upload widget must be "image" or "file".');
+    }
     const acceptedTypes = configuredCollectionMediaAccept(
       config,
       collection,
-      ["image", "file"].includes(options.widget)
-        ? options.widget
-        : ["image", "file"]
+      options.widget
     );
     if (!mediaFileMatchesAccept(file, acceptedTypes)) {
       throw contentError(

@@ -36,7 +36,8 @@ function fixtureConfig() {
         label: "Page",
         fields: {
           title: { widget: "string" },
-          image: { widget: "image", accept: ["image/png", "image/svg+xml"] }
+          image: { widget: "image", accept: ["image/png", "image/svg+xml"] },
+          attachment: { widget: "file", accept: ["*/*"] }
         },
         slots: { content: { allowed_types: ["image_block"] } }
       },
@@ -602,6 +603,15 @@ test("uses configured image types for GitHub media uploads", async () => {
     `/media/${SVG_HASH}/Diagram.svg`
   );
   assert.equal(trees[0][0].path, `content/media/${SVG_HASH}/Diagram.svg`);
+
+  await assert.rejects(
+    () => adapter.uploadMedia(svg, "pages"),
+    /upload widget must be "image" or "file"/
+  );
+  await assert.rejects(
+    () => adapter.uploadMedia(svg, "pages", { widget: "video" }),
+    /upload widget must be "image" or "file"/
+  );
 
   await assert.rejects(
     () => adapter.uploadMedia(
