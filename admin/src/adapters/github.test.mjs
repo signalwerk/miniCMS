@@ -515,6 +515,82 @@ test("atomically rekeys schema, moves its folder, and migrates every record", as
   );
 });
 
+test("atomically moves a collection folder and retargets its record extension", async () => {
+  const { adapter, calls, trees } = makeGitHubFixture();
+  const config = structuredClone(await adapter.config());
+  config.collections.pages.folder = "content/documents";
+  config.collections.pages.extension = "yaml";
+
+  await adapter.saveConfig(config);
+
+  assert.equal(trees.length, 1);
+  const migratedEntry = trees[0].find(
+    ({ path }) => path === "content/documents/home.yaml"
+  );
+  assert.ok(migratedEntry);
+  assert.match(migratedEntry.content, /^id: home\ntype: page/m);
+  assert.ok(
+    trees[0].some(
+      ({ path, sha }) => path === "content/pages/home.yml" && sha === null
+    )
+  );
+  assert.ok(
+    trees[0].some(
+      ({ path, sha }) =>
+        path === "content/documents/home.yml" && sha === null
+    )
+  );
+  assert.ok(
+    trees[0].some(
+      ({ path, sha }) =>
+        path === "content/documents/archive/note.txt" && sha === "note-sha"
+    )
+  );
+  assert.equal(
+    calls.filter(
+      ({ method, path }) => method === "POST" && path.endsWith("/git/commits")
+    ).length,
+    1
+  );
+});
+
+test("rejects records that a collection extension change would adopt", async () => {
+  const { adapter, calls, trees } = makeGitHubFixture({
+    treeEntries: [
+      {
+        path: "cms.config.yml",
+        mode: "100644",
+        type: "blob",
+        sha: "config-sha"
+      },
+      {
+        path: "content/pages/home.yml",
+        mode: "100644",
+        type: "blob",
+        sha: "home-sha"
+      },
+      {
+        path: "content/pages/rogue.yaml",
+        mode: "100644",
+        type: "blob",
+        sha: "rogue-sha"
+      }
+    ]
+  });
+  const config = structuredClone(await adapter.config());
+  config.collections.pages.extension = "yaml";
+
+  await assert.rejects(
+    adapter.saveConfig(config),
+    /Changing collection "pages" extension would adopt existing record path "content\/pages\/rogue\.yaml"/
+  );
+  assert.equal(trees.length, 0);
+  assert.equal(
+    calls.filter(({ method }) => ["POST", "PATCH"].includes(method)).length,
+    0
+  );
+});
+
 test("rewrites local remote-alias links without moving owner storage", async () => {
   const record = {
     id: "home",
@@ -756,17 +832,10 @@ test("rejects a Git tree at an exact migrated record destination", async () => {
     ]
   });
   const config = structuredClone(await adapter.config());
-  config.collections.articles = config.collections.pages;
-  delete config.collections.pages;
-  config.collections.articles.extension = "yaml";
+  config.collections.pages.extension = "yaml";
 
   await assert.rejects(
-    adapter.saveConfig(config, {
-      schemaRenames: {
-        node_types: {},
-        collections: { pages: "articles" }
-      }
-    }),
+    adapter.saveConfig(config),
     /Schema migration destination conflicts with "content\/pages\/home\.yaml"/
   );
   assert.equal(trees.length, 0);

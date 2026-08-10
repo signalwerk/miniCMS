@@ -238,11 +238,71 @@ function movedTreeChanges(entries, moves) {
 
 function directRecordEntry(entry, collection) {
   if (entry.type !== "blob") return false;
-  const extension = String(collection.extension || "yml").replace(/^\./, "");
+  const extension = collectionExtension(collection);
   const prefix = `${collection.folder}/`;
   if (!entry.path.startsWith(prefix)) return false;
   const relative = entry.path.slice(prefix.length);
   return !relative.includes("/") && relative.endsWith(`.${extension}`);
+}
+
+function collectionExtension(collection) {
+  return String(collection?.extension || "yml").replace(/^\./, "");
+}
+
+function extensionMigrationSourceNames(current, next, schemaRenames) {
+  const sources = new Set();
+  for (const [sourceName, sourceDefinition] of Object.entries(
+    current.collections ?? {}
+  )) {
+    if (isRemoteCollection(sourceDefinition)) continue;
+    const targetName = schemaRenames.collections[sourceName] ?? sourceName;
+    const targetDefinition = next.collections?.[targetName];
+    if (!targetDefinition || isRemoteCollection(targetDefinition)) continue;
+    if (
+      collectionExtension(sourceDefinition) !==
+      collectionExtension(targetDefinition)
+    ) {
+      sources.add(sourceName);
+    }
+  }
+  return sources;
+}
+
+function recordMigrationSourceNames(current, next, schemaRenames) {
+  const sources = extensionMigrationSourceNames(
+    current,
+    next,
+    schemaRenames
+  );
+  const migrateEveryRecord =
+    Object.keys(schemaRenames.node_types).length > 0 ||
+    Object.keys(schemaRenames.collections).length > 0;
+  if (!migrateEveryRecord) return sources;
+  for (const [sourceName, sourceDefinition] of Object.entries(
+    current.collections ?? {}
+  )) {
+    if (isRemoteCollection(sourceDefinition)) continue;
+    const targetName = schemaRenames.collections[sourceName] ?? sourceName;
+    const targetDefinition = next.collections?.[targetName];
+    if (!targetDefinition || isRemoteCollection(targetDefinition)) continue;
+    sources.add(sourceName);
+  }
+  return sources;
+}
+
+function directCollectionPath(path, collection) {
+  const prefix = `${collection.folder}/`;
+  if (!path.startsWith(prefix)) return false;
+  const relative = path.slice(prefix.length);
+  return (
+    !relative.includes("/") &&
+    relative.endsWith(`.${collectionExtension(collection)}`)
+  );
+}
+
+function movedRepositoryPath(path, moves) {
+  const move = moves.find(({ from }) => pathWithin(path, from));
+  return move ? `${move.to}${path.slice(move.from.length)}` : path;
 }
 
 function createGitHubAdapter({
@@ -497,20 +557,19 @@ function createGitHubAdapter({
     current,
     next,
     schemaRenames,
-    entries
+    entries,
+    moves,
+    sourceNames,
+    extensionSourceNames
   }) {
-    if (
-      !Object.keys(schemaRenames.node_types).length &&
-      !Object.keys(schemaRenames.collections).length
-    ) {
-      return [];
-    }
+    if (!sourceNames.size) return [];
 
     const tasks = [];
     for (const [sourceName, sourceDefinition] of Object.entries(
       current.collections ?? {}
     )) {
       if (isRemoteCollection(sourceDefinition)) continue;
+      if (!sourceNames.has(sourceName)) continue;
       const targetName = schemaRenames.collections[sourceName] ?? sourceName;
       const targetDefinition = next.collections?.[targetName];
       if (!targetDefinition || isRemoteCollection(targetDefinition)) continue;
@@ -583,6 +642,7 @@ function createGitHubAdapter({
             );
             validateRecord(migrated, targetCollection, next, 409);
             return {
+              sourceName,
               sourcePath: entry.path,
               targetPath: recordPath(targetCollection, migrated.id),
               record,
@@ -610,7 +670,12 @@ function createGitHubAdapter({
       targetPaths.add(targetPath);
       if (targetPath === sourcePath || sourcePaths.has(targetPath)) continue;
       const collision = entries.find(
-        (entry) => entry.path === targetPath
+        (entry) =>
+          entry.path === targetPath &&
+          !(
+            entry.type === "blob" &&
+            moves.some(({ from }) => pathWithin(entry.path, from))
+          )
       );
       if (collision) {
         throw contentError(
@@ -618,6 +683,43 @@ function createGitHubAdapter({
           `Schema migration destination conflicts with "${collision.path}".`
         );
       }
+    }
+
+    for (const sourceName of extensionSourceNames) {
+      const targetName = schemaRenames.collections[sourceName] ?? sourceName;
+      const targetDefinition = next.collections[targetName];
+      const targetCollection = {
+        name: targetName,
+        ...targetDefinition,
+        folder: normalizeRepositoryPath(
+          targetDefinition.folder,
+          `Collection "${targetName}" folder`
+        )
+      };
+      const plannedTargets = new Set(
+        records
+          .filter((record) => record.sourceName === sourceName)
+          .map((record) => record.targetPath)
+      );
+      const adopted = entries
+        .map((entry) => ({
+          entry,
+          finalPath: movedRepositoryPath(entry.path, moves)
+        }))
+        .find(({ finalPath }) =>
+          directCollectionPath(finalPath, targetCollection)
+        );
+      if (!adopted) continue;
+      if (plannedTargets.has(adopted.finalPath)) {
+        throw contentError(
+          409,
+          `Schema migration destination conflicts with "${adopted.finalPath}".`
+        );
+      }
+      throw contentError(
+        409,
+        `Changing collection "${targetName}" extension would adopt existing record path "${adopted.finalPath}".`
+      );
     }
 
     const changes = [];
@@ -630,6 +732,13 @@ function createGitHubAdapter({
       }
       if (sourcePath !== targetPath) {
         changes.push({ path: sourcePath, delete: true });
+      }
+      const intermediatePath = movedRepositoryPath(sourcePath, moves);
+      if (
+        intermediatePath !== sourcePath &&
+        intermediatePath !== targetPath
+      ) {
+        changes.push({ path: intermediatePath, delete: true });
       }
       changes.push({ path: targetPath, text: dumpYaml(migrated) });
     }
@@ -822,7 +931,7 @@ function createGitHubAdapter({
 
   function recordPath(collection, id) {
     assertSafeName(id, "record id");
-    const extension = String(collection.extension || "yml").replace(/^\./, "");
+    const extension = collectionExtension(collection);
     return `${collection.folder}/${id}.${extension}`;
   }
 
@@ -1095,10 +1204,22 @@ function createGitHubAdapter({
       ...Object.keys(normalizedSchemaRenames.node_types),
       ...Object.keys(normalizedSchemaRenames.collections)
     ].length > 0;
+    const recordMigrationSources = recordMigrationSourceNames(
+      current,
+      validated,
+      normalizedSchemaRenames
+    );
+    const extensionMigrationSources = extensionMigrationSourceNames(
+      current,
+      validated,
+      normalizedSchemaRenames
+    );
     const snapshot = await repositorySnapshot();
     const entries = await snapshotTree(snapshot, {
       recursive:
-        moves.length > 0 || hasSchemaRenames || addedFolders.length > 0
+        moves.length > 0 ||
+        recordMigrationSources.size > 0 ||
+        addedFolders.length > 0
     });
     assertCurrentConfigBlob(entries);
     assertNewCollectionFoldersAvailable(entries, addedFolders);
@@ -1109,7 +1230,10 @@ function createGitHubAdapter({
       current,
       next: validated,
       schemaRenames: normalizedSchemaRenames,
-      entries
+      entries,
+      moves,
+      sourceNames: recordMigrationSources,
+      extensionSourceNames: extensionMigrationSources
     });
     const combinedChanges = new Map(
       folderChanges.map((change) => [change.path, change])
@@ -1137,7 +1261,7 @@ function createGitHubAdapter({
           : "Update miniCMS configuration",
       snapshot
     );
-    if (moves.length || hasSchemaRenames) recordCache.clear();
+    if (moves.length || recordMigrationSources.size) recordCache.clear();
     currentConfig = validated;
     currentConfigBlobSha = nextConfigBlobSha;
     return { saved: true, config: validated };

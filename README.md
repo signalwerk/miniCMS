@@ -249,6 +249,18 @@ the exact configuration blob loaded by the editor; a stale Settings draft is
 rejected instead of overwriting a newer configuration.
 An empty Git collection has no directory until its first record is created.
 
+Settings can duplicate a collection or content type as a deep, schema-only
+copy. Copies use `-copy`, `-copy2`, and later free suffixes, keep their source
+ordering and presentation, and contain no records. A collection copy receives
+a distinct sibling folder. Its key can be renamed before or after the first
+save. Renaming a persisted content-type key migrates every root and nested
+record type; renaming a persisted collection key also rewrites configured
+relations and canonical Markdown references. Concrete collection folders and
+API media namespaces move in the same Git or filesystem transaction. Existing
+keys, configured folder overlaps, physical destinations, and remote owner
+identities are checked before publication. Renaming a local remote alias keeps
+the connector-owned identity and storage unchanged.
+
 When at least one trusted connector is GitHub, the dropdown beside Save (and
 Save settings) offers **Skip deployments**. The choice is stored for the
 project's stable default-connector identity in browser local storage, so edits

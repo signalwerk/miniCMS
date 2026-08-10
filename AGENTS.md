@@ -590,7 +590,11 @@ aliases before default publication; cross-service atomicity is not implied.
 Changing a concrete collection's `folder` is part of its leaf adapter's
 configuration save, never a separate operation. GitHub reuses existing blob
 SHAs and publishes paths plus config in one non-force commit; empty Git folders
-appear only with the first record. The API uses its versioned configuration
+appear only with the first record. Changing `extension` between `yml` and
+`yaml` rewrites direct record paths in that same transaction; a simultaneous
+folder move must not leave the intermediate old-extension copy behind, and an
+existing direct entry with the next extension must be rejected rather than
+silently adopted as a record. The API uses its versioned configuration
 transaction contract.
 Explicit schema-key renames travel with that configuration save as
 `{node_types, collections}` old-to-new mappings. The default leaf rewrites
