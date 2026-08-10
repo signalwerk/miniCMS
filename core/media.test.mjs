@@ -35,6 +35,10 @@ test("normalizes safe image identities and builds encoded storage URLs", async (
   );
   assert.equal(mediaFilenameWithSuffix(filename, 2), "Grüße (final)-2.png");
   assert.equal(
+    mediaFilenameWithSuffix(`a.${"x".repeat(252)}`, 2),
+    "a-2"
+  );
+  assert.equal(
     await sha256Hex(new TextEncoder().encode("abc")),
     "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
   );

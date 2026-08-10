@@ -111,9 +111,9 @@ export function parseContentAddressedMediaPath(
 export function parseImageServiceUrl(
   value: string
 ): ParsedImageServiceUrl | null;
-export function imageServiceSlug(value: ImageSource): string;
-export function isExternalImageSource(value: ImageSource): boolean;
-export function isSvgImageSource(value: ImageSource): boolean;
+export function imageServiceSlug(value: string | ImageAsset): string;
+export function isExternalImageSource(value: string | ImageAsset): boolean;
+export function isSvgImageSource(value: string | ImageAsset): boolean;
 export function normalizeHttpOrigin(value: string, label?: string): string;
 export function normalizeImageProcessingConfig(
   config?: ImageServiceOptions["config"]

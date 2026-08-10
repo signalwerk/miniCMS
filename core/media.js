@@ -238,16 +238,23 @@ async function sha256Hex(value, cryptoImplementation = globalThis.crypto) {
 
 function mediaFilenameWithSuffix(filename, suffix) {
   const normalized = normalizedMediaFilename(filename);
-  if (!normalized || !Number.isInteger(suffix) || suffix < 2) return "";
+  if (!normalized || !Number.isSafeInteger(suffix) || suffix < 2) return "";
   const extensionIndex = normalized.lastIndexOf(".");
   const hasExtension = extensionIndex > 0;
   let stem = hasExtension ? normalized.slice(0, extensionIndex) : normalized;
-  const extension = hasExtension ? normalized.slice(extensionIndex) : "";
-  const ending = `-${suffix}${extension}`;
+  let extension = hasExtension ? normalized.slice(extensionIndex) : "";
+  const suffixText = `-${suffix}`;
+  if (utf8Length(`f${suffixText}${extension}`) > MAX_MEDIA_FILENAME_BYTES) {
+    extension = "";
+  }
+  const ending = `${suffixText}${extension}`;
   while (stem && utf8Length(`${stem}${ending}`) > MAX_MEDIA_FILENAME_BYTES) {
     stem = [...stem].slice(0, -1).join("");
   }
-  return normalizedMediaFilename(`${stem || "file"}${ending}`);
+  const fallback = utf8Length(`file${ending}`) <= MAX_MEDIA_FILENAME_BYTES
+    ? "file"
+    : "f";
+  return normalizedMediaFilename(`${stem || fallback}${ending}`);
 }
 
 function encodeMediaSegment(value) {
