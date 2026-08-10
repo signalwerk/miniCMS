@@ -7,10 +7,15 @@ import {
   mediaAcceptErrorMessage,
   mediaFileMatchesAccept
 } from "../../../../core/media.js";
+import {
+  focusableElements,
+  isolateFocusSurface
+} from "../../model/focus.js";
 import "./MediaUpload.scss";
 
 function DuplicateMediaDialog({ duplicate, onCancel, onChoose }) {
   const titleId = useId();
+  const backdropRef = useRef(null);
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
   const cancelRef = useRef(onCancel);
@@ -21,17 +26,20 @@ function DuplicateMediaDialog({ duplicate, onCancel, onChoose }) {
 
   useEffect(() => {
     const previousFocus = document.activeElement;
+    const restoreIsolation = isolateFocusSurface(dialogRef.current);
     closeRef.current?.focus();
     function handleKeyDown(event) {
+      const backdrops = document.querySelectorAll(".dialog-backdrop");
+      if (backdrops[backdrops.length - 1] !== backdropRef.current) return;
       if (event.key === "Escape") {
         event.preventDefault();
         cancelRef.current();
         return;
       }
-      if (event.key !== "Tab") return;
-      const focusable = Array.from(
-        dialogRef.current?.querySelectorAll("button:not(:disabled)") ?? []
-      );
+      if (event.key !== "Tab" || !dialogRef.current?.contains(event.target)) {
+        return;
+      }
+      const focusable = focusableElements(dialogRef.current);
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable.at(-1);
@@ -43,9 +51,10 @@ function DuplicateMediaDialog({ duplicate, onCancel, onChoose }) {
         first.focus();
       }
     }
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, true);
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
+      restoreIsolation();
       if (previousFocus instanceof HTMLElement) previousFocus.focus();
     };
   }, []);
@@ -54,6 +63,7 @@ function DuplicateMediaDialog({ duplicate, onCancel, onChoose }) {
   const copy = duplicate.result.copy ?? duplicate.result.proposed;
   return createPortal(
     <div
+      ref={backdropRef}
       className="dialog-backdrop media-duplicate-backdrop"
       role="presentation"
       onPointerDown={(event) => {
