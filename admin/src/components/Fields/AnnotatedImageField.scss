@@ -66,12 +66,24 @@
 .image-field__empty {
   @extend %type-consulting;
   display: flex;
+  width: 100%;
   min-height: 110px;
   flex-direction: column;
   gap: 7px;
   align-items: center;
   justify-content: center;
+  padding: 0;
   border: 0;
+  cursor: pointer;
+}
+
+.image-field__empty:hover:not(:disabled) {
+  color: #bfc1b8;
+}
+
+.image-field__empty:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: -2px;
 }
 
 .image-field__canvas {

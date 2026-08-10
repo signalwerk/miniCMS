@@ -557,6 +557,9 @@ grip, and delete action visible while collapsed.
   takes precedence when both modifiers are held. Both annotation kinds support
   pointer and keyboard adjustment. Persist
   source-space geometry, never preview percentages or viewport coordinates.
+- An empty image field's complete “No image uploaded” stage is a keyboard-
+  accessible upload button and retains drag/drop. Once an image exists, the
+  preview continues to open annotation editing rather than the file picker.
 - Reference selections use a target-published contract and a local-draft modal
   with native `None` controls plus focusable visual overlays. A selected crop
   renders a magnified draft result before Apply; a selected focus point is

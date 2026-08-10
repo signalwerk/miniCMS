@@ -747,10 +747,16 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
             )}
           </button>
         ) : (
-          <div className="image-field__empty">
+          <button
+            type="button"
+            className="image-field__empty"
+            aria-label="Upload image"
+            disabled={mediaUpload.uploading}
+            onClick={() => mediaUpload.inputRef.current?.click()}
+          >
             <Image size={20} aria-hidden="true" />
             <span>No image uploaded</span>
-          </div>
+          </button>
         )}
       </div>
 

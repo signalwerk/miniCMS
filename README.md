@@ -887,7 +887,10 @@ download:
     - "*/*"
 ```
 
-Both upload widgets accept one file from the picker or by drag and drop. A
+Both upload widgets accept one file from the picker or by drag and drop. An
+empty image field's complete “No image uploaded” stage opens the picker by
+click or keyboard; after upload, its preview keeps opening annotation editing.
+A
 GitHub upload computes SHA-256 in the browser. If that hash already exists, an
 accessible three-action dialog lets the editor cancel, reuse the existing
 asset, or upload another copy with a collision-safe filename suffix. API-owned
