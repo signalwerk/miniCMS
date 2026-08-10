@@ -234,7 +234,9 @@ also needs authentication.
 Settings preflights every imported, edited, and newly created remote definition
 before writing. Collection and content-type creation choose an owner from the
 trusted connectors already present when the editor loaded; a collection can
-use only a content type owned by that connector. A newly added or changed
+use only a content type owned by that connector. Every new content type starts
+with a required, read-only generated `content_id` field followed by a required
+string `title` field. A newly added or changed
 connector can be saved while it is unused; reload the editor from that new
 bootstrap configuration before creating or importing definitions on it. This
 keeps runtime origins pinned to the consumer page while ensuring a missing

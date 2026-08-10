@@ -54,6 +54,7 @@ import {
   isFilterExpressionEmpty
 } from "../../model/advancedFilter.js";
 import {
+  createContentTypeDefinition,
   createSchemaOperations,
   deleteSchemaEntryOperation,
   duplicateSchemaEntry,
@@ -4623,15 +4624,11 @@ export default function ConfigurationEditor({
         };
         setSelection({ section: "collections", key });
       } else if (dialog.kind === "type") {
-        next.node_types[key] = {
-          ...(connector !== "default"
-            ? { connector, remote_type: key }
-            : {}),
+        next.node_types[key] = createContentTypeDefinition({
+          key,
           label,
-          kind: "content",
-          icon: "file-text",
-          fields: {}
-        };
+          connector
+        });
         setSelection({ section: "types", key });
       } else {
         const type = next.node_types[selection.key];

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  createContentTypeDefinition,
   createSchemaOperations,
   deleteSchemaEntryOperation,
   duplicateSchemaEntry,
@@ -91,6 +92,65 @@ function fixture() {
     }
   };
 }
+
+test("creates local content types with ID and Title fields", () => {
+  const definition = createContentTypeDefinition({
+    key: "article",
+    label: "Article"
+  });
+  assert.deepEqual(Object.keys(definition.fields), ["content_id", "title"]);
+  assert.deepEqual(
+    definition,
+    {
+      label: "Article",
+      kind: "content",
+      icon: "file-text",
+      fields: {
+        content_id: {
+          label: "ID",
+          widget: "id",
+          readonly: true,
+          required: true
+        },
+        title: {
+          label: "Title",
+          widget: "string",
+          required: true
+        }
+      }
+    }
+  );
+});
+
+test("creates connector-owned content types with the same default fields", () => {
+  assert.deepEqual(
+    createContentTypeDefinition({
+      key: "article",
+      label: "Article",
+      connector: "central"
+    }),
+    {
+      connector: "central",
+      remote_type: "article",
+      label: "Article",
+      kind: "content",
+      icon: "file-text",
+      fields: {
+        content_id: {
+          label: "ID",
+          widget: "id",
+          readonly: true,
+          required: true
+        },
+        title: {
+          label: "Title",
+          widget: "string",
+          required: true
+        }
+      }
+    }
+  );
+});
 
 test("duplicates content types deeply and inserts numbered copies after the source", () => {
   const source = fixture();

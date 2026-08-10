@@ -25,6 +25,34 @@ function createSchemaOperations() {
   };
 }
 
+function createContentTypeDefinition({
+  key,
+  label,
+  connector = "default"
+}) {
+  return {
+    ...(connector !== "default"
+      ? { connector, remote_type: key }
+      : {}),
+    label,
+    kind: "content",
+    icon: "file-text",
+    fields: {
+      content_id: {
+        label: "ID",
+        widget: "id",
+        readonly: true,
+        required: true
+      },
+      title: {
+        label: "Title",
+        widget: "string",
+        required: true
+      }
+    }
+  };
+}
+
 function normalizedOperations(operations) {
   const next = createSchemaOperations();
   for (const section of SCHEMA_SECTIONS) {
@@ -429,6 +457,7 @@ function markSchemaEntryFresh(operations, section, key) {
 
 export {
   SCHEMA_KEY_PATTERN,
+  createContentTypeDefinition,
   createSchemaOperations,
   deleteSchemaEntryOperation,
   duplicateSchemaEntry,

@@ -525,7 +525,9 @@ grip, and delete action visible while collapsed.
   creation time. Collection creation offers only content types owned by that
   connector. Existing ownership and remote identity are read-only in the
   ordinary editor; moving data between connectors is not implied by editing
-  schema. Remote-owned collections and types use the same full forms as local
+  schema. Every newly created content type starts with ordered required
+  `content_id` (generated `id`, read-only) and `title` (`string`) fields.
+  Remote-owned collections and types use the same full forms as local
   definitions, with remote type slots and relations limited to aliases owned by
   that connector.
 - Settings can duplicate and rename collection and content-type keys. A
