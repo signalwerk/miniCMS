@@ -69,14 +69,16 @@ function ReferenceCard({ item, view, collection, compact = false }) {
   const adapter = useAdapter();
   const ReferenceIcon = iconFor(collection?.icon, FilesIcon);
   const source = referenceImageSource(item, view, collection);
-  const image = source
-    ? adapter.resolveImageUrl(source, {
-      width: 320,
-      height: 320,
-      fit: "inside",
-      collection: collection.name
-    })
-    : "";
+  const image = typeof source === "string"
+    ? adapter.resolveMediaUrl(source, { collection: collection.name })
+    : source
+      ? adapter.resolveImageUrl(source, {
+        width: 320,
+        height: 320,
+        fit: "inside",
+        collection: collection.name
+      })
+      : "";
   const title = referenceItemLabel(item, view, collection);
   const descriptions = (Array.isArray(view.description)
     ? view.description

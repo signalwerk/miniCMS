@@ -664,9 +664,10 @@ function referenceValueAfterSelection(value, nextReference) {
 function referenceImageSource(item, view, collection) {
   const field =
     typeof view?.image === "string" ? view.image.trim() : "";
-  return field
-    ? imageAssetValue(referenceItemValue(item, field, collection))
-    : null;
+  if (!field) return null;
+  const value = referenceItemValue(item, field, collection);
+  return imageAssetValue(value) ??
+    (typeof value === "string" && value ? value : null);
 }
 
 function referenceSelectionDefinitions(field, collection) {

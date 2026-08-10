@@ -10,6 +10,7 @@ import {
   imageFilename,
   imageInfoCoordinateSize,
   normalizeImageValue,
+  resolveImagePresentation,
   refreshImageAnnotationIds
 } from "./image.js";
 
@@ -34,6 +35,43 @@ test("keeps every non-empty image as a hash and original filename mapping", () =
     assert.equal(compactImageValue(legacy), "");
     assert.equal(hasImageValue(legacy), false);
   }
+});
+
+test("resolves structured image widgets and scalar image presentations separately", () => {
+  const calls = [];
+  const adapter = {
+    resolveImageUrl(value, options) {
+      calls.push(["image", value, options]);
+      return "/derived/image.webp";
+    },
+    resolveMediaUrl(value, options) {
+      calls.push(["media", value, options]);
+      return "/raw/preview.png";
+    }
+  };
+  const value = asset("Preview.png");
+  assert.equal(
+    resolveImagePresentation(
+      adapter,
+      value,
+      { widget: "image", display: "image" },
+      { collection: "images", width: 320 }
+    ),
+    "/derived/image.webp"
+  );
+  assert.equal(
+    resolveImagePresentation(
+      adapter,
+      "/media/previews/card.png",
+      { widget: "file", display: "image" },
+      { collection: "previews", width: 320 }
+    ),
+    "/raw/preview.png"
+  );
+  assert.deepEqual(calls, [
+    ["image", value, { collection: "images", width: 320 }],
+    ["media", "/media/previews/card.png", { collection: "previews" }]
+  ]);
 });
 
 test("normalizes image coordinates while preserving fractional rotation", () => {

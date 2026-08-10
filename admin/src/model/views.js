@@ -69,7 +69,7 @@ function displayValue(value, field, relationPresentation) {
     return hasReferenceValue(reference) ? String(reference) : "—";
   }
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (field.display === "image" || field.widget === "image") {
+  if (field.widget === "image") {
     return imageFilename(value) || "—";
   }
   if (field.display === "date" || field.widget === "datetime") {

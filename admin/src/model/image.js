@@ -185,6 +185,18 @@ function hasImageValue(value) {
   return Boolean(imageAsset(value));
 }
 
+function resolveImagePresentation(adapter, value, field, options = {}) {
+  if (field?.display !== "image") return "";
+  if (field.widget === "image") {
+    const asset = imageAssetValue(value);
+    return asset ? adapter.resolveImageUrl?.(asset, options) || "" : "";
+  }
+  if (typeof value !== "string" || !value) return "";
+  return adapter.resolveMediaUrl?.(value, {
+    collection: options.collection
+  }) || "";
+}
+
 function imageInfoCoordinateSize(value) {
   const candidates = [value, value?.meta, value?.info, value?.metadata];
   for (const candidate of candidates) {
@@ -234,5 +246,6 @@ export {
   imageInfoCoordinateSize,
   hasImageValue,
   normalizeImageValue,
+  resolveImagePresentation,
   refreshImageAnnotationIds
 };

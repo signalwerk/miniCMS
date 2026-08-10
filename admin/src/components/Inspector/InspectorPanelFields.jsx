@@ -7,7 +7,7 @@ import {
 import { Fragment, useState } from "react";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import { cx, iconFor } from "../../model/editor.js";
-import { imageAssetValue } from "../../model/image.js";
+import { resolveImagePresentation } from "../../model/image.js";
 import {
   displayValue,
   groupsForPanel,
@@ -19,7 +19,7 @@ function ReadOnlyDetailField({ field, value, action, collectionName }) {
   const adapter = useAdapter();
   const formatted = displayValue(value, field);
   const image = field.display === "image"
-    ? adapter.resolveImageUrl(imageAssetValue(value), {
+    ? resolveImagePresentation(adapter, value, field, {
         width: 640,
         height: 640,
         fit: "inside",

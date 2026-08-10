@@ -586,7 +586,10 @@ The initiating browser tab owns the resume commit; storage synchronization
 updates other tabs without publishing duplicate commits.
 `resolveMediaUrl` remains the raw file/download path;
 `resolveImageUrl` is a separate capability and receives the structured image
-asset. The API implementation builds
+asset. A non-image scalar field may still opt into `display: image` or be
+published as a reference thumbnail; those presentations resolve the stored
+string through `resolveMediaUrl`, while only `widget: image` uses
+`resolveImageUrl`. The API implementation builds
 transformed routes from the latest loaded config and exposes public curated
 `getImageInfo`; GitHub delegates image resolution exactly to its existing raw
 resolver and does no info fetch. Media/image/info resolution always carries

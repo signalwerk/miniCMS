@@ -173,6 +173,20 @@ test("uses a reference image only when the target explicitly publishes one", () 
     ),
     null
   );
+  assert.equal(
+    referenceImageSource(
+      {
+        ...item,
+        properties: {
+          ...item.properties,
+          download: "/media/images/example/card.png"
+        }
+      },
+      { image: "download" },
+      collection
+    ),
+    "/media/images/example/card.png"
+  );
 });
 
 test("keeps selections for the same target and clears them for a replacement", () => {

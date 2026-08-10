@@ -191,6 +191,16 @@ test("displays tag ID arrays without coercing them to editor strings", () => {
   assert.equal(displayValue([], { widget: "tags" }), "—");
 });
 
+test("keeps scalar values readable when a non-image widget uses image display", () => {
+  assert.equal(
+    displayValue("/media/previews/card.png", {
+      widget: "file",
+      display: "image"
+    }),
+    "/media/previews/card.png"
+  );
+});
+
 test("builds typed table relation options from configured target titles", () => {
   const targetCollection = {
     identifier_field: "name",
