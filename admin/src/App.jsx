@@ -1653,7 +1653,7 @@ export default function App({ PreviewComponent = null }) {
     }
   }
 
-  function requestDeleteRecords(recordIds) {
+  async function requestDeleteRecords(recordIds) {
     if (!recordIds.size || saving) return;
     const selectedItems = items.filter((item) => recordIds.has(item.id));
     if (!selectedItems.length) return;
@@ -1676,13 +1676,29 @@ export default function App({ PreviewComponent = null }) {
       return;
     }
 
+    let deletionRecords = selectedItems;
+    if (collection?.delete_files_with_record) {
+      setSaving(true);
+      setError("");
+      try {
+        deletionRecords = await Promise.all(
+          selectedItems.map((item) => api.record(activeCollection, item.id))
+        );
+      } catch (loadError) {
+        setError(loadError.message);
+        return;
+      } finally {
+        setSaving(false);
+      }
+    }
+
     const count = selectedItems.length;
     const singular = collection?.label_singular?.toLowerCase() || "record";
     const plural = collection?.label?.toLowerCase() || "records";
     const deletedFilenames = collection?.delete_files_with_record
       ? [
           ...new Set(
-            selectedItems.flatMap((item) =>
+            deletionRecords.flatMap((item) =>
               recordMediaFilenames(item, config)
             )
           )

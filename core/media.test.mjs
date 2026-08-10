@@ -12,6 +12,7 @@ import {
   mediaFilenameWithSuffix,
   mediaFileMatchesAccept,
   normalizedMediaFilename,
+  recordMediaFilenames,
   recordMediaSources,
   recordMediaStoragePaths,
   sha256Hex,
@@ -245,6 +246,42 @@ test("resolves only configured upload fields inside the media folder", () => {
       "content/media/assets/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/asset.dat"
     ]
   );
+});
+
+test("collects nested upload names for deletion warnings", () => {
+  const hash = "c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc";
+  const config = {
+    node_types: {
+      page: {
+        fields: {},
+        slots: { content: { allowed_types: ["asset"] } }
+      },
+      asset: {
+        fields: {
+          image: { widget: "image" },
+          file: { widget: "file" }
+        }
+      }
+    }
+  };
+  const record = {
+    type: "page",
+    properties: {},
+    slots: {
+      content: [{
+        type: "asset",
+        properties: {
+          image: { hash, filename: "Nested image.png" },
+          file: `/media/assets/${hash}/Nested%20notes.pdf`
+        },
+        slots: {}
+      }]
+    }
+  };
+  assert.deepEqual(recordMediaFilenames(record, config), [
+    "Nested image.png",
+    "Nested notes.pdf"
+  ]);
 });
 
 test("validates array accept-list syntax and reads the legacy string shape", () => {

@@ -62,11 +62,14 @@ function encodePath(value) {
 }
 
 function decodeBase64(value) {
+  return new TextDecoder().decode(decodeBase64Bytes(value));
+}
+
+function decodeBase64Bytes(value) {
   const binary = atob(String(value).replace(/\s/g, ""));
-  const bytes = Uint8Array.from(binary, (character) =>
+  return Uint8Array.from(binary, (character) =>
     character.charCodeAt(0)
   );
-  return new TextDecoder().decode(bytes);
 }
 
 function encodeBase64(bytes) {
@@ -941,6 +944,30 @@ function createGitHubAdapter({
     const entries = (await listDirectory(`${mediaFolder}/${hash}`))
       .filter((entry) => entry.type === "file")
       .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      if (normalizedMediaFilename(entry.name) !== entry.name) {
+        throw contentError(
+          409,
+          "An existing GitHub media filename is not canonical NFC. Rename it before reusing this hash."
+        );
+      }
+      const blob = await githubRequest(
+        `${repositoryApi}/git/blobs/${encodeURIComponent(entry.sha)}`
+      );
+      if (blob?.encoding !== "base64" || typeof blob.content !== "string") {
+        throw contentError(409, "An existing GitHub media file could not be verified.");
+      }
+      const existingHash = await sha256Hex(
+        decodeBase64Bytes(blob.content),
+        cryptoImplementation
+      );
+      if (existingHash !== hash) {
+        throw contentError(
+          409,
+          "An existing GitHub media file does not match its content-addressed directory."
+        );
+      }
+    }
     const existingNames = new Set(
       entries.map((entry) => entry.name.toLowerCase())
     );

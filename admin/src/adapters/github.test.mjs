@@ -185,6 +185,16 @@ function makeGitHubFixture({
         }
       ]);
     }
+    if (method === "GET" && url.pathname.includes("/git/blobs/")) {
+      const sha = decodeURIComponent(url.pathname.split("/").at(-1));
+      const entry = Object.values(mediaEntriesByHash)
+        .flat()
+        .find((candidate) => candidate.sha === sha);
+      const bytes = entry?.bytes ?? Uint8Array.from([0, 1, 2, 3]);
+      return entry
+        ? json({ encoding: "base64", content: encodeBase64(bytes) })
+        : json({ message: "Not Found" }, 404);
+    }
     if (method === "GET" && url.pathname.includes("/git/ref/heads/main")) {
       return json({ object: { sha: `parent-${commitIndex}` } });
     }
@@ -677,6 +687,49 @@ test("requires a duplicate-hash choice before reusing or copying GitHub media", 
   assert.equal(
     trees.at(-1)[0].path,
     `content/media/${BINARY_HASH}/Existing-2.png`
+  );
+});
+
+test("rejects noncanonical or hash-mismatched existing GitHub media", async () => {
+  const file = {
+    name: "é.png",
+    size: 4,
+    type: "image/png",
+    async arrayBuffer() {
+      return Uint8Array.from([0, 1, 2, 3]).buffer;
+    }
+  };
+  const decomposed = makeGitHubFixture({
+    mediaEntriesByHash: {
+      [BINARY_HASH]: [{
+        type: "file",
+        name: "é.png",
+        path: `content/media/${BINARY_HASH}/é.png`,
+        sha: "decomposed-blob"
+      }]
+    }
+  }).adapter;
+  await decomposed.config();
+  await assert.rejects(
+    () => decomposed.uploadMedia(file, "pages", { widget: "image" }),
+    /not canonical NFC/
+  );
+
+  const mismatched = makeGitHubFixture({
+    mediaEntriesByHash: {
+      [BINARY_HASH]: [{
+        type: "file",
+        name: "Existing.png",
+        path: `content/media/${BINARY_HASH}/Existing.png`,
+        sha: "mismatched-blob",
+        bytes: Uint8Array.from([9, 9, 9, 9])
+      }]
+    }
+  }).adapter;
+  await mismatched.config();
+  await assert.rejects(
+    () => mismatched.uploadMedia(file, "pages", { widget: "image" }),
+    /does not match its content-addressed directory/
   );
 });
 
