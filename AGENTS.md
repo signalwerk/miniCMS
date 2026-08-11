@@ -560,6 +560,8 @@ grip, and delete action visible while collapsed.
 - An empty image field's complete “No image uploaded” stage is a keyboard-
   accessible upload button and retains drag/drop. Once an image exists, the
   preview continues to open annotation editing rather than the file picker.
+  The stage alone paints the checkerboard; its nested empty-state button stays
+  transparent so the pattern remains continuous without an internal seam.
 - Reference selections use a target-published contract and a local-draft modal
   with native `None` controls plus focusable visual overlays. A selected crop
   renders a magnified draft result before Apply; a selected focus point is
