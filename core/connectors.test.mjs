@@ -12,6 +12,7 @@ import {
   translateRecord
 } from "./connectors.js";
 import { buildInlineReferenceUrl } from "./inline-reference.js";
+import { buildInlineLinkUrl } from "./inline-link.js";
 
 function sourceConfig() {
   return {
@@ -90,6 +91,9 @@ function remoteConfig() {
               inline_reference: {
                 collection: "images",
                 preview_field: "title"
+              },
+              internal_links: {
+                collections: ["galleries", "images"]
               }
             }
           }
@@ -172,6 +176,11 @@ test("materializes remote definitions and exposes deterministic routing maps", (
     "central_images"
   );
   assert.deepEqual(
+    materialized.config.node_types.central_gallery.fields.copy.blocknote
+      .internal_links.collections,
+    ["central_galleries", "central_images"]
+  );
+  assert.deepEqual(
     materialized.config.node_types.central_gallery.fields.lead.allowed_types,
     ["central_image"]
   );
@@ -244,13 +253,15 @@ test("translates recursive record types and canonical inline-reference links", (
   });
   const localLink = buildInlineReferenceUrl("central_images", "img-1");
   const remoteLink = buildInlineReferenceUrl("images", "img-1");
+  const localContentLink = buildInlineLinkUrl("central_galleries", "gallery-2");
+  const remoteContentLink = buildInlineLinkUrl("galleries", "gallery-2");
   const record = {
     id: "gallery-1",
     type: "central_gallery",
     order: 0,
     properties: {
       title: "Gallery",
-      copy: `[Image](${localLink}) and \`[code](${localLink})\``
+      copy: `[Image](${localLink}), [Gallery](${localContentLink}), and \`[code](${localLink})\``
     },
     slots: {
       images: [
@@ -272,7 +283,7 @@ test("translates recursive record types and canonical inline-reference links", (
   assert.equal(translated.slots.images[0].type, "image");
   assert.equal(
     translated.properties.copy,
-    `[Image](${remoteLink}) and \`[code](${localLink})\``
+    `[Image](${remoteLink}), [Gallery](${remoteContentLink}), and \`[code](${localLink})\``
   );
   assert.deepEqual(
     translateRecord(
@@ -340,12 +351,14 @@ test("migrates explicit schema keys through records without mutating image asset
   };
   const oldLink = buildInlineReferenceUrl("assets", "asset-1");
   const nextLink = buildInlineReferenceUrl("media", "asset-1");
+  const oldContentLink = buildInlineLinkUrl("pages", "home");
+  const nextContentLink = buildInlineLinkUrl("articles", "home");
   const image = { hash, filename: "hero.png", width: 640, height: 480 };
   const record = {
     id: "home",
     type: "page",
     properties: {
-      copy: `[Asset](${oldLink})`,
+      copy: `[Asset](${oldLink}) [Home](${oldContentLink})`,
       attachment: `/media/assets/${hash}/brief.pdf`,
       image
     },
@@ -370,7 +383,10 @@ test("migrates explicit schema keys through records without mutating image asset
   );
   assert.equal(migrated.type, "article");
   assert.equal(migrated.slots.cards[0].type, "tile");
-  assert.equal(migrated.properties.copy, `[Asset](${nextLink})`);
+  assert.equal(
+    migrated.properties.copy,
+    `[Asset](${nextLink}) [Home](${nextContentLink})`
+  );
   assert.equal(
     migrated.properties.attachment,
     `/media/media/${hash}/brief.pdf`
@@ -824,6 +840,10 @@ test("rekeys local remote aliases without renaming their owner schema", () => {
   ];
   effective.node_types.central_gallery.fields.copy.blocknote.inline_reference.collection =
     "media_images";
+  effective.node_types.central_gallery.fields.copy.blocknote.internal_links.collections = [
+    "central_galleries",
+    "media_images"
+  ];
   effective.node_types.central_gallery.slots.images.allowed_types = [
     "media_image"
   ];
@@ -854,6 +874,11 @@ test("rekeys local remote aliases without renaming their owner schema", () => {
     connector: "central",
     remote_collection: "images"
   });
+  assert.deepEqual(
+    planned.config.node_types.central_gallery.fields.copy.blocknote
+      .internal_links.collections,
+    ["central_galleries", "media_images"]
+  );
   assert.deepEqual(planned.remoteConfigs.central, remote);
   assert.deepEqual(planned.schemaRenames, {
     node_types: { central_image: "media_image" },

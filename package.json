@@ -11,6 +11,10 @@
       "import": "./core/connectors.js"
     },
     "./core/id": "./core/id.js",
+    "./core/inline-link": {
+      "types": "./core/inline-link.d.ts",
+      "import": "./core/inline-link.js"
+    },
     "./core/inline-reference": {
       "types": "./core/inline-reference.d.ts",
       "import": "./core/inline-reference.js"

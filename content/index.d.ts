@@ -5,6 +5,18 @@ import type {
 export { prependImageServiceOperations } from "../core/image-service.js";
 export type { ImageOperation } from "../core/image-service.js";
 export {
+  INLINE_LINK_PREFIX,
+  buildInlineLinkUrl,
+  inlineLinkOccurrencesInMarkdown,
+  isInlineLinkUrl,
+  parseInlineLinkUrl
+} from "../core/inline-link.js";
+export type {
+  InlineLink,
+  InlineLinkOccurrence,
+  InlineLinkOccurrenceOptions
+} from "../core/inline-link.js";
+export {
   INLINE_REFERENCE_PREFIX,
   buildInlineReferenceUrl,
   inlineReferenceOccurrencesInMarkdown,
@@ -74,6 +86,14 @@ export interface ResolvedMarkdownReference<
 export interface ResolvedMarkdown<T extends ContentRecord = ContentRecord> {
   markdown: string;
   references: Record<string, ResolvedMarkdownReference<T>>;
+  links: Record<string, ResolvedMarkdownLink<T>>;
+}
+
+export interface ResolvedMarkdownLink<
+  T extends ContentRecord = ContentRecord
+> extends ResolvedMarkdownReference<T> {
+  /** Hierarchical target ancestors ordered from root to direct parent. */
+  ancestors: T[];
 }
 
 export type ResolvedTags<T extends ContentRecord = ContentRecord> =

@@ -1,4 +1,5 @@
 import { inlineReferenceOccurrencesInMarkdown } from "../core/inline-reference.js";
+import { inlineLinkOccurrencesInMarkdown } from "../core/inline-link.js";
 import { imageAsset } from "../core/media.js";
 
 function isMapping(value) {
@@ -6,6 +7,13 @@ function isMapping(value) {
 }
 
 export { prependImageServiceOperations } from "../core/image-service.js";
+export {
+  INLINE_LINK_PREFIX,
+  buildInlineLinkUrl,
+  inlineLinkOccurrencesInMarkdown,
+  isInlineLinkUrl,
+  parseInlineLinkUrl
+} from "../core/inline-link.js";
 export {
   INLINE_REFERENCE_PREFIX,
   buildInlineReferenceUrl,
@@ -400,28 +408,31 @@ function createContentAdapter({
     );
   }
 
-  async function resolvedMarkdown(field, value, ancestors) {
+  async function resolvedMarkdown(field, value, ancestors, recordOverlay) {
     const markdown = typeof value === "string" ? value : String(value ?? "");
-    const collectionName = field.blocknote.inline_reference.collection;
-    const references = new Map(
-      inlineReferenceOccurrencesInMarkdown(markdown, {
-        collection: collectionName
-      }).map(({ href, collection, ref }) => [
-        href,
-        { collection, ref }
-      ])
-    );
-    const resolvedEntries = await Promise.all(
+    const inlineReference = field.blocknote.inline_reference;
+    const referenceCollection = inlineReference?.collection;
+    const references = referenceCollection
+      ? new Map(
+          inlineReferenceOccurrencesInMarkdown(markdown, {
+            collection: referenceCollection
+          }).map(({ href, collection, ref }) => [
+            href,
+            { collection, ref }
+          ])
+        )
+      : new Map();
+    const resolvedReferenceEntries = await Promise.all(
       [...references].map(async ([href, reference]) => {
         const resolved = await resolvedReference(
-          { widget: "reference", collection: collectionName },
+          { widget: "reference", collection: referenceCollection },
           reference.ref,
           ancestors
         );
         return [
           href,
           {
-            collection: collectionName,
+            collection: referenceCollection,
             ref: reference.ref,
             record: resolved.record
           }
@@ -429,10 +440,130 @@ function createContentAdapter({
       })
     );
 
+    const linkCollections = field.blocknote.internal_links?.collections ?? [];
+    const links = new Map(
+      inlineLinkOccurrencesInMarkdown(markdown, {
+        collections: linkCollections
+      }).map(({ href, collection, ref }) => [href, { collection, ref }])
+    );
+    const resolvedLinkEntries = await Promise.all(
+      [...links].map(async ([href, link]) => {
+        const targetCollection = collectionFor(link.collection);
+        const valueField = targetCollection.views?.reference?.value || "id";
+        const target = await referenceTarget(
+          link.collection,
+          link.ref,
+          valueField,
+          true
+        );
+        const targetKey = target.id
+          ? `${link.collection}:${target.id}`
+          : null;
+        const targetRecord =
+          targetKey && recordOverlay?.key === targetKey
+            ? recordOverlay.record
+            : target.record;
+        const hierarchy = targetRecord
+          ? await resolvedHierarchyAncestors(
+              link.collection,
+              targetRecord,
+              recordOverlay
+            )
+          : { valid: false, ancestors: [] };
+        let currentKey = null;
+        for (const ancestorKey of ancestors) currentKey = ancestorKey;
+        let record = null;
+        if (hierarchy.valid && targetRecord && targetKey) {
+          if (targetKey === currentKey) {
+            record = cloneValue(targetRecord);
+          } else if (!ancestors.has(targetKey)) {
+            record = await resolveRecord(
+              link.collection,
+              targetRecord,
+              ancestors,
+              recordOverlay
+            );
+          }
+        }
+        return [
+          href,
+          {
+            collection: link.collection,
+            ref: link.ref,
+            record: hierarchy.valid ? record : null,
+            ancestors: hierarchy.valid ? hierarchy.ancestors : []
+          }
+        ];
+      })
+    );
+
     return {
       markdown,
-      references: Object.fromEntries(resolvedEntries)
+      references: Object.fromEntries(resolvedReferenceEntries),
+      links: Object.fromEntries(resolvedLinkEntries)
     };
+  }
+
+  function hierarchyFieldValue(record, collection, fieldName, fallback) {
+    const configuredField = collection.hierarchy?.[fieldName];
+    if (!configuredField) return fallback;
+    return (
+      record?.properties?.[configuredField] ??
+      record?.[configuredField] ??
+      fallback
+    );
+  }
+
+  async function resolvedHierarchyAncestors(
+    collectionName,
+    raw,
+    recordOverlay
+  ) {
+    const collection = collectionFor(collectionName);
+    if (!collection.hierarchy?.enabled) return { valid: true, ancestors: [] };
+    const parentField = collection.hierarchy.parent_field;
+    if (!parentField) return { valid: true, ancestors: [] };
+    const valueField = collection.hierarchy.id_field || "id";
+    const chain = [];
+    const seen = new Set();
+    const targetIdentity = hierarchyFieldValue(raw, collection, "id_field", raw.id);
+    if (hasReferenceValue(targetIdentity)) {
+      seen.add(scalarKey(targetIdentity));
+    }
+    let parentRef = hierarchyFieldValue(raw, collection, "parent_field", null);
+
+    while (hasReferenceValue(parentRef)) {
+      const parentKey = scalarKey(parentRef);
+      if (!parentKey || seen.has(parentKey)) {
+        return { valid: false, ancestors: [] };
+      }
+      seen.add(parentKey);
+      const parentTarget = await referenceTarget(
+        collectionName,
+        parentRef,
+        valueField,
+        false
+      );
+      if (!parentTarget.record || !parentTarget.id) {
+        return { valid: false, ancestors: [] };
+      }
+      const parentRecordKey = `${collectionName}:${parentTarget.id}`;
+      const parentRecord =
+        recordOverlay?.key === parentRecordKey
+          ? recordOverlay.record
+          : parentTarget.record;
+      // Ancestors are route context, not another fully resolved content graph.
+      // Keeping their complete stored records avoids recursively following an
+      // ancestor's Markdown links back into the descendant currently resolving.
+      chain.push(cloneValue(parentRecord));
+      parentRef = hierarchyFieldValue(
+        parentRecord,
+        collection,
+        "parent_field",
+        null
+      );
+    }
+    return { valid: true, ancestors: chain.reverse() };
   }
 
   async function resolvedMedia(value, widget, collectionName) {
@@ -452,7 +583,7 @@ function createContentAdapter({
     return cloneValue(value);
   }
 
-  async function resolveNode(node, collectionName, ancestors) {
+  async function resolveNode(node, collectionName, ancestors, recordOverlay) {
     if (!isMapping(node)) return cloneValue(node);
     const type = contentConfig.node_types?.[node.type];
     const fields = isMapping(type?.fields) ? type.fields : {};
@@ -469,12 +600,14 @@ function createContentAdapter({
         resolvedProperties[name] = await resolvedTags(field, value, ancestors);
       } else if (
         field?.widget === "markdown" &&
-        isMapping(field.blocknote?.inline_reference)
+        (isMapping(field.blocknote?.inline_reference) ||
+          isMapping(field.blocknote?.internal_links))
       ) {
         resolvedProperties[name] = await resolvedMarkdown(
           field,
           value,
-          ancestors
+          ancestors,
+          recordOverlay
         );
       } else if (field?.widget === "file" || field?.widget === "image") {
         resolvedProperties[name] = await resolvedMedia(
@@ -492,7 +625,7 @@ function createContentAdapter({
       slots[slotName] = Array.isArray(children)
         ? await Promise.all(
             children.map((child) =>
-              resolveNode(child, collectionName, ancestors)
+              resolveNode(child, collectionName, ancestors, recordOverlay)
             )
           )
         : cloneValue(children);
@@ -505,11 +638,17 @@ function createContentAdapter({
     };
   }
 
-  async function resolveRecord(collectionName, raw, ancestors = new Set()) {
+  async function resolveRecord(
+    collectionName,
+    raw,
+    ancestors = new Set(),
+    recordOverlay = null
+  ) {
     const key = `${collectionName}:${raw.id}`;
     if (ancestors.has(key)) return null;
     const nextAncestors = new Set(ancestors).add(key);
-    return resolveNode(raw, collectionName, nextAncestors);
+    const nextOverlay = recordOverlay ?? { key, record: raw };
+    return resolveNode(raw, collectionName, nextAncestors, nextOverlay);
   }
 
   async function resolvedRecord(collectionName, id) {

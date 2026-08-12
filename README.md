@@ -67,8 +67,8 @@ different files and symlinks are never overwritten; rerunning against the same
 generated files is a no-op.
 
 The starter contains Pages, Images, and Files. Its image library is local to
-the new repository, and its Markdown field has no project-specific inline
-reference extension. This initializer intentionally stops at the minimal
+the new repository, and its Markdown field enables stable links to the Pages
+collection. This initializer intentionally stops at the minimal
 host/config pair. Give an implementation agent [`llm.txt`](llm.txt) when the
 goal is the complete Astro/React website, local editor/API environment, shared
 live preview, and GitHub Pages deployment. The Project previews section below
@@ -765,13 +765,60 @@ destinations—in a configured Markdown property to:
       ref: "abc123def456ghi",
       record: {/* the resolved record, or null */}
     }
-  }
+  },
+  links: {}
 }
 ```
 
 The website decides how each resolved record becomes a public link or another
 inline presentation. Markdown fields without this configuration remain plain
 strings in the read contract.
+
+BlockNote can also link ordinary flowing text to records from any explicitly
+allowed collection, independently of citation-style inline references:
+
+```yaml
+body:
+  label: Body
+  widget: markdown
+  blocknote:
+    internal_links:
+      collections:
+        - pages
+```
+
+The link editor offers **Web link** and **Content link**. Content link opens a
+searchable picker; when several collections are allowed, the picker also lets
+the editor choose the collection. Search covers the published title, record
+ID, and scalar record properties. The stored destination uses the collection's
+published `views.reference.value`, not its slug or current URL:
+
+```markdown
+[About the project](minicms://link/pages/abc123def456ghi)
+```
+
+Configured content links resolve alongside references without rewriting the
+Markdown:
+
+```js
+{
+  markdown: "Read [about the project](minicms://link/pages/abc123def456ghi).",
+  references: {},
+  links: {
+    "minicms://link/pages/abc123def456ghi": {
+      collection: "pages",
+      ref: "abc123def456ghi",
+      record: {/* the current target record, or null */},
+      ancestors: [/* current hierarchy records, root to parent */]
+    }
+  }
+}
+```
+
+The website derives the public URL at render time from the current target and
+ancestor records. Moving or renaming a page therefore keeps every stored link
+stable. Missing targets remain non-navigable label text, and the custom scheme
+must never be emitted into public HTML.
 
 Inline references may also join a named document-level reference set. The set
 defines which target collections share numbering and how a website formats the

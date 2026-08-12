@@ -109,7 +109,45 @@ site/
   vite.preview.config.ts
   src/
     components/
+      Page/
+        Page.tsx
+        Page.scss
+      Shortcut/
+        Shortcut.tsx
+        Shortcut.scss
+      MediaImage/
+        MediaImage.tsx
+        MediaImage.scss
+      MediaFile/
+        MediaFile.tsx
+        MediaFile.scss
+      Title/
+        Title.tsx
+        Title.scss
+      Text/
+        Text.tsx
+        Text.scss
+      Image/
+        Image.tsx
+        Image.scss
+      Box/
+        Box.tsx
+        Box.scss
+      Accordion/
+        Accordion.tsx
+        Accordion.scss
+      Grid/
+        Grid.tsx
+        Grid.scss
+      Column/
+        Column.tsx
+        Column.scss
+      Unknown/
+        Unknown.tsx
+        Unknown.scss
     layouts/
+      Document/
+        Document.astro
     model/
     pages/
       [...path].astro
@@ -119,7 +157,13 @@ site/
     preview/
       index.tsx
     render/
+      Renderer.tsx
+      Renderer.scss
+      types.ts
     styles/
+      _global.scss
+      _typography.scss
+      site.scss
     env.d.ts
 ```
 
@@ -181,8 +225,8 @@ contains:
 - content/structure types `title`, `text`, `image`, `box`, `accordion`, `grid`,
   and `column`;
 - a concrete local image library rather than a remote alias;
-- a plain Markdown text field without a project-specific inline-reference
-  extension; and
+- a Markdown text field with stable internal links enabled for `pages`, but no
+  project-specific citation/reference extension; and
 - no articles, sources, authors, tags, notes, or reference-list model.
 
 The production default remains GitHub. The reserved `development` connector
@@ -410,30 +454,101 @@ Implement a pure route manifest for `pages`:
   page. Resolve shortcut chains cycle-safely.
 - Apply the Astro base path to redirects and internal URLs.
 
-Create `site/src/pages/[...path].astro` with `getStaticPaths()`. Store only the
-stable route path in each generated `props`, not a record snapshot. Resolve the
-route against a newly loaded development repository for each request; Astro
-caches `getStaticPaths()` props and otherwise can keep an old YAML record after
-an editor save. In a production build, the one cached snapshot is desirable.
+Create `site/src/pages/[...path].astro` with `getStaticPaths()`. This Astro route
+owns static-path generation, fresh route lookup, redirects, and composition of
+the document layout with the shared React renderer; it contains no CMS
+content-type markup. Store only the stable route path in each generated
+`props`, not a record snapshot. Resolve the route against a newly loaded
+development repository for each request; Astro caches `getStaticPaths()` props
+and otherwise can keep an old YAML record after an editor save. In a production
+build, the one cached snapshot is desirable.
 
-Create a document layout that owns HTML language, title, description, robots,
-canonical URL, and responsive metadata. Use `Astro.site` plus
-`import.meta.env.BASE_URL` for canonical paths. Do not hard-code `/` when a
-Pages project base may be `/repository/`.
+Create `site/src/layouts/Document/Document.astro`. It owns the doctype, HTML
+language, title, description, robots, canonical URL, global Sass import, site
+shell/navigation, and project-specific development reload listener. Use
+`Astro.site` plus `import.meta.env.BASE_URL` for canonical paths. Do not
+hard-code `/` when a Pages project base may be `/repository/`. Keep
+`site/src/pages/admin/index.astro` and
+`site/src/pages/admin/cms.config.yml.ts` as the admin host and published config
+route. Astro's `pages/` routing directory and the React `Page` content
+component are different responsibilities; never combine them.
 
 ## 9. Use one recursive React renderer
 
 Static pages and the miniCMS preview must call the same typed `Renderer`.
-Create a registry keyed by the starter type names:
+Every concrete starter `node_types` key must have its own project component
+folder containing a React module and a colocated Sass module:
+
+```text
+components/Page/Page.tsx                 components/Page/Page.scss
+components/Shortcut/Shortcut.tsx         components/Shortcut/Shortcut.scss
+components/MediaImage/MediaImage.tsx     components/MediaImage/MediaImage.scss
+components/MediaFile/MediaFile.tsx       components/MediaFile/MediaFile.scss
+components/Title/Title.tsx               components/Title/Title.scss
+components/Text/Text.tsx                 components/Text/Text.scss
+components/Image/Image.tsx               components/Image/Image.scss
+components/Box/Box.tsx                   components/Box/Box.scss
+components/Accordion/Accordion.tsx       components/Accordion/Accordion.scss
+components/Grid/Grid.tsx                 components/Grid/Grid.scss
+components/Column/Column.tsx             components/Column/Column.scss
+components/Unknown/Unknown.tsx           components/Unknown/Unknown.scss
+```
+
+This one-to-one structure is mandatory, not merely an example. `media_image`
+has a dedicated `MediaImage` component even when it imports presentation
+helpers or shared image markup from `Image`. Shared parsing, geometry, slot,
+and type helpers may live beside their owning component or under `render/`, but
+they never replace the required component/style pair.
+
+Create a thin `site/src/render/Renderer.tsx` with a registry keyed by the
+starter type names:
 
 ```text
 page, shortcut, title, text, image, media_image,
 media_file, box, accordion, grid, column
 ```
 
+Import those modules and make the mapping explicit rather than defining
+components inside the registry file:
+
+```ts
+import Accordion from "../components/Accordion/Accordion";
+import Box from "../components/Box/Box";
+import Column from "../components/Column/Column";
+import Grid from "../components/Grid/Grid";
+import Image from "../components/Image/Image";
+import MediaFile from "../components/MediaFile/MediaFile";
+import MediaImage from "../components/MediaImage/MediaImage";
+import Page from "../components/Page/Page";
+import Shortcut from "../components/Shortcut/Shortcut";
+import Text from "../components/Text/Text";
+import Title from "../components/Title/Title";
+import Unknown from "../components/Unknown/Unknown";
+import type { RendererRegistry } from "./types";
+
+export const rendererRegistry = Object.freeze({
+  page: Page,
+  shortcut: Shortcut,
+  media_image: MediaImage,
+  media_file: MediaFile,
+  title: Title,
+  text: Text,
+  image: Image,
+  box: Box,
+  accordion: Accordion,
+  grid: Grid,
+  column: Column
+}) satisfies RendererRegistry;
+```
+
 Include an `Unknown` fallback that makes an unsupported type diagnosable.
 Recursively render every ordered child array in every named `node.slots`
-mapping. Pass rendered slot arrays to the component by slot name.
+mapping. Pass rendered slot arrays to the component by slot name. The renderer
+module owns only the typed registry, recursive slot traversal, public hidden
+node omission, and central authoring-boundary construction. It must not contain
+the JSX implementation or presentation styles for any configured content type.
+A monolithic `Renderer.tsx` containing `Page`, `Text`, `Image`, and the other
+components is not an acceptable implementation.
 
 Use types from `@signalwerk/minicms/content`. A component should receive the
 current node, rendered slots, the complete `ContentData`, an `authoring`
@@ -481,7 +596,13 @@ Implement accessible, responsive components for the starter:
   as `p.eyebrow`, and `none`; render `none` as an unstyled `span` because the
   accordion summary default uses it;
 - `text`: render resolved Markdown with `react-markdown`, skip raw HTML, and
-  retain safe ordinary links;
+  retain safe ordinary links. Resolve configured `minicms://link` targets from
+  the supplied `links` map. For `pages`, derive the current hierarchical URL
+  from the ordered ancestors plus target record and honor the deployment base
+  path; never store a slug/path, fetch the target again, or expose a custom URI
+  when a target is missing, hidden, or invalid. If the collection also contains
+  shortcuts or redirects, emit a link only when the site's route model can
+  prove that target has a public route; otherwise keep the label as plain text;
 - `accordion`: native `<details>` with `<summary>` first and details content
   second; force it open only in authoring so all nested nodes remain editable;
   public output stays closed by default;
@@ -523,8 +644,45 @@ before resize/quality. Use a bounded CSS crop fallback for GitHub/raw images
 and byte-preserving SVG service URLs. Render useful missing-image states in
 authoring and correct intrinsic dimensions when known.
 
-Create project-owned Sass and inject no editor styles into the public site.
-The result should be a coherent starter website, not an unstyled schema dump.
+Keep `sass` as a direct site dependency and retain the `*.scss?inline` ambient
+module declaration. Component-specific selectors live in the matching
+colocated `.scss` file; `site/src/render/Renderer.scss` owns only shared
+renderer boundaries such as slot wrappers and non-compounding hidden-node
+opacity. Put resets, design tokens, and genuinely document-wide foundations in
+`site/src/styles/_global.scss`; put shared type foundations in
+`site/src/styles/_typography.scss`.
+
+`site/src/styles/site.scss` is a small composition manifest, not a monolithic
+stylesheet. It must `@use` the foundations, every component stylesheet, and the
+renderer stylesheet, for example:
+
+```scss
+@use "global";
+@use "typography";
+@use "../components/Page/Page";
+@use "../components/Shortcut/Shortcut";
+@use "../components/MediaImage/MediaImage";
+@use "../components/MediaFile/MediaFile";
+@use "../components/Title/Title";
+@use "../components/Text/Text";
+@use "../components/Image/Image";
+@use "../components/Box/Box";
+@use "../components/Accordion/Accordion";
+@use "../components/Grid/Grid";
+@use "../components/Column/Column";
+@use "../components/Unknown/Unknown";
+@use "../render/Renderer";
+```
+
+The Astro document layout imports this exact `site.scss` entry for static
+pages, while the preview imports the same entry as `site.scss?inline`. This is
+the guarantee that static output and the isolated authoring iframe use the
+same styles. Do not independently import component Sass from TSX modules, and
+do not accumulate component rules directly in `site.scss`. The result should
+be a coherent starter website, not an unstyled schema dump.
+
+When a configured node type is added, renamed, or removed, update its folder
+pair, renderer registry entry, `site.scss` `@use`, and focused tests together.
 
 ## 10. Build and register the project preview
 
@@ -778,7 +936,13 @@ Exercise the actual workflow rather than checking only that processes listen:
    `{hash, filename}` identity.
 7. Save and confirm root `content/` YAML/media changed, the website refreshes,
    and `/admin/` remains mounted.
-8. Reload the editor and confirm the saved record resolves identically.
+8. In a Markdown field, create a **Content link** to a page through the
+   searchable picker. Confirm storage contains
+   `minicms://link/pages/<content_id>`, then change that page's slug or parent
+   and verify both preview and static output point to its new base-aware path
+   without rewriting the Markdown. A missing or hidden target must render as
+   non-navigable text and no `minicms://link` URI may reach browser HTML.
+9. Reload the editor and confirm the saved record resolves identically.
 
 Local API writes modify the Git working tree; they do not commit. Review and
 commit the resulting YAML and media. Stop the API before an external process
@@ -909,8 +1073,19 @@ Verify that:
 - no secret, local filesystem path, loopback-only API URL, or stale template
   identity appears in production artifacts;
 - the preview and static page use the same component registry and styles;
+- every concrete configured `node_types` key has a dedicated registry entry,
+  PascalCase component folder, `.tsx` implementation, and colocated `.scss`,
+  while `Unknown` has the same pair;
+- `Renderer.tsx` contains traversal/registry logic rather than inline
+  content-type components, and `site.scss` is an `@use` manifest rather than a
+  component-style monolith;
+- `layouts/Document/Document.astro`, `pages/[...path].astro`, and the two
+  `pages/admin/` routes retain their separate layout, public-route, and admin
+  ownership;
 - the production admin does not select `development`;
 - relative admin assets and website links work under the Pages base path;
+- Markdown content links store published stable IDs, remain correct after a
+  page hierarchy move, and never leak the custom URI into public output;
 - the GitHub Actions run succeeds;
 - the live site root returns the Home page;
 - live `/admin/`, `/admin/cms.config.yml`, and `/admin/preview.js` load; and

@@ -10,6 +10,11 @@ import {
   buildInlineReferenceUrl,
   parseInlineReferenceUrl
 } from "./inline-reference.js";
+import {
+  buildInlineLinkUrl,
+  markdownLinkOccurrencesInMarkdown,
+  parseInlineLinkUrl
+} from "./inline-link.js";
 
 function isMapping(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -43,95 +48,27 @@ function isRemoteCollection(value) {
   );
 }
 
-function skipCodeSpan(markdown, start) {
-  let size = 1;
-  while (markdown[start + size] === "`") size += 1;
-  const delimiter = "`".repeat(size);
-  const end = markdown.indexOf(delimiter, start + size);
-  return end === -1 ? markdown.length : end + size;
-}
-
-function closingLabelBracket(markdown, start) {
-  let depth = 1;
-  for (let cursor = start; cursor < markdown.length; cursor += 1) {
-    if (markdown[cursor] === "\\") {
-      cursor += 1;
-      continue;
-    }
-    if (markdown[cursor] === "`") {
-      cursor = skipCodeSpan(markdown, cursor) - 1;
-      continue;
-    }
-    if (markdown[cursor] === "[") depth += 1;
-    if (markdown[cursor] !== "]") continue;
-    depth -= 1;
-    if (depth === 0) return cursor;
-  }
-  return -1;
-}
-
 function translateInlineReferences(markdown, collectionNames) {
   if (typeof markdown !== "string" || !markdown || !isMapping(collectionNames)) {
     return markdown;
   }
   const replacements = [];
-  let cursor = 0;
-  while (cursor < markdown.length) {
-    if (markdown[cursor] === "\\") {
-      cursor += 2;
-      continue;
-    }
-    if (markdown[cursor] === "`") {
-      cursor = skipCodeSpan(markdown, cursor);
-      continue;
-    }
-    if (markdown[cursor] !== "[" || markdown[cursor - 1] === "!") {
-      cursor += 1;
-      continue;
-    }
-    const labelEnd = closingLabelBracket(markdown, cursor + 1);
-    if (labelEnd === -1 || markdown[labelEnd + 1] !== "(") {
-      cursor += 1;
-      continue;
-    }
-    let destinationStart = labelEnd + 2;
-    while (/[ \t\n\r]/.test(markdown[destinationStart] ?? "")) {
-      destinationStart += 1;
-    }
-    const angled = markdown[destinationStart] === "<";
-    if (angled) destinationStart += 1;
-    let destinationEnd = destinationStart;
-    while (
-      destinationEnd < markdown.length &&
-      (angled
-        ? markdown[destinationEnd] !== ">"
-        : !/[\s)]/.test(markdown[destinationEnd]))
-    ) {
-      destinationEnd += 1;
-    }
-    const afterDestination = angled ? destinationEnd + 1 : destinationEnd;
-    if (
-      destinationEnd === destinationStart ||
-      (angled && markdown[destinationEnd] !== ">") ||
-      markdown[afterDestination] !== ")"
-    ) {
-      cursor = labelEnd + 1;
-      continue;
-    }
-    const reference = parseInlineReferenceUrl(
-      markdown.slice(destinationStart, destinationEnd)
-    );
-    const nextCollection = reference
-      ? collectionNames[reference.collection]
+  for (const occurrence of markdownLinkOccurrencesInMarkdown(markdown)) {
+    const reference = parseInlineReferenceUrl(occurrence.href);
+    const link = parseInlineLinkUrl(occurrence.href);
+    const internal = reference ?? link;
+    const nextCollection = internal
+      ? collectionNames[internal.collection]
       : null;
-    if (reference && nextCollection) {
+    if (internal && nextCollection) {
       replacements.push({
-        start: destinationStart,
-        end: destinationEnd,
-        value: buildInlineReferenceUrl(nextCollection, reference.ref)
+        start: occurrence.destinationStart,
+        end: occurrence.destinationEnd,
+        value: reference
+          ? buildInlineReferenceUrl(nextCollection, internal.ref)
+          : buildInlineLinkUrl(nextCollection, internal.ref)
       });
     }
-    cursor = afterDestination + 1;
   }
   if (!replacements.length) return markdown;
   let translated = markdown;
@@ -330,6 +267,20 @@ function translateTypeDefinition(type, route, direction, context, status) {
         direction,
         `${context} field "${fieldName}" inline reference`,
         status
+      );
+    }
+    const internalLinks = field?.blocknote?.internal_links;
+    if (Array.isArray(internalLinks?.collections)) {
+      internalLinks.collections = internalLinks.collections.map(
+        (collectionName) =>
+          translatedDependency(
+            route,
+            "collections",
+            collectionName,
+            direction,
+            `${context} field "${fieldName}" internal links`,
+            status
+          )
       );
     }
   }

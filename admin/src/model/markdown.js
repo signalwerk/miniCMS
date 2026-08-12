@@ -1,3 +1,4 @@
+import { isInlineLinkUrl } from "../../../core/inline-link.js";
 import { isInlineReferenceUrl } from "../../../core/inline-reference.js";
 import {
   createOrReuseReferencedRecord,
@@ -14,7 +15,7 @@ function scalarText(value) {
     : "";
 }
 
-function inlineReferenceOption(item, collection, previewField) {
+function inlineCollectionOption(item, collection, previewField) {
   const referenceView = collection?.views?.reference ?? {};
   const referenceValue = referenceItemValue(
     item,
@@ -39,15 +40,24 @@ function inlineReferenceOption(item, collection, previewField) {
     .map(scalarText)
     .filter(Boolean)
     .join(" ");
+  const topLevelText = Object.entries(item ?? {})
+    .filter(([name]) => !["properties", "slots"].includes(name))
+    .map(([, value]) => scalarText(value))
+    .filter(Boolean)
+    .join(" ");
 
   return {
     item,
     label,
     recordId: scalarText(item?.id) || referenceValue,
-    searchText: `${label} ${item?.id ?? ""} ${propertyText}`
+    searchText: `${label} ${topLevelText} ${propertyText}`
       .toLocaleLowerCase(),
     value: referenceValue
   };
+}
+
+function inlineReferenceOption(item, collection, previewField) {
+  return inlineCollectionOption(item, collection, previewField);
 }
 
 function inlineReferenceOptions(items, collection, previewField) {
@@ -55,6 +65,64 @@ function inlineReferenceOptions(items, collection, previewField) {
     const option = inlineReferenceOption(item, collection, previewField);
     return option ? [option] : [];
   });
+}
+
+function configuredInlineLinkCollections(blocknote, collections) {
+  const configured = blocknote?.internal_links?.collections;
+  if (!Array.isArray(configured)) return [];
+
+  const collectionsByName = new Map(
+    (Array.isArray(collections) ? collections : [])
+      .filter((collection) => typeof collection?.name === "string")
+      .map((collection) => [collection.name, collection])
+  );
+  const seen = new Set();
+  return configured.flatMap((collectionName) => {
+    if (typeof collectionName !== "string" || seen.has(collectionName)) {
+      return [];
+    }
+    seen.add(collectionName);
+    const collection = collectionsByName.get(collectionName);
+    return collection ? [collection] : [];
+  });
+}
+
+function configuredInlineLinkCollectionNames(blocknote) {
+  const configured = blocknote?.internal_links?.collections;
+  if (!Array.isArray(configured)) return [];
+  return [...new Set(
+    configured.filter(
+      (collectionName) =>
+        typeof collectionName === "string" && collectionName.length > 0
+    )
+  )];
+}
+
+function inlineLinkOption(item, collection) {
+  return inlineCollectionOption(item, collection);
+}
+
+function inlineLinkOptions(items, collection) {
+  return (Array.isArray(items) ? items : []).flatMap((item) => {
+    const option = inlineLinkOption(item, collection);
+    return option ? [option] : [];
+  });
+}
+
+function filteredInlineLinkOptions(options, search, limit = 100) {
+  const normalizedSearch = String(search ?? "").trim().toLocaleLowerCase();
+  const matches = (Array.isArray(options) ? options : []).filter(
+    (option) =>
+      !normalizedSearch || option.searchText.includes(normalizedSearch)
+  );
+  const normalizedLimit = Number.isSafeInteger(limit) && limit > 0
+    ? limit
+    : 100;
+  return {
+    items: matches.slice(0, normalizedLimit),
+    limited: matches.length > normalizedLimit,
+    total: matches.length
+  };
 }
 
 function normalizedInlineReferenceLabel(value) {
@@ -135,7 +203,8 @@ function markdownSafeInlineReferences(value, insideReference = false) {
 
   const nextInsideReference =
     insideReference ||
-    (value.type === "link" && isInlineReferenceUrl(value.href));
+    (value.type === "link" &&
+      (isInlineReferenceUrl(value.href) || isInlineLinkUrl(value.href)));
   const result = Object.fromEntries(
     Object.entries(value).map(([name, entry]) => [
       name,
@@ -159,10 +228,15 @@ function blocksToMarkdownWithSafeReferences(editor, blocks) {
 
 export {
   blocksToMarkdownWithSafeReferences,
+  configuredInlineLinkCollectionNames,
+  configuredInlineLinkCollections,
   createInlineReferenceRecord,
   createOrReuseInlineReference,
   escapeInlineReferenceLabelText,
+  filteredInlineLinkOptions,
   inlineReferenceCreationConfig,
+  inlineLinkOption,
+  inlineLinkOptions,
   inlineReferenceOption,
   inlineReferenceOptions,
   markdownSafeInlineReferences,

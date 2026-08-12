@@ -58,6 +58,70 @@
   margin-left: auto;
 }
 
+.markdown-link-editor {
+  min-width: min(310px, calc(100vw - 24px));
+}
+
+.markdown-link-editor__types {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  padding: 4px;
+  border-bottom: 1px solid #3a3c36;
+}
+
+.markdown-link-editor__types button,
+.markdown-link-editor__content button {
+  @extend %type-consulting;
+  display: inline-flex;
+  min-height: 30px;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+  color: #9a9c94;
+  background: transparent;
+  border-radius: 3px;
+}
+
+.markdown-link-editor__types button:hover,
+.markdown-link-editor__types button:focus-visible,
+.markdown-link-editor__types button.is-active {
+  color: #e2e3dd;
+  background: #30322c;
+}
+
+.markdown-link-editor__types button.is-active {
+  box-shadow: inset 0 -2px var(--lime-strong);
+}
+
+.markdown-link-editor__types button:only-child {
+  grid-column: 1 / -1;
+}
+
+.markdown-link-editor__content {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+}
+
+.markdown-link-editor__content p {
+  @extend %type-consulting;
+  margin: 0;
+  color: #9a9c94;
+}
+
+.markdown-link-editor__content button {
+  justify-self: start;
+  color: #e2e3dd;
+  background: #30322c;
+}
+
+.markdown-link-editor__content button:hover,
+.markdown-link-editor__content button:focus-visible {
+  background: #3b3e36;
+}
+
 .markdown-field__body {
   min-height: 220px;
 }
@@ -262,6 +326,58 @@
   display: flex;
   align-items: center;
   margin: 14px 14px 10px;
+}
+
+.markdown-link-dialog__controls {
+  padding: 14px 14px 10px;
+  background: #ecece7;
+  border-bottom: 1px solid #dadbd4;
+}
+
+.markdown-link-dialog__controls .markdown-reference-dialog__search {
+  margin: 0;
+}
+
+.markdown-link-dialog__collection {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.markdown-link-dialog__collection label {
+  @extend %type-consulting;
+  color: #696c64;
+}
+
+.markdown-link-dialog__collection select {
+  @extend %type-normal;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 34px 0 11px;
+  color: #292b27;
+  background: #fff;
+  border: 1px solid #cfd1c8;
+  border-radius: 4px;
+}
+
+.markdown-link-dialog__collection select:focus {
+  border-color: #6d765e;
+  box-shadow: 0 0 0 2px rgb(151 168 125 / 22%);
+  outline: none;
+}
+
+.markdown-link-dialog > .markdown-reference-dialog__results {
+  min-height: 220px;
+  padding-top: 14px;
+}
+
+.markdown-link-dialog__limit {
+  @extend %type-consulting;
+  margin: 10px 0 0;
+  padding: 10px 11px;
+  color: #696c64;
+  background: #f0f1eb;
+  border-radius: 4px;
 }
 
 .markdown-reference-dialog__search > svg {

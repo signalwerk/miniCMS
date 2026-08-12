@@ -1,19 +1,23 @@
-import { filterSuggestionItems } from "@blocknote/core/extensions";
+import { isTableCellSelection } from "@blocknote/core";
+import {
+  filterSuggestionItems,
+  FormattingToolbarExtension,
+  ShowSelectionExtension
+} from "@blocknote/core/extensions";
 import { en } from "@blocknote/core/locales";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import {
   BasicTextStyleButton,
   BlockTypeSelect,
-  CreateLinkButton,
   DeleteLinkButton,
   DragHandleMenu,
-  EditLinkButton,
   FileCaptionButton,
   FileReplaceButton,
   FormattingToolbar,
   FormattingToolbarController,
   getDefaultReactSlashMenuItems,
+  EditLinkMenuItems,
   LinkToolbar,
   LinkToolbarController,
   NestBlockButton,
@@ -23,10 +27,14 @@ import {
   SideMenuController,
   SuggestionMenuController,
   UnnestBlockButton,
+  useBlockNoteEditor,
   useComponentsContext,
-  useCreateBlockNote
+  useCreateBlockNote,
+  useEditorDOMElement,
+  useEditorState,
+  useExtension
 } from "@blocknote/react";
-import { Code2, Link2, PenLine, Search, X } from "lucide-react";
+import { Code2, FileSymlink, Link2, PenLine, Search, X } from "lucide-react";
 import {
   Fragment,
   useCallback,
@@ -38,6 +46,11 @@ import {
   useState
 } from "react";
 import { createPortal } from "react-dom";
+import {
+  buildInlineLinkUrl,
+  isInlineLinkUrl,
+  parseInlineLinkUrl
+} from "../../../../core/inline-link.js";
 import {
   buildInlineReferenceUrl,
   isAllowedMarkdownLink,
@@ -51,6 +64,10 @@ import {
 } from "../../model/focus.js";
 import {
   blocksToMarkdownWithSafeReferences,
+  configuredInlineLinkCollectionNames,
+  configuredInlineLinkCollections,
+  filteredInlineLinkOptions,
+  inlineLinkOptions,
   inlineReferenceCreationConfig,
   inlineReferenceOption,
   inlineReferenceOptions
@@ -72,14 +89,26 @@ function parsedInlineReference(url) {
   }
 }
 
-function isValidEditorLink(url) {
-  return typeof url === "string" && isAllowedMarkdownLink(url);
+function parsedInlineLink(url) {
+  try {
+    return parseInlineLinkUrl(url);
+  } catch {
+    return null;
+  }
 }
 
-function preventInlineReferenceNavigation(event) {
+function isValidEditorLink(url) {
+  return (
+    typeof url === "string" &&
+    (isAllowedMarkdownLink(url) || isInlineLinkUrl(url))
+  );
+}
+
+function preventInternalLinkNavigation(event) {
   const target = event.target;
   const anchor = target instanceof Element ? target.closest("a[href]") : null;
-  if (anchor && parsedInlineReference(anchor.getAttribute("href"))) {
+  const href = anchor?.getAttribute("href");
+  if (href && (parsedInlineReference(href) || parsedInlineLink(href))) {
     event.preventDefault();
   }
 }
@@ -102,6 +131,236 @@ function ReplaceInlineReferenceButton({ onClick }) {
       icon={<Link2 size={14} />}
       onClick={onClick}
     />
+  );
+}
+
+function LinkTypeTabs({ mode, contentEnabled, onChange }) {
+  return (
+    <div
+      className="markdown-link-editor__types"
+      role="group"
+      aria-label="Link type"
+    >
+      <button
+        type="button"
+        aria-pressed={mode === "web"}
+        className={cx(mode === "web" && "is-active")}
+        onClick={() => onChange("web")}
+      >
+        <Link2 size={14} /> Web link
+      </button>
+      {contentEnabled && (
+        <button
+          type="button"
+          aria-pressed={mode === "content"}
+          className={cx(mode === "content" && "is-active")}
+          onClick={() => onChange("content")}
+        >
+          <FileSymlink size={14} /> Content link
+        </button>
+      )}
+    </div>
+  );
+}
+
+function UnifiedCreateLinkButton({ contentEnabled, onContentLink }) {
+  const editor = useBlockNoteEditor();
+  const editorDOMElement = useEditorDOMElement();
+  const Components = useComponentsContext();
+  const formattingToolbar = useExtension(FormattingToolbarExtension);
+  const { showSelection } = useExtension(ShowSelectionExtension);
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState("web");
+  const state = useEditorState({
+    editor,
+    selector: ({ editor: currentEditor }) => {
+      if (
+        !currentEditor.isEditable ||
+        !("link" in currentEditor.schema.inlineContentSchema) ||
+        isTableCellSelection(currentEditor.prosemirrorState.selection) ||
+        !(
+          currentEditor.getSelection()?.blocks || [
+            currentEditor.getTextCursorPosition().block
+          ]
+        ).some((block) => block.content !== undefined)
+      ) {
+        return undefined;
+      }
+      return {
+        range: {
+          from: currentEditor.prosemirrorState.selection.from,
+          to: currentEditor.prosemirrorState.selection.to
+        },
+        text: currentEditor.getSelectedText(),
+        url: currentEditor.getSelectedLinkUrl() || ""
+      };
+    }
+  });
+
+  useEffect(() => {
+    showSelection(open, "minicmsLinkButton");
+    return () => showSelection(false, "minicmsLinkButton");
+  }, [open, showSelection]);
+
+  useEffect(() => {
+    setOpen(false);
+    setMode("web");
+  }, [state]);
+
+  useEffect(() => {
+    if (!contentEnabled && mode === "content") setMode("web");
+  }, [contentEnabled, mode]);
+
+  useEffect(() => {
+    function handleLinkShortcut(event) {
+      if (!state) return;
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key === "k"
+      ) {
+        event.preventDefault();
+        setMode("web");
+        setOpen(true);
+      }
+    }
+    editorDOMElement?.addEventListener("keydown", handleLinkShortcut);
+    return () => {
+      editorDOMElement?.removeEventListener("keydown", handleLinkShortcut);
+    };
+  }, [editorDOMElement, state]);
+
+  if (!Components || !state) return null;
+
+  function setToolbarOpen(nextOpen) {
+    setOpen(nextOpen);
+    formattingToolbar.store.setState(nextOpen);
+  }
+
+  return (
+    <Components.Generic.Popover.Root
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) setMode("web");
+      }}
+    >
+      <Components.Generic.Popover.Trigger>
+        <Components.FormattingToolbar.Button
+          className="bn-button"
+          label="Link"
+          mainTooltip="Link"
+          icon={<Link2 size={14} />}
+          onClick={() => setOpen((current) => !current)}
+        />
+      </Components.Generic.Popover.Trigger>
+      <Components.Generic.Popover.Content
+        className="bn-popover-content bn-form-popover markdown-link-editor"
+        variant="form-popover"
+      >
+        <LinkTypeTabs
+          mode={mode}
+          contentEnabled={contentEnabled}
+          onChange={setMode}
+        />
+        {mode === "web" ? (
+          <EditLinkMenuItems
+            url={state.url}
+            text={state.text}
+            range={state.range}
+            showTextField={false}
+            setToolbarOpen={setToolbarOpen}
+          />
+        ) : (
+          <div className="markdown-link-editor__content">
+            <p>Choose a configured content item. Its stable ID is stored.</p>
+            <button
+              type="button"
+              onClick={() => {
+                setToolbarOpen(false);
+                onContentLink(state.text);
+              }}
+            >
+              <FileSymlink size={14} /> Choose content…
+            </button>
+          </div>
+        )}
+      </Components.Generic.Popover.Content>
+    </Components.Generic.Popover.Root>
+  );
+}
+
+function UnifiedEditLinkButton({
+  buttonLabel = "Edit",
+  contentEnabled,
+  initialMode = "web",
+  onContentLink,
+  range,
+  setToolbarOpen,
+  setToolbarPositionFrozen,
+  text,
+  url
+}) {
+  const Components = useComponentsContext();
+  const startingMode = initialMode === "content" && contentEnabled
+    ? "content"
+    : "web";
+  const [mode, setMode] = useState(startingMode);
+  useEffect(() => {
+    if (!contentEnabled && mode === "content") setMode("web");
+  }, [contentEnabled, mode]);
+  if (!Components) return null;
+  return (
+    <Components.Generic.Popover.Root
+      onOpenChange={(open) => {
+        setToolbarPositionFrozen?.(open);
+        if (open) setMode(startingMode);
+      }}
+    >
+      <Components.Generic.Popover.Trigger>
+        <Components.LinkToolbar.Button
+          className="bn-button"
+          mainTooltip={`${buttonLabel} link`}
+          isSelected={false}
+        >
+          {buttonLabel}
+        </Components.LinkToolbar.Button>
+      </Components.Generic.Popover.Trigger>
+      <Components.Generic.Popover.Content
+        className="bn-popover-content bn-form-popover markdown-link-editor"
+        variant="form-popover"
+      >
+        <LinkTypeTabs
+          mode={mode}
+          contentEnabled={contentEnabled}
+          onChange={setMode}
+        />
+        {mode === "web" ? (
+          <EditLinkMenuItems
+            url={url}
+            text={text}
+            range={range}
+            setToolbarOpen={setToolbarOpen}
+            setToolbarPositionFrozen={setToolbarPositionFrozen}
+          />
+        ) : (
+          <div className="markdown-link-editor__content">
+            <p>Replace this web link with a stable content link.</p>
+            <button
+              type="button"
+              onClick={() => {
+                setToolbarOpen?.(false);
+                setToolbarPositionFrozen?.(false);
+                onContentLink(range.from, text);
+              }}
+            >
+              <FileSymlink size={14} /> Choose content…
+            </button>
+          </div>
+        )}
+      </Components.Generic.Popover.Content>
+    </Components.Generic.Popover.Root>
   );
 }
 
@@ -397,6 +656,183 @@ function InlineReferenceDialog({
   );
 }
 
+function InlineLinkDialog({
+  collections,
+  selectedCollectionName,
+  items,
+  loading,
+  listError,
+  onSelectCollection,
+  onCancel,
+  onChoose
+}) {
+  const [search, setSearch] = useState("");
+  const backdropRef = useRef(null);
+  const dialogRef = useRef(null);
+  const searchRef = useRef(null);
+  const titleId = useId();
+  const collectionId = useId();
+  const selectedCollection = collections.find(
+    (collection) => collection.name === selectedCollectionName
+  );
+  const results = filteredInlineLinkOptions(items, search);
+  const visibleItems = results.items;
+  const singularLabel = selectedCollection?.label_singular || "item";
+
+  useEffect(() => isolateFocusSurface(dialogRef.current), []);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => searchRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [selectedCollectionName]);
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      const backdrops = document.querySelectorAll(".dialog-backdrop");
+      if (backdrops[backdrops.length - 1] !== backdropRef.current) return;
+      if (!dialogRef.current?.contains(event.target)) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onCancel();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = focusableElements(dialogRef.current);
+      if (!focusable.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!dialogRef.current?.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [onCancel]);
+
+  return createPortal(
+    <div
+      ref={backdropRef}
+      className="dialog-backdrop markdown-reference-dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        className="markdown-reference-dialog markdown-link-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-busy={loading}
+      >
+        <header className="markdown-reference-dialog__header">
+          <span className="markdown-reference-dialog__icon" aria-hidden="true">
+            <FileSymlink size={17} />
+          </span>
+          <div>
+            <h2 id={titleId}>Insert content link</h2>
+            <p>Choose an item. The stored link remains stable when it moves.</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close content link picker"
+            onClick={onCancel}
+          >
+            <X size={17} />
+          </button>
+        </header>
+
+        <div className="markdown-link-dialog__controls">
+          {collections.length > 1 && (
+            <div className="markdown-link-dialog__collection">
+              <label htmlFor={collectionId}>Collection</label>
+              <select
+                id={collectionId}
+                value={selectedCollectionName}
+                onChange={(event) => {
+                  setSearch("");
+                  onSelectCollection(event.target.value);
+                }}
+              >
+                {collections.map((collection) => (
+                  <option key={collection.name} value={collection.name}>
+                    {collection.label || collection.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="markdown-reference-dialog__search">
+            <Search size={15} aria-hidden="true" />
+            <label className="visually-hidden" htmlFor={`${titleId}-search`}>
+              Search {selectedCollection?.label || "content"}
+            </label>
+            <input
+              ref={searchRef}
+              id={`${titleId}-search`}
+              type="search"
+              value={search}
+              placeholder={`Search ${String(selectedCollection?.label || "items").toLocaleLowerCase()}…`}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="markdown-reference-dialog__results">
+          {listError ? (
+            <p className="markdown-reference-dialog__message" role="alert">
+              {listError}
+            </p>
+          ) : loading ? (
+            <p className="markdown-reference-dialog__message" role="status">
+              Loading…
+            </p>
+          ) : visibleItems.length ? (
+            <>
+              <ul aria-label={selectedCollection?.label || "Content"}>
+                {visibleItems.map((item) => (
+                  <li key={`${item.recordId}-${item.value}`}>
+                    <button type="button" onClick={() => onChoose(item)}>
+                      <strong>{item.label}</strong>
+                      {item.label !== item.recordId && (
+                        <span>{item.recordId}</span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {results.limited && (
+                <p className="markdown-link-dialog__limit" role="status">
+                  Showing the first 100 of {results.total} matches. Refine your
+                  search to narrow the list.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="markdown-reference-dialog__message" role="status">
+              No matching {singularLabel.toLocaleLowerCase()}.
+            </p>
+          )}
+        </div>
+      </section>
+    </div>,
+    document.body
+  );
+}
+
 function MarkdownField({
   id,
   label,
@@ -423,9 +859,26 @@ function MarkdownField({
   const [referenceCreationDate, setReferenceCreationDate] = useState(
     () => new Date()
   );
+  const [linkPicker, setLinkPicker] = useState(null);
+  const [linkCollectionName, setLinkCollectionName] = useState("");
+  const [linkItems, setLinkItems] = useState([]);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkListError, setLinkListError] = useState("");
+  const linkLoadVersion = useRef(0);
   const applyingExternalMarkdown = useRef(false);
   const onChangeRef = useRef(onChange);
   const inlineReference = blocknote?.inline_reference;
+  const internalLinkCollections = useMemo(
+    () => configuredInlineLinkCollections(blocknote, collections),
+    [blocknote, collections]
+  );
+  const configuredInternalLinkCollectionNames = useMemo(
+    () => configuredInlineLinkCollectionNames(blocknote),
+    [blocknote]
+  );
+  const linkCollection = internalLinkCollections.find(
+    (collection) => collection.name === linkCollectionName
+  );
   const targetCollection = collections.find(
     (collection) => collection.name === inlineReference?.collection
   );
@@ -488,6 +941,10 @@ function MarkdownField({
       inlineReference?.preview_field
     );
   }, [inlineReference?.preview_field, referenceItems, targetCollection]);
+  const linkOptions = useMemo(
+    () => inlineLinkOptions(linkItems, linkCollection),
+    [linkCollection, linkItems]
+  );
 
   useEffect(() => {
     if (!referencePicker) return undefined;
@@ -529,6 +986,38 @@ function MarkdownField({
     Boolean(referencePicker),
     targetCollection?.name
   ]);
+
+  useEffect(() => {
+    if (!linkPicker || !linkCollection) return undefined;
+    const loadVersion = linkLoadVersion.current + 1;
+    linkLoadVersion.current = loadVersion;
+    setLinkItems([]);
+    setLinkListError("");
+    let cancelled = false;
+    setLinkLoading(true);
+    adapter
+      .list(linkCollection.name)
+      .then((result) => {
+        if (!cancelled && linkLoadVersion.current === loadVersion) {
+          setLinkItems(Array.isArray(result?.items) ? result.items : []);
+        }
+      })
+      .catch((loadError) => {
+        if (!cancelled && linkLoadVersion.current === loadVersion) {
+          setLinkListError(
+            loadError?.message || "The linked collection could not be loaded."
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled && linkLoadVersion.current === loadVersion) {
+          setLinkLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [adapter, Boolean(linkPicker), linkCollection?.name]);
 
   const openReferencePicker = useCallback((editPosition = null) => {
     if (readOnly || !inlineReference?.collection) return;
@@ -651,6 +1140,73 @@ function MarkdownField({
     targetCollection
   ]);
 
+  const openLinkPicker = useCallback((
+    editPosition = null,
+    collection = "",
+    text = ""
+  ) => {
+    if (
+      readOnly ||
+      !internalLinkCollections.length ||
+      (collection &&
+        !configuredInternalLinkCollectionNames.includes(collection))
+    ) {
+      return;
+    }
+    const selectedCollection = internalLinkCollections.some(
+      (item) => item.name === collection
+    )
+      ? collection
+      : internalLinkCollections[0].name;
+    setLinkCollectionName(selectedCollection);
+    setLinkPicker({
+      editPosition,
+      text: text || editor.getSelectedText(),
+      returnFocus:
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null
+    });
+    setLinkListError("");
+  }, [
+    configuredInternalLinkCollectionNames,
+    editor,
+    internalLinkCollections,
+    readOnly
+  ]);
+
+  const closeLinkPicker = useCallback(() => {
+    const returnFocus = linkPicker?.returnFocus;
+    linkLoadVersion.current += 1;
+    setLinkPicker(null);
+    setLinkItems([]);
+    setLinkLoading(false);
+    requestAnimationFrame(() => {
+      if (returnFocus?.isConnected) returnFocus.focus();
+      else editor.focus();
+    });
+  }, [editor, linkPicker]);
+
+  const selectLinkCollection = useCallback((collectionName) => {
+    linkLoadVersion.current += 1;
+    setLinkItems([]);
+    setLinkListError("");
+    setLinkLoading(true);
+    setLinkCollectionName(collectionName);
+  }, []);
+
+  const chooseLink = useCallback((option) => {
+    if (!linkCollection || !linkPicker) return;
+    const url = buildInlineLinkUrl(linkCollection.name, option.value);
+    const text = linkPicker.text || option.label;
+    if (Number.isFinite(linkPicker.editPosition)) {
+      editor.editLink(url, text, linkPicker.editPosition);
+    } else {
+      editor.createLink(url, text);
+    }
+    closeLinkPicker();
+  }, [closeLinkPicker, editor, linkCollection, linkPicker]);
+
   useLayoutEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
@@ -745,8 +1301,8 @@ function MarkdownField({
         ) : (
           <div
             className="markdown-field__editor"
-            onClickCapture={preventInlineReferenceNavigation}
-            onAuxClickCapture={preventInlineReferenceNavigation}
+            onClickCapture={preventInternalLinkNavigation}
+            onAuxClickCapture={preventInternalLinkNavigation}
           >
             <BlockNoteView
               editable={!readOnly}
@@ -776,13 +1332,19 @@ function MarkdownField({
                     <BasicTextStyleButton basicTextStyle="code" />
                     <NestBlockButton />
                     <UnnestBlockButton />
-                    <CreateLinkButton />
+                    <UnifiedCreateLinkButton
+                      contentEnabled={internalLinkCollections.length > 0}
+                      onContentLink={(text) =>
+                        openLinkPicker(null, "", text)
+                      }
+                    />
                   </FormattingToolbar>
                 )}
               />
               <LinkToolbarController
                 linkToolbar={(props) => {
                   const internalReference = parsedInlineReference(props.url);
+                  const internalLink = parsedInlineLink(props.url);
                   return (
                     <LinkToolbar {...props}>
                       {internalReference ? (
@@ -794,10 +1356,40 @@ function MarkdownField({
                             }}
                           />
                         )
+                      ) : internalLink ? (
+                        !readOnly && (
+                          <UnifiedEditLinkButton
+                            buttonLabel="Replace"
+                            contentEnabled={internalLinkCollections.length > 0}
+                            initialMode="content"
+                            onContentLink={(position, text) =>
+                              openLinkPicker(
+                                position,
+                                configuredInternalLinkCollectionNames.includes(
+                                  internalLink.collection
+                                )
+                                  ? internalLink.collection
+                                  : "",
+                                text
+                              )
+                            }
+                            range={props.range}
+                            setToolbarOpen={props.setToolbarOpen}
+                            setToolbarPositionFrozen={
+                              props.setToolbarPositionFrozen
+                            }
+                            text={props.text}
+                            url={props.url}
+                          />
+                        )
                       ) : (
                         <>
                           {!readOnly && (
-                            <EditLinkButton
+                            <UnifiedEditLinkButton
+                              contentEnabled={internalLinkCollections.length > 0}
+                              onContentLink={(position, text) =>
+                                openLinkPicker(position, "", text)
+                              }
                               range={props.range}
                               setToolbarOpen={props.setToolbarOpen}
                               setToolbarPositionFrozen={
@@ -878,6 +1470,18 @@ function MarkdownField({
           onChoose={chooseReference}
           onStartCreate={startReferenceCreation}
           onStore={storeReference}
+        />
+      )}
+      {linkPicker && (
+        <InlineLinkDialog
+          collections={internalLinkCollections}
+          selectedCollectionName={linkCollectionName}
+          items={linkOptions}
+          loading={linkLoading}
+          listError={linkListError}
+          onSelectCollection={selectLinkCollection}
+          onCancel={closeLinkPicker}
+          onChoose={chooseLink}
         />
       )}
     </div>

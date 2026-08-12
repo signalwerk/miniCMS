@@ -95,6 +95,14 @@ const SLUG_TEMPLATE_FIELD_WIDGETS = new Set([
   "id",
   "uuid"
 ]);
+const INTERNAL_LINK_VALUE_WIDGETS = new Set([
+  "string",
+  "text",
+  "url",
+  "markdown",
+  "datetime",
+  "id"
+]);
 const INLINE_REFERENCE_PREVIEW_WIDGETS = new Set([
   ...INLINE_REFERENCE_VALUE_WIDGETS,
   "boolean",
@@ -161,6 +169,39 @@ function isWebUrl(value) {
 
 function selectOptionValue(option) {
   return isMapping(option) ? option.value : option;
+}
+
+function isInternalLinkValueField(field) {
+  if (INTERNAL_LINK_VALUE_WIDGETS.has(field?.widget)) return true;
+  return (
+    field?.widget === "select" &&
+    Array.isArray(field.options) &&
+    field.options.every(
+      (option) => typeof selectOptionValue(option) === "string"
+    )
+  );
+}
+
+function internalLinkCollectionValueError(config, collectionName) {
+  const collection = config.collections?.[collectionName];
+  if (!collection) return `unknown collection "${collectionName}"`;
+  const valueField = collection.views?.reference?.value || "id";
+  if (["id", "$id"].includes(valueField)) return null;
+  const typeNames = new Set([
+    collection.node_type,
+    ...(collection.allowed_types ?? [])
+  ]);
+  for (const typeName of typeNames) {
+    const field = config.node_types?.[typeName]?.fields?.[valueField];
+    if (!isInternalLinkValueField(field)) {
+      return `collection "${collectionName}" value field "${valueField}" must store strings for allowed node type "${typeName}"`;
+    }
+  }
+  return null;
+}
+
+function isInternalLinkCollectionCompatible(config, collectionName) {
+  return internalLinkCollectionValueError(config, collectionName) === null;
 }
 
 function validateSlotDefaultPropertyValue(field, value) {
@@ -1006,6 +1047,36 @@ function validateConfig(config, status = 500, { source = false } = {}) {
             );
           }
         }
+        const internalLinks = field.blocknote.internal_links;
+        if (internalLinks !== undefined) {
+          if (!isMapping(internalLinks)) {
+            fail(
+              `Markdown field "${typeName}.${fieldName}" blocknote.internal_links must be a mapping.`
+            );
+          }
+          if (
+            !Array.isArray(internalLinks.collections) ||
+            !internalLinks.collections.length
+          ) {
+            fail(
+              `Markdown field "${typeName}.${fieldName}" internal links must define at least one collection.`
+            );
+          }
+          const seenInternalLinkCollections = new Set();
+          for (const collectionName of internalLinks.collections ?? []) {
+            if (typeof collectionName !== "string" || !collectionName.trim()) {
+              fail(
+                `Markdown field "${typeName}.${fieldName}" internal link collections must contain non-empty collection names.`
+              );
+            }
+            if (seenInternalLinkCollections.has(collectionName)) {
+              fail(
+                `Markdown field "${typeName}.${fieldName}" internal links repeat collection "${collectionName}".`
+              );
+            }
+            seenInternalLinkCollections.add(collectionName);
+          }
+        }
       }
       if (field.widget !== "reference" && field.selections !== undefined) {
         fail(
@@ -1590,6 +1661,29 @@ function validateConfig(config, status = 500, { source = false } = {}) {
           }
         }
       }
+      const internalLinks = field.blocknote?.internal_links;
+      if (internalLinks) {
+        for (const collectionName of internalLinks.collections) {
+          const targetCollection = config.collections[collectionName];
+          if (!targetCollection) {
+            fail(
+              `Node type "${typeName}" markdown field "${fieldName}" internal links use unknown collection "${collectionName}".`
+            );
+          }
+          if (source && Object.hasOwn(targetCollection, "remote_collection")) {
+            continue;
+          }
+          const compatibilityError = internalLinkCollectionValueError(
+            config,
+            collectionName
+          );
+          if (compatibilityError) {
+            fail(
+              `Node type "${typeName}" markdown field "${fieldName}" internal link ${compatibilityError}.`
+            );
+          }
+        }
+      }
       if (!["reference", "tags"].includes(field.widget)) continue;
       const fieldKind = field.widget === "tags" ? "tags" : "reference";
       if (!config.collections[field.collection]) {
@@ -1964,6 +2058,7 @@ export {
   contentError,
   dumpYaml,
   hierarchyValue,
+  isInternalLinkCollectionCompatible,
   normalizeRepositoryPath,
   parseYaml,
   summarizeRecord,

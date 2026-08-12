@@ -357,6 +357,10 @@ node_types:
         label: Text
         widget: markdown
         required: true
+        blocknote:
+          internal_links:
+            collections:
+              - pages
       hidden:
         label: Hide content
         widget: boolean

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   dumpYaml,
+  isInternalLinkCollectionCompatible,
   parseYaml,
   summarizeRecord,
   validateConfig,
@@ -943,6 +944,116 @@ test("validates markdown BlockNote inline reference configuration", () => {
   assert.throws(
     () => validateConfig(numericValueField, 400),
     /inline reference value field "sequence" must store text/
+  );
+});
+
+test("validates configurable Markdown internal-link collections", () => {
+  const config = fixtureConfig();
+  config.collections.articles = {
+    folder: "content/articles",
+    node_type: "page"
+  };
+  config.node_types.page.fields.body = {
+    widget: "markdown",
+    blocknote: {
+      internal_links: {
+        collections: ["pages", "articles"]
+      }
+    }
+  };
+
+  assert.deepEqual(
+    validateConfig(config).node_types.page.fields.body.blocknote.internal_links,
+    { collections: ["pages", "articles"] }
+  );
+  assert.match(dumpYaml(validateConfig(config)), /internal_links:/);
+
+  const notMapping = structuredClone(config);
+  notMapping.node_types.page.fields.body.blocknote.internal_links = [];
+  assert.throws(
+    () => validateConfig(notMapping, 400),
+    /internal_links must be a mapping/
+  );
+
+  const empty = structuredClone(config);
+  empty.node_types.page.fields.body.blocknote.internal_links.collections = [];
+  assert.throws(
+    () => validateConfig(empty, 400),
+    /must define at least one collection/
+  );
+
+  const duplicate = structuredClone(config);
+  duplicate.node_types.page.fields.body.blocknote.internal_links.collections = [
+    "pages",
+    "pages"
+  ];
+  assert.throws(
+    () => validateConfig(duplicate, 400),
+    /repeat collection "pages"/
+  );
+
+  const unknown = structuredClone(config);
+  unknown.node_types.page.fields.body.blocknote.internal_links.collections = [
+    "missing"
+  ];
+  assert.throws(
+    () => validateConfig(unknown, 400),
+    /internal links use unknown collection "missing"/
+  );
+
+  const numericValue = structuredClone(config);
+  numericValue.node_types.page.fields.sequence = { widget: "number" };
+  numericValue.collections.pages.views = {
+    reference: { value: "sequence" }
+  };
+  assert.throws(
+    () => validateConfig(numericValue, 400),
+    /internal link collection "pages" value field "sequence" must store strings for allowed node type "page"/
+  );
+
+  const stringSelect = structuredClone(config);
+  stringSelect.node_types.page.fields.link_id = {
+    widget: "select",
+    options: ["first", { label: "Second", value: "second" }]
+  };
+  stringSelect.collections.pages.views = {
+    reference: { value: "link_id" }
+  };
+  assert.equal(
+    isInternalLinkCollectionCompatible(stringSelect, "pages"),
+    true
+  );
+  assert.doesNotThrow(() => validateConfig(stringSelect, 400));
+
+  for (const invalidOption of [2, true]) {
+    const mixedSelect = structuredClone(stringSelect);
+    mixedSelect.node_types.page.fields.link_id.options.push(invalidOption);
+    assert.equal(
+      isInternalLinkCollectionCompatible(mixedSelect, "pages"),
+      false
+    );
+    assert.throws(
+      () => validateConfig(mixedSelect, 400),
+      /must store strings for allowed node type "page"/
+    );
+  }
+
+  const heterogeneous = structuredClone(config);
+  heterogeneous.node_types.page.fields.link_id = { widget: "string" };
+  heterogeneous.node_types.shortcut = {
+    fields: { link_id: { widget: "number" } }
+  };
+  heterogeneous.collections.pages.allowed_types = ["page", "shortcut"];
+  heterogeneous.collections.pages.views = {
+    reference: { value: "link_id" }
+  };
+  assert.equal(
+    isInternalLinkCollectionCompatible(heterogeneous, "pages"),
+    false
+  );
+  assert.throws(
+    () => validateConfig(heterogeneous, 400),
+    /must store strings for allowed node type "shortcut"/
   );
 });
 

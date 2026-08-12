@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildInlineLinkUrl,
   buildInlineReferenceUrl,
   createContentAdapter,
+  inlineLinkOccurrencesInMarkdown,
   inlineReferenceOccurrencesInMarkdown
 } from "./index.js";
 
@@ -103,6 +105,21 @@ test("exports the inline-reference occurrence scanner", () => {
   assert.deepEqual(
     inlineReferenceOccurrencesInMarkdown(`[source](${href})`),
     [{ href, collection: "sources", ref: "source-id", offset: 0 }]
+  );
+});
+
+test("exports the internal content-link occurrence scanner", () => {
+  const href = buildInlineLinkUrl("pages", "aaaaaaaaaaaaaaa");
+  assert.deepEqual(
+    inlineLinkOccurrencesInMarkdown(`[page](${href})`),
+    [
+      {
+        href,
+        collection: "pages",
+        ref: "aaaaaaaaaaaaaaa",
+        offset: 0
+      }
+    ]
   );
 });
 
@@ -532,11 +549,580 @@ test("resolves configured inline Markdown references without changing storage", 
     ref: "ccccccccccccccc",
     record: null
   });
+  assert.deepEqual(resolved.links, {});
   assert.equal(data.item.properties.plain, fixture.article.properties.plain);
   assert.equal(counters.list.get("sources"), 2);
   assert.equal(counters.get.get("sources:first-source"), 1);
   assert.deepEqual(fixture.article, originalArticle);
   assert.deepEqual(fixture.firstSource, originalSource);
+});
+
+test("resolves configured internal Markdown links with hierarchy ancestors", async () => {
+  const linkConfig = {
+    node_types: {
+      article: {
+        fields: {
+          body: {
+            widget: "markdown",
+            blocknote: { internal_links: { collections: ["pages"] } }
+          }
+        }
+      },
+      page: {
+        fields: {
+          content_id: { widget: "id" },
+          parent_id: { widget: "string" },
+          title: { widget: "string" }
+        }
+      }
+    },
+    collections: {
+      articles: { folder: "content/articles", node_type: "article" },
+      pages: {
+        folder: "content/pages",
+        node_type: "page",
+        hierarchy: {
+          enabled: true,
+          id_field: "content_id",
+          parent_field: "parent_id"
+        },
+        views: { reference: { value: "content_id", title: "title" } }
+      }
+    }
+  };
+  const href = buildInlineLinkUrl("pages", "ccccccccccccccc");
+  const records = {
+    articles: [{
+      id: "article",
+      type: "article",
+      order: 0,
+      properties: { body: `Read [Target](${href}).` },
+      slots: {}
+    }],
+    pages: [
+      {
+        id: "root-file",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "aaaaaaaaaaaaaaa",
+          parent_id: "",
+          title: "Root"
+        },
+        slots: {}
+      },
+      {
+        id: "section-file",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "bbbbbbbbbbbbbbb",
+          parent_id: "aaaaaaaaaaaaaaa",
+          title: "Section"
+        },
+        slots: {}
+      },
+      {
+        id: "target-file",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "ccccccccccccccc",
+          parent_id: "bbbbbbbbbbbbbbb",
+          title: "Target"
+        },
+        slots: {}
+      }
+    ]
+  };
+  const { adapter } = sourceAdapter(records, { config: linkConfig });
+
+  const resolved = (await adapter.get("articles", "article")).item.properties.body;
+  assert.equal(resolved.markdown, records.articles[0].properties.body);
+  assert.deepEqual(resolved.references, {});
+  assert.equal(resolved.links[href].collection, "pages");
+  assert.equal(resolved.links[href].ref, "ccccccccccccccc");
+  assert.equal(resolved.links[href].record.properties.title, "Target");
+  assert.deepEqual(
+    resolved.links[href].ancestors.map((record) => record.properties.title),
+    ["Root", "Section"]
+  );
+});
+
+test("keeps missing and cyclic internal Markdown link ancestry safe", async () => {
+  const linkConfig = {
+    node_types: {
+      article: {
+        fields: {
+          body: {
+            widget: "markdown",
+            blocknote: { internal_links: { collections: ["pages"] } }
+          }
+        }
+      },
+      page: {
+        fields: {
+          content_id: { widget: "id" },
+          parent_id: { widget: "string" },
+          title: { widget: "string" }
+        }
+      }
+    },
+    collections: {
+      articles: { folder: "content/articles", node_type: "article" },
+      pages: {
+        folder: "content/pages",
+        node_type: "page",
+        hierarchy: {
+          enabled: true,
+          id_field: "content_id",
+          parent_field: "parent_id"
+        },
+        views: { reference: { value: "content_id", title: "title" } }
+      }
+    }
+  };
+  const cycleHref = buildInlineLinkUrl("pages", "aaaaaaaaaaaaaaa");
+  const missingHref = buildInlineLinkUrl("pages", "ccccccccccccccc");
+  const brokenHref = buildInlineLinkUrl("pages", "ddddddddddddddd");
+  const records = {
+    articles: [{
+      id: "article",
+      type: "article",
+      order: 0,
+      properties: {
+        body: `[Cycle](${cycleHref}) [Missing](${missingHref}) [Broken](${brokenHref})`
+      },
+      slots: {}
+    }],
+    pages: [
+      {
+        id: "first",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "aaaaaaaaaaaaaaa",
+          parent_id: "bbbbbbbbbbbbbbb",
+          title: "First"
+        },
+        slots: {}
+      },
+      {
+        id: "second",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "bbbbbbbbbbbbbbb",
+          parent_id: "aaaaaaaaaaaaaaa",
+          title: "Second"
+        },
+        slots: {}
+      },
+      {
+        id: "broken",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "ddddddddddddddd",
+          parent_id: "eeeeeeeeeeeeeee",
+          title: "Broken"
+        },
+        slots: {}
+      }
+    ]
+  };
+  const { adapter } = sourceAdapter(records, { config: linkConfig });
+  const resolved = (await adapter.get("articles", "article")).item.properties.body;
+
+  assert.equal(resolved.links[cycleHref].record, null);
+  assert.deepEqual(resolved.links[cycleHref].ancestors, []);
+  assert.deepEqual(resolved.links[missingHref], {
+    collection: "pages",
+    ref: "ccccccccccccccc",
+    record: null,
+    ancestors: []
+  });
+  assert.deepEqual(resolved.links[brokenHref], {
+    collection: "pages",
+    ref: "ddddddddddddddd",
+    record: null,
+    ancestors: []
+  });
+});
+
+test("resolves a current page link to its descendant without a false hierarchy cycle", async () => {
+  const linkConfig = {
+    node_types: {
+      page: {
+        fields: {
+          content_id: { widget: "id" },
+          parent_id: { widget: "string" },
+          title: { widget: "string" },
+          body: {
+            widget: "markdown",
+            blocknote: { internal_links: { collections: ["pages"] } }
+          }
+        }
+      }
+    },
+    collections: {
+      pages: {
+        folder: "content/pages",
+        node_type: "page",
+        hierarchy: {
+          enabled: true,
+          id_field: "content_id",
+          parent_field: "parent_id"
+        },
+        views: { reference: { value: "content_id", title: "title" } }
+      }
+    }
+  };
+  const childHref = buildInlineLinkUrl("pages", "bbbbbbbbbbbbbbb");
+  const records = {
+    pages: [
+      {
+        id: "root-file",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "aaaaaaaaaaaaaaa",
+          parent_id: "",
+          title: "Root",
+          body: `[Child](${childHref})`
+        },
+        slots: {}
+      },
+      {
+        id: "child-file",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "bbbbbbbbbbbbbbb",
+          parent_id: "aaaaaaaaaaaaaaa",
+          title: "Child",
+          body: ""
+        },
+        slots: {}
+      }
+    ]
+  };
+  const { adapter } = sourceAdapter(records, { config: linkConfig });
+  const resolved = (await adapter.get("pages", "root-file")).item.properties.body;
+
+  assert.equal(resolved.links[childHref].record.properties.title, "Child");
+  assert.deepEqual(
+    resolved.links[childHref].ancestors.map((record) => record.properties.title),
+    ["Root"]
+  );
+  assert.equal(
+    resolved.links[childHref].ancestors[0].properties.body,
+    records.pages[0].properties.body
+  );
+});
+
+test("resolves a hierarchical page self-link with its route ancestors", async () => {
+  const selfHref = buildInlineLinkUrl("pages", "bbbbbbbbbbbbbbb");
+  const linkConfig = {
+    node_types: {
+      page: {
+        fields: {
+          content_id: { widget: "id" },
+          parent_id: { widget: "string" },
+          title: { widget: "string" },
+          body: {
+            widget: "markdown",
+            blocknote: { internal_links: { collections: ["pages"] } }
+          }
+        }
+      }
+    },
+    collections: {
+      pages: {
+        folder: "content/pages",
+        node_type: "page",
+        hierarchy: {
+          enabled: true,
+          id_field: "content_id",
+          parent_field: "parent_id"
+        },
+        views: { reference: { value: "content_id", title: "title" } }
+      }
+    }
+  };
+  const records = {
+    pages: [
+      {
+        id: "root-file",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "aaaaaaaaaaaaaaa",
+          parent_id: "",
+          title: "Root",
+          body: ""
+        },
+        slots: {}
+      },
+      {
+        id: "child-file",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "bbbbbbbbbbbbbbb",
+          parent_id: "aaaaaaaaaaaaaaa",
+          title: "Child",
+          body: `[Self](${selfHref})`
+        },
+        slots: {}
+      }
+    ]
+  };
+  const { adapter } = sourceAdapter(records, { config: linkConfig });
+  const link = (await adapter.get("pages", "child-file")).item.properties.body
+    .links[selfHref];
+
+  assert.equal(link.record.id, "child-file");
+  assert.equal(link.record.properties.title, "Child");
+  assert.equal(link.record.properties.body, records.pages[1].properties.body);
+  assert.deepEqual(
+    link.ancestors.map((record) => record.properties.title),
+    ["Root"]
+  );
+});
+
+test("resolves a flat collection self-link", async () => {
+  const selfHref = buildInlineLinkUrl("articles", "article");
+  const linkConfig = {
+    node_types: {
+      article: {
+        fields: {
+          title: { widget: "string" },
+          body: {
+            widget: "markdown",
+            blocknote: { internal_links: { collections: ["articles"] } }
+          }
+        }
+      }
+    },
+    collections: {
+      articles: { folder: "content/articles", node_type: "article" }
+    }
+  };
+  const records = {
+    articles: [
+      {
+        id: "article",
+        type: "article",
+        order: 0,
+        properties: {
+          title: "Article",
+          body: `[Self](${selfHref})`
+        },
+        slots: {}
+      }
+    ]
+  };
+  const { adapter } = sourceAdapter(records, { config: linkConfig });
+  const link = (await adapter.get("articles", "article")).item.properties.body
+    .links[selfHref];
+
+  assert.equal(link.record.id, "article");
+  assert.equal(link.record.properties.body, records.articles[0].properties.body);
+  assert.deepEqual(link.ancestors, []);
+});
+
+test("overlays an unsaved self move in the link target and ancestor path", async () => {
+  const selfHref = buildInlineLinkUrl("pages", "ccccccccccccccc");
+  const linkConfig = {
+    node_types: {
+      page: {
+        fields: {
+          content_id: { widget: "id" },
+          parent_id: { widget: "string" },
+          slug: { widget: "string" },
+          title: { widget: "string" },
+          body: {
+            widget: "markdown",
+            blocknote: { internal_links: { collections: ["pages"] } }
+          }
+        }
+      }
+    },
+    collections: {
+      pages: {
+        folder: "content/pages",
+        node_type: "page",
+        hierarchy: {
+          enabled: true,
+          id_field: "content_id",
+          parent_field: "parent_id"
+        },
+        views: { reference: { value: "content_id", title: "title" } }
+      }
+    }
+  };
+  const records = {
+    pages: [
+      {
+        id: "old-parent",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "aaaaaaaaaaaaaaa",
+          parent_id: "",
+          slug: "old-parent",
+          title: "Old parent",
+          body: ""
+        },
+        slots: {}
+      },
+      {
+        id: "new-parent",
+        type: "page",
+        order: 1,
+        properties: {
+          content_id: "bbbbbbbbbbbbbbb",
+          parent_id: "",
+          slug: "new-parent",
+          title: "New parent",
+          body: ""
+        },
+        slots: {}
+      },
+      {
+        id: "moving-page",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "ccccccccccccccc",
+          parent_id: "aaaaaaaaaaaaaaa",
+          slug: "saved-slug",
+          title: "Moving page",
+          body: `[Self](${selfHref})`
+        },
+        slots: {}
+      }
+    ]
+  };
+  const draft = structuredClone(records.pages[2]);
+  draft.properties.parent_id = "bbbbbbbbbbbbbbb";
+  draft.properties.slug = "draft-slug";
+  const { adapter } = sourceAdapter(records, { config: linkConfig });
+  const link = (await adapter.get("pages", draft)).item.properties.body
+    .links[selfHref];
+
+  assert.equal(link.record.properties.slug, "draft-slug");
+  assert.deepEqual(
+    link.ancestors.map((record) => record.properties.title),
+    ["New parent"]
+  );
+});
+
+test("overlays a moved current ancestor while resolving its descendant link", async () => {
+  const descendantHref = buildInlineLinkUrl("pages", "ddddddddddddddd");
+  const linkConfig = {
+    node_types: {
+      page: {
+        fields: {
+          content_id: { widget: "id" },
+          parent_id: { widget: "string" },
+          slug: { widget: "string" },
+          title: { widget: "string" },
+          body: {
+            widget: "markdown",
+            blocknote: { internal_links: { collections: ["pages"] } }
+          }
+        }
+      }
+    },
+    collections: {
+      pages: {
+        folder: "content/pages",
+        node_type: "page",
+        hierarchy: {
+          enabled: true,
+          id_field: "content_id",
+          parent_field: "parent_id"
+        },
+        views: { reference: { value: "content_id", title: "title" } }
+      }
+    }
+  };
+  const records = {
+    pages: [
+      {
+        id: "old-root",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "aaaaaaaaaaaaaaa",
+          parent_id: "",
+          slug: "old-root",
+          title: "Old root",
+          body: ""
+        },
+        slots: {}
+      },
+      {
+        id: "new-root",
+        type: "page",
+        order: 1,
+        properties: {
+          content_id: "bbbbbbbbbbbbbbb",
+          parent_id: "",
+          slug: "new-root",
+          title: "New root",
+          body: ""
+        },
+        slots: {}
+      },
+      {
+        id: "moving-parent",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "ccccccccccccccc",
+          parent_id: "aaaaaaaaaaaaaaa",
+          slug: "saved-parent",
+          title: "Moving parent",
+          body: `[Descendant](${descendantHref})`
+        },
+        slots: {}
+      },
+      {
+        id: "descendant",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "ddddddddddddddd",
+          parent_id: "ccccccccccccccc",
+          slug: "descendant",
+          title: "Descendant",
+          body: ""
+        },
+        slots: {}
+      }
+    ]
+  };
+  const draft = structuredClone(records.pages[2]);
+  draft.properties.parent_id = "bbbbbbbbbbbbbbb";
+  draft.properties.slug = "draft-parent";
+  const { adapter } = sourceAdapter(records, { config: linkConfig });
+  const link = (await adapter.get("pages", draft)).item.properties.body
+    .links[descendantHref];
+
+  assert.equal(link.record.properties.title, "Descendant");
+  assert.deepEqual(
+    link.ancestors.map((record) => [
+      record.properties.title,
+      record.properties.slug
+    ]),
+    [
+      ["New root", "new-root"],
+      ["Moving parent", "draft-parent"]
+    ]
+  );
 });
 
 test("resolves inline references independently for each unsaved Markdown draft", async () => {
@@ -894,12 +1480,17 @@ test("publishes one project-facing content entry", async () => {
   const content = await import("@signalwerk/minicms/content");
 
   assert.deepEqual(Object.keys(content), [
+    "INLINE_LINK_PREFIX",
     "INLINE_REFERENCE_PREFIX",
+    "buildInlineLinkUrl",
     "buildInlineReferenceUrl",
     "createContentAdapter",
+    "inlineLinkOccurrencesInMarkdown",
     "inlineReferenceOccurrencesInMarkdown",
     "isAllowedMarkdownLink",
+    "isInlineLinkUrl",
     "isInlineReferenceUrl",
+    "parseInlineLinkUrl",
     "parseInlineReferenceUrl",
     "prependImageServiceOperations"
   ]);

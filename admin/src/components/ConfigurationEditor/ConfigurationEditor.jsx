@@ -58,7 +58,9 @@ import {
   createSchemaOperations,
   deleteSchemaEntryOperation,
   duplicateSchemaEntry,
+  internalLinkCollectionEntries,
   markSchemaEntryFresh,
+  reconcileMarkdownInternalLinks,
   reconcileSlotDefaultTemplates,
   renameSchemaEntry,
   schemaRenameError
@@ -405,9 +407,10 @@ function setOptional(target, key, value) {
   else target[key] = value;
 }
 
-function Switch({ checked, onChange, label }) {
+function Switch({ checked, onChange, label, ...props }) {
   return (
     <button
+      {...props}
       type="button"
       className={cx("switch", checked && "switch--on")}
       role="switch"
@@ -2027,6 +2030,13 @@ function FieldEditor({
     );
   const conditionField = fields[field.visible_when?.field];
   const inlineReference = field.blocknote?.inline_reference;
+  const internalLinks = field.blocknote?.internal_links;
+  const internalLinkCollectionOptions = internalLinkCollectionEntries({
+    collections,
+    node_types: nodeTypes
+  }).map(
+    ([key, collection]) => [key, collection.label || key]
+  );
   const inlineReferenceCollection = collections[inlineReference?.collection];
   const inlineReferenceFields = Object.entries(
     nodeTypes[inlineReferenceCollection?.node_type]?.fields ?? {}
@@ -2197,6 +2207,51 @@ function FieldEditor({
       )}
       {widget === "markdown" && (
         <div className="configuration-options">
+          <div className="configuration-inline-setting">
+            <span>
+              <strong>Internal content links</strong>
+            </span>
+            <Switch
+              checked={Boolean(internalLinks)}
+              disabled={!internalLinkCollectionOptions.length}
+              label={`${field.label || fieldKey} internal content links`}
+              onChange={(checked) => onChange((nextField) => {
+                if (!checked) {
+                  delete nextField.blocknote?.internal_links;
+                  if (!Object.keys(nextField.blocknote ?? {}).length) {
+                    delete nextField.blocknote;
+                  }
+                  return;
+                }
+                const firstCollection = internalLinkCollectionOptions[0]?.[0];
+                if (!firstCollection) return;
+                nextField.blocknote ??= {};
+                nextField.blocknote.internal_links = {
+                  collections: [firstCollection]
+                };
+              })}
+            />
+          </div>
+          {internalLinks && (
+            <FormField label="Linkable collections">
+              <MultiChoice
+                options={internalLinkCollectionOptions}
+                value={internalLinks.collections ?? []}
+                onChange={(value) => onChange((nextField) => {
+                  if (value.length) {
+                    nextField.blocknote.internal_links.collections = [
+                      ...new Set(value)
+                    ];
+                    return;
+                  }
+                  delete nextField.blocknote.internal_links;
+                  if (!Object.keys(nextField.blocknote).length) {
+                    delete nextField.blocknote;
+                  }
+                })}
+              />
+            </FormField>
+          )}
           <div className="configuration-inline-setting">
             <span>
               <strong>Inline collection references</strong>
@@ -4754,6 +4809,7 @@ export default function ConfigurationEditor({
       next.collections ??= {};
       next.node_types ??= {};
       change(next);
+      reconcileMarkdownInternalLinks(next);
       reconcileSlotDefaultTemplates(next);
       return next;
     });
@@ -5090,15 +5146,24 @@ export default function ConfigurationEditor({
             field.blocknote?.inline_reference?.collection === collectionKey)
       )
     );
+    const internalLinkUse = typeEntries.find(([, type]) =>
+      Object.values(type.fields ?? {}).some(
+        (field) =>
+          field.widget === "markdown" &&
+          field.blocknote?.internal_links?.collections?.includes(collectionKey)
+      )
+    );
     const referenceSetUse = Object.entries(
       draft.site?.reference_sets ?? {}
     ).find(([, referenceSet]) =>
       referenceSet.collections?.includes(collectionKey)
     );
-    if (referenceUse || referenceSetUse) {
+    if (referenceUse || internalLinkUse || referenceSetUse) {
       setError(
         referenceUse
           ? `This collection is used by ${referenceUse[1].label || referenceUse[0]}. Remove that relation field first.`
+          : internalLinkUse
+            ? `This collection is available for internal links in ${internalLinkUse[1].label || internalLinkUse[0]}. Remove that connection first.`
           : `This collection is used by the ${referenceSetUse[1].label || referenceSetUse[0]} reference set. Remove that connection first.`
       );
       return;

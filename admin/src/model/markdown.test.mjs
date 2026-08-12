@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { markdownToHTML } from "@blocknote/core";
+import { buildInlineLinkUrl } from "../../../core/inline-link.js";
 import { buildInlineReferenceUrl } from "../../../core/inline-reference.js";
 import {
+  configuredInlineLinkCollectionNames,
+  configuredInlineLinkCollections,
   createInlineReferenceRecord,
   createOrReuseInlineReference,
   escapeInlineReferenceLabelText,
+  filteredInlineLinkOptions,
   inlineReferenceCreationConfig,
+  inlineLinkOption,
+  inlineLinkOptions,
   inlineReferenceOption,
   inlineReferenceOptions,
   markdownSafeInlineReferences,
@@ -43,7 +49,7 @@ test("builds inline reference choices with a configured preview field", () => {
       label: "Beowolf et al. (2026)",
       recordId: "source-file",
       searchText:
-        "beowolf et al. (2026) source-file abc123def456ghi research source beowolf et al. (2026)",
+        "beowolf et al. (2026) source-file collection title abc123def456ghi research source beowolf et al. (2026)",
       value: "abc123def456ghi"
     }
   );
@@ -72,6 +78,92 @@ test("falls back to collection titles and drops unusable identities", () => {
     inlineReferenceOptions([valid, numericIdentity], collection),
     [inlineReferenceOption(valid, collection)]
   );
+});
+
+test("keeps configured internal-link collections in their declared order", () => {
+  const pages = { name: "pages", label: "Pages" };
+  const articles = { name: "articles", label: "Articles" };
+  const collections = [articles, pages, { name: "files", label: "Files" }];
+
+  assert.deepEqual(
+    configuredInlineLinkCollections(
+      {
+        internal_links: {
+          collections: ["pages", "missing", "articles", "pages"]
+        }
+      },
+      collections
+    ),
+    [pages, articles]
+  );
+  assert.deepEqual(configuredInlineLinkCollections({}, collections), []);
+  assert.deepEqual(
+    configuredInlineLinkCollectionNames({
+      internal_links: {
+        collections: ["pages", "pages", "", null, "articles"]
+      }
+    }),
+    ["pages", "articles"]
+  );
+});
+
+test("builds searchable internal-link options from published identities", () => {
+  const pages = {
+    name: "pages",
+    views: {
+      reference: {
+        value: "content_id",
+        title: "title"
+      }
+    }
+  };
+  const home = {
+    id: "home",
+    type: "page",
+    properties: {
+      content_id: "page123def456gh",
+      title: "Research home",
+      slug: "welcome",
+      visible: true,
+      structured: { hidden: true }
+    }
+  };
+  const invalid = {
+    id: "numeric",
+    properties: { content_id: 123, title: "Numeric identity" }
+  };
+
+  assert.deepEqual(inlineLinkOption(home, pages), {
+    item: home,
+    label: "Research home",
+    recordId: "home",
+    searchText:
+      "research home home page page123def456gh research home welcome true",
+    value: "page123def456gh"
+  });
+  assert.deepEqual(inlineLinkOptions([home, invalid], pages), [
+    inlineLinkOption(home, pages)
+  ]);
+});
+
+test("searches every internal-link option before bounding rendered results", () => {
+  const options = Array.from({ length: 150 }, (_, index) => ({
+    label: `Page ${index}`,
+    searchText: `page ${index} ${index === 149 ? "deep match" : ""}`
+  }));
+
+  const initial = filteredInlineLinkOptions(options, "");
+  assert.equal(initial.items.length, 100);
+  assert.equal(initial.total, 150);
+  assert.equal(initial.limited, true);
+
+  assert.deepEqual(filteredInlineLinkOptions(options, "deep match"), {
+    items: [options[149]],
+    limited: false,
+    total: 1
+  });
+  assert.equal(filteredInlineLinkOptions(options, "page", 25).items.length, 25);
+  assert.equal(filteredInlineLinkOptions(options, "missing").total, 0);
 });
 
 test("builds a complete reference record from the configured preview field", () => {
@@ -288,5 +380,28 @@ test("escapes reference labels without changing their imported visual text", asy
   const safeBlocks = markdownSafeInlineReferences(blocks);
   assert.equal(safeBlocks[0].content[0].content[0].text, escaped);
   assert.equal(safeBlocks[0].content[0].content[1].text, "[code]");
+  assert.equal(blocks[0].content[0].content[0].text, label);
+});
+
+test("escapes content-link labels without changing their imported visual text", async () => {
+  const href = buildInlineLinkUrl("pages", "page123def456gh");
+  const label = String.raw`Read [the page] \ now`;
+  const escaped = escapeInlineReferenceLabelText(label);
+  assert.equal(
+    await markdownToHTML(`[${escaped}](${href})`),
+    `<p><a href="${href}">${label}</a></p>`
+  );
+
+  const blocks = [{
+    type: "paragraph",
+    content: [{
+      type: "link",
+      href,
+      content: [{ type: "text", text: label, styles: {} }]
+    }],
+    children: []
+  }];
+  const safeBlocks = markdownSafeInlineReferences(blocks);
+  assert.equal(safeBlocks[0].content[0].content[0].text, escaped);
   assert.equal(blocks[0].content[0].content[0].text, label);
 });

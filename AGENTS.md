@@ -44,9 +44,12 @@ Preserve useful guidance and remove stale information.
   `slug.js` owns
   filename templates; `inline-reference.js` owns the strict canonical
   `minicms://reference/<collection>/<encoded-value>` URI grammar plus the
-  Markdown-safe link predicate and the duplicate-preserving Markdown occurrence
-  scanner exported through the public content entry. Content resolution uses
-  that scanner so actual-link/code/image parsing has one implementation;
+  citation-reference scanner; `inline-link.js` owns the separate stable content
+  link grammar `minicms://link/<collection>/<encoded-value>`. The shared
+  Markdown-safe link predicate accepts both strict schemes, and both
+  duplicate-preserving scanners are exported through the public content entry.
+  Content resolution uses those scanners so actual-link/code/image parsing has
+  one implementation;
   `id.js` owns the opaque
   generated-ID format and collision-aware generator. These helpers are
   exported as `@signalwerk/minicms/core/*` for infrastructure packages and the
@@ -71,7 +74,8 @@ Preserve useful guidance and remove stale information.
   quality, and format; raw, GitHub, info, noop, and SVG URLs intentionally
   return `null`.
 - `content/`: the complete project-facing read contract. `index.js` resolves
-  references, configured Markdown inline references, and media over an
+  references, configured Markdown inline references and stable content links,
+  and media over an
   abstract raw source; `fs.js` loads validated local YAML, materializes remote
   aliases, and routes named collection reads through connector sources for
   static Node builds. Named API sources are created from their configured
@@ -119,7 +123,11 @@ Preserve useful guidance and remove stale information.
   preview, loopback development persistence, and GitHub Pages publication. It
   must remain generic rather than reproducing a consumer's private content or
   visual identity, and its preview section must stay aligned with the exact
-  `{data, focus}` runtime contract.
+  `{data, focus}` runtime contract. Its site scaffold requires a dedicated
+  React component and colocated Sass file for every configured node type plus
+  `Unknown`; `Renderer.tsx` stays traversal/registry-only, `site.scss` stays an
+  `@use` manifest, and Astro pages/layouts keep their separate routing/document
+  ownership.
 - `.github/workflows/pages.yml` publishes `dist/minicms.js` to `gh-pages` and
   updates the immutable, version-pinned `rawcdn.githack.com` URL in `README.md`
   to that deployment commit. `ci/update-readme.sh` is the single owner of that
@@ -410,11 +418,27 @@ destinations resolve—plain text, code spans/fences, and image destinations do
 not. Inline-reference identities must use a text-backed field;
 `preview_field` is limited to scalar display fields so structured values are
 never stringified into link text. Configured properties resolve for consumers to
-`{markdown, references}`, keyed by canonical destination with
-`{collection, ref, record}` values; unresolved targets keep `record: null`,
+`{markdown, references, links}`; `references` is keyed by canonical citation
+destination with `{collection, ref, record}` values, while `links` follows the
+stable-content contract below. Unresolved targets keep `record: null`,
 unconfigured Markdown stays a string, and stored Markdown is never rewritten
 by resolution. BlockNote normalizes Markdown only after a visual edit and
 cannot represent every source construct losslessly.
+
+`blocknote.internal_links.collections` independently enables stable links to
+one or more collections. The link editor offers Web link and Content link;
+Content link opens a searchable, select-only target chooser and uses the target
+collection's published `views.reference.value` for identity and
+`views.reference.title` for its label. Storage is
+`[label](minicms://link/<collection>/<encoded-value>)`; paths and slugs are
+never persisted. Configured Markdown resolves to
+`{markdown, references, links}`. Each `links` entry is keyed by its canonical
+destination and contains `{collection, ref, record, ancestors}`; hierarchy
+ancestors are ordered root-to-parent and let a consumer derive the target's
+current URL after moves. Content links do not enter reference sets, cannot
+create targets, and expose Replace/Delete rather than opening the custom URI.
+Collection translation and schema-key migrations rewrite only actual canonical
+Markdown destinations for both custom schemes.
 
 `site.reference_sets` is a keyed document-level presentation contract for
 collecting configured Markdown inline references. Each set requires unique

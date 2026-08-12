@@ -1,4 +1,5 @@
 import { translateInlineReferences } from "../../../core/connectors.js";
+import { isInternalLinkCollectionCompatible } from "../../../core/content.js";
 
 const SCHEMA_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]*$/i;
 
@@ -13,7 +14,6 @@ const SLOT_DEFAULT_PROPERTY_WIDGETS = new Set([
   "datetime",
   "number"
 ]);
-
 function isMapping(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -67,6 +67,45 @@ function reconcileSlotDefaultTemplates(config) {
     }
   }
   return config;
+}
+
+function reconcileMarkdownInternalLinks(config) {
+  const collectionKeys = new Set(Object.keys(config.collections ?? {}));
+  for (const type of Object.values(config.node_types ?? {})) {
+    for (const field of Object.values(type.fields ?? {})) {
+      const internalLinks = field.blocknote?.internal_links;
+      if (!internalLinks) continue;
+      const seen = new Set();
+      const collections = (Array.isArray(internalLinks.collections)
+        ? internalLinks.collections
+        : []
+      ).filter((collection) => {
+        if (
+          typeof collection !== "string" ||
+          !collection ||
+          !collectionKeys.has(collection) ||
+          seen.has(collection)
+        ) {
+          return false;
+        }
+        seen.add(collection);
+        return true;
+      });
+      if (collections.length) {
+        internalLinks.collections = collections;
+        continue;
+      }
+      delete field.blocknote.internal_links;
+      if (!Object.keys(field.blocknote).length) delete field.blocknote;
+    }
+  }
+  return config;
+}
+
+function internalLinkCollectionEntries(config) {
+  return Object.entries(config.collections ?? {}).filter(([collectionName]) =>
+    isInternalLinkCollectionCompatible(config, collectionName)
+  );
 }
 
 function assertSection(section) {
@@ -348,6 +387,17 @@ function rewriteCollectionDependencies(config, currentKey, nextKey) {
       ) {
         inlineReference.collection = nextKey;
       }
+      const internalLinks = field.blocknote?.internal_links;
+      if (
+        field.widget === "markdown" &&
+        Array.isArray(internalLinks?.collections)
+      ) {
+        internalLinks.collections = replaceArrayValue(
+          internalLinks.collections,
+          currentKey,
+          nextKey
+        );
+      }
     }
   }
   for (const referenceSet of Object.values(
@@ -359,6 +409,7 @@ function rewriteCollectionDependencies(config, currentKey, nextKey) {
       nextKey
     );
   }
+  reconcileMarkdownInternalLinks(config);
 }
 
 function composeRename(renames, currentKey, nextKey) {
@@ -544,7 +595,9 @@ export {
   createSchemaOperations,
   deleteSchemaEntryOperation,
   duplicateSchemaEntry,
+  internalLinkCollectionEntries,
   markSchemaEntryFresh,
+  reconcileMarkdownInternalLinks,
   renameSchemaEntry,
   reconcileSlotDefaultTemplates,
   schemaRenameError,

@@ -91,7 +91,9 @@ test("starter configuration is local, self-contained, and valid", async () => {
   assert.equal(config.node_types.media_image.fields.file.widget, "image");
   assert.equal(config.collections.images.node_type, "media_image");
   assert.equal(config.collections.images.connector, undefined);
-  assert.equal(config.node_types.text.fields.text.blocknote, undefined);
+  assert.deepEqual(config.node_types.text.fields.text.blocknote, {
+    internal_links: { collections: ["pages"] }
+  });
   assert.equal(config.site.reference_sets, undefined);
   assert.equal(
     config.node_types.page.slots.content.allowed_types.includes("reference_list"),

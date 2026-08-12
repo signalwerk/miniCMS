@@ -5,7 +5,9 @@ import {
   createSchemaOperations,
   deleteSchemaEntryOperation,
   duplicateSchemaEntry,
+  internalLinkCollectionEntries,
   markSchemaEntryFresh,
+  reconcileMarkdownInternalLinks,
   reconcileSlotDefaultTemplates,
   renameSchemaEntry,
   schemaRenameError,
@@ -36,7 +38,8 @@ function fixture() {
           body: {
             widget: "markdown",
             blocknote: {
-              inline_reference: { collection: "sources" }
+              inline_reference: { collection: "sources" },
+              internal_links: { collections: ["pages", "sources"] }
             }
           }
         },
@@ -532,6 +535,112 @@ test("duplicate keys skip retired persisted keys while fresh deletions release t
   assert.deepEqual(deletedFresh.retiredEntries.node_types, {});
 });
 
+test("reconciles Markdown internal-link collections without changing inline references", () => {
+  const source = fixture();
+  const body = source.node_types.page.fields.body;
+  body.blocknote.internal_links.collections = [
+    "pages",
+    "missing",
+    "pages",
+    "people",
+    ""
+  ];
+
+  reconcileMarkdownInternalLinks(source);
+  assert.deepEqual(body.blocknote.internal_links.collections, [
+    "pages",
+    "people"
+  ]);
+  assert.deepEqual(body.blocknote.inline_reference, { collection: "sources" });
+
+  delete source.collections.pages;
+  delete source.collections.people;
+  reconcileMarkdownInternalLinks(source);
+  assert.equal(body.blocknote.internal_links, undefined);
+  assert.deepEqual(body.blocknote.inline_reference, { collection: "sources" });
+
+  const internalOnly = {
+    collections: { pages: {} },
+    node_types: {
+      text: {
+        fields: {
+          body: {
+            widget: "markdown",
+            blocknote: {
+              internal_links: { collections: ["removed"] }
+            }
+          }
+        }
+      }
+    }
+  };
+  reconcileMarkdownInternalLinks(internalOnly);
+  assert.equal(internalOnly.node_types.text.fields.body.blocknote, undefined);
+});
+
+test("offers internal links only for text-backed published identities", () => {
+  const config = fixture();
+  config.node_types.numeric = {
+    fields: { sequence: { widget: "number" } }
+  };
+  config.node_types.structured = {
+    fields: { asset: { widget: "image" } }
+  };
+  config.node_types.string_select = {
+    fields: {
+      link_id: {
+        widget: "select",
+        options: ["one", { label: "Two", value: "two" }]
+      }
+    }
+  };
+  config.node_types.mixed_select = {
+    fields: {
+      link_id: {
+        widget: "select",
+        options: ["one", { label: "Two", value: 2 }]
+      }
+    }
+  };
+  config.node_types.alternate = {
+    fields: { link_id: { widget: "boolean" } }
+  };
+  config.collections.numeric = {
+    node_type: "numeric",
+    views: { reference: { value: "sequence" } }
+  };
+  config.collections.structured = {
+    node_type: "structured",
+    views: { reference: { value: "asset" } }
+  };
+  config.collections.record_ids = { node_type: "numeric" };
+  config.collections.string_select = {
+    node_type: "string_select",
+    views: { reference: { value: "link_id" } }
+  };
+  config.collections.mixed_select = {
+    node_type: "mixed_select",
+    views: { reference: { value: "link_id" } }
+  };
+  config.collections.heterogeneous = {
+    node_type: "string_select",
+    allowed_types: ["string_select", "alternate"],
+    views: { reference: { value: "link_id" } }
+  };
+
+  assert.deepEqual(
+    internalLinkCollectionEntries(config).map(([name]) => name),
+    [
+      "pages",
+      "sources",
+      "people",
+      "images",
+      "record_ids",
+      "string_select"
+    ]
+  );
+});
+
 test("renames concrete collections, their folders, and collection dependencies", () => {
   const source = fixture();
   const result = renameSchemaEntry(
@@ -556,6 +665,10 @@ test("renames concrete collections, their folders, and collection dependencies",
   assert.equal(
     result.config.node_types.page.fields.body.blocknote.inline_reference.collection,
     "library"
+  );
+  assert.deepEqual(
+    result.config.node_types.page.fields.body.blocknote.internal_links.collections,
+    ["pages", "library"]
   );
   assert.deepEqual(result.config.site.reference_sets.notes.collections, [
     "library",
