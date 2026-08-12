@@ -553,6 +553,28 @@ Fields are optional by default. Omit `required` for optional fields and persist
 only `required: true` when a value is mandatory. Optional select fields start
 empty and retain a `None` option so editors can clear a previous selection.
 
+A content area can seed ordered child content whenever its parent is newly
+created. Each `default` entry names an allowed type and may override its normal
+scalar field defaults:
+
+```yaml
+slots:
+  summary:
+    allowed_types: [title]
+    min: 1
+    max: 1
+    default:
+      - type: title
+        properties:
+          element: none
+```
+
+Templates contain only `type` and optional `properties`; miniCMS generates
+fresh node and generated-field IDs at insertion time and recursively applies
+defaults declared by the seeded type. Settings exposes these templates as an
+ordered list. Upload, relation, tag, generated-ID, stored-node, and stored-slot
+values are deliberately not configurable as template overrides.
+
 Fields can be shown only for a matching sibling value. References can also
 limit a mixed collection to specific record types:
 
@@ -576,7 +598,7 @@ Both options are editable through the field forms in Settings.
 The reference chooser separates **Select** and **Create** into two tabs. Create
 shows a complete inspector for the target collection's permitted primary type,
 using its normal fields, defaults, generated IDs, uploads, relations, slug
-template, root order, and empty slots. **Create and select** writes that complete
+template, root order, and configured initial slot content. **Create and select** writes that complete
 record through the active adapter and immediately selects its published
 reference value. Re-selecting the current target preserves crop/focus
 selections; creating or choosing another target clears those target-specific

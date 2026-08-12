@@ -95,7 +95,15 @@ function remoteConfig() {
           }
         },
         slots: {
-          images: { allowed_types: ["image"] }
+          images: {
+            allowed_types: ["image"],
+            default: [{
+              type: "image",
+              properties: {
+                title: "[Lead](minicms://reference/images/lead)"
+              }
+            }]
+          }
         }
       },
       image: {
@@ -149,6 +157,15 @@ test("materializes remote definitions and exposes deterministic routing maps", (
   assert.deepEqual(
     materialized.config.node_types.central_gallery.slots.images.allowed_types,
     ["central_image"]
+  );
+  assert.deepEqual(
+    materialized.config.node_types.central_gallery.slots.images.default,
+    [{
+      type: "central_image",
+      properties: {
+        title: "[Lead](minicms://reference/central_images/lead)"
+      }
+    }]
   );
   assert.equal(
     materialized.config.node_types.central_gallery.fields.lead.collection,
@@ -632,6 +649,10 @@ test("plans edited remote schema back to its owning connector", () => {
     planned.remoteConfigs.central.node_types.gallery.slots.images.allowed_types,
     ["image"]
   );
+  assert.deepEqual(
+    planned.remoteConfigs.central.node_types.gallery.slots.images.default,
+    remote.node_types.gallery.slots.images.default
+  );
   assert.equal(
     planned.remoteConfigs.central.collections.galleries.folder,
     "content/edited-galleries"
@@ -806,6 +827,10 @@ test("rekeys local remote aliases without renaming their owner schema", () => {
   effective.node_types.central_gallery.slots.images.allowed_types = [
     "media_image"
   ];
+  effective.node_types.central_gallery.slots.images.default[0].type =
+    "media_image";
+  effective.node_types.central_gallery.slots.images.default[0].properties.title =
+    "[Lead](minicms://reference/media_images/lead)";
   effective.collections.media_images.node_type = "media_image";
   effective.collections.media_images.allowed_types = ["media_image"];
 

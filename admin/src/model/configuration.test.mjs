@@ -6,6 +6,7 @@ import {
   deleteSchemaEntryOperation,
   duplicateSchemaEntry,
   markSchemaEntryFresh,
+  reconcileSlotDefaultTemplates,
   renameSchemaEntry,
   schemaRenameError,
   siblingFolder
@@ -284,6 +285,10 @@ test("duplicate keys skip local, folder, and remote-identity conflicts", () => {
 
 test("renames content types in place and rewrites every schema dependency", () => {
   const source = fixture();
+  source.node_types.page.slots.content.default = [{
+    type: "quote",
+    properties: { text: "Initial quote" }
+  }];
   const result = renameSchemaEntry(
     source,
     createSchemaOperations(),
@@ -308,6 +313,10 @@ test("renames content types in place and rewrites every schema dependency", () =
     "quotation"
   );
   assert.equal(
+    result.config.node_types.page.slots.content.default[0].type,
+    "quotation"
+  );
+  assert.equal(
     result.config.node_types.page.fields.source.allowed_types[1],
     "quotation"
   );
@@ -315,6 +324,95 @@ test("renames content types in place and rewrites every schema dependency", () =
     quote: "quotation"
   });
   assert.equal(source.node_types.quote.label, "Quote");
+});
+
+test("rewrites only canonical Markdown links in slot default properties", () => {
+  const source = fixture();
+  source.node_types.page.slots.content.default = [{
+    type: "quote",
+    properties: {
+      text: [
+        "plain minicms://reference/sources/plain",
+        "`[code](minicms://reference/sources/code)`",
+        "![image](minicms://reference/sources/image)",
+        "[link](minicms://reference/sources/link)"
+      ].join(" ")
+    }
+  }];
+  const renamed = renameSchemaEntry(
+    source,
+    createSchemaOperations(),
+    "collections",
+    "sources",
+    "library"
+  );
+  assert.equal(
+    renamed.config.node_types.page.slots.content.default[0].properties.text,
+    [
+      "plain minicms://reference/sources/plain",
+      "`[code](minicms://reference/sources/code)`",
+      "![image](minicms://reference/sources/image)",
+      "[link](minicms://reference/library/link)"
+    ].join(" ")
+  );
+});
+
+test("reconciles slot defaults after allowed type, field, widget, and option edits", () => {
+  const source = fixture();
+  source.node_types.quote.fields = {
+    text: { widget: "text" },
+    element: { widget: "select", options: ["none", "h2"] },
+    enabled: { widget: "boolean" },
+    removed: { widget: "string" }
+  };
+  source.node_types.page.slots.content.default = [{
+    type: "quote",
+    properties: {
+      text: "Summary",
+      element: "none",
+      enabled: false,
+      removed: "Remove me"
+    }
+  }];
+
+  source.node_types.quote.fields.text.widget = "image";
+  source.node_types.quote.fields.element.options = ["h2"];
+  source.node_types.quote.fields.enabled.widget = "string";
+  delete source.node_types.quote.fields.removed;
+  reconcileSlotDefaultTemplates(source);
+  assert.deepEqual(
+    source.node_types.page.slots.content.default,
+    [{ type: "quote" }]
+  );
+
+  source.node_types.page.slots.content.allowed_types = ["source"];
+  reconcileSlotDefaultTemplates(source);
+  assert.equal(source.node_types.page.slots.content.default, undefined);
+});
+
+test("does not discard slot defaults for an invalid maximum draft", () => {
+  const source = fixture();
+  source.node_types.page.slots.content.default = [{ type: "quote" }];
+  source.node_types.page.slots.content.max = 0;
+  reconcileSlotDefaultTemplates(source);
+  assert.deepEqual(
+    source.node_types.page.slots.content.default,
+    [{ type: "quote" }]
+  );
+});
+
+test("preserves transient scalar slot-default values for save validation", () => {
+  const source = fixture();
+  source.node_types.quote.fields.website = { widget: "url" };
+  source.node_types.page.slots.content.default = [{
+    type: "quote",
+    properties: { website: "h" }
+  }];
+  reconcileSlotDefaultTemplates(source);
+  assert.equal(
+    source.node_types.page.slots.content.default[0].properties.website,
+    "h"
+  );
 });
 
 test("composes repeated renames, cancels a rename back, and cancels on delete", () => {

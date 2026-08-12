@@ -269,6 +269,34 @@ function translateTypeDefinition(type, route, direction, context, status) {
         status
       )
     );
+    if (Array.isArray(slot.default)) {
+      slot.default = slot.default.map((template) => ({
+        ...template,
+        ...(isMapping(template.properties)
+          ? {
+              properties: Object.fromEntries(
+                Object.entries(template.properties).map(([name, value]) => [
+                  name,
+                  typeof value === "string"
+                    ? translateInlineReferences(
+                        value,
+                        route.collections?.[direction]
+                      )
+                    : value
+                ])
+              )
+            }
+          : {}),
+        type: translatedDependency(
+          route,
+          "node_types",
+          template.type,
+          direction,
+          `${context} slot "${slotName}" default`,
+          status
+        )
+      }));
+    }
   }
   for (const [fieldName, field] of Object.entries(translated.fields ?? {})) {
     if (field?.widget === "reference" || field?.widget === "tags") {

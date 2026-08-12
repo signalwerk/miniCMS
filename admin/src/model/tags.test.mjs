@@ -29,8 +29,14 @@ const nodeTypes = {
       featured: { widget: "boolean" }
     },
     slots: {
-      details: { allowed_types: [] }
+      details: {
+        allowed_types: ["tag_note"],
+        default: [{ type: "tag_note", properties: { text: "Seed" } }]
+      }
     }
+  },
+  tag_note: {
+    fields: { text: { widget: "text" } }
   }
 };
 
@@ -97,7 +103,9 @@ test("builds a complete collision-safe tag record", () => {
   assert.notEqual(record.properties.content_id, record.id);
   assert.equal(record.properties.name, "Research");
   assert.equal(record.properties.featured, false);
-  assert.deepEqual(record.slots, { details: [] });
+  assert.equal(record.slots.details.length, 1);
+  assert.equal(record.slots.details[0].properties.text, "Seed");
+  assert.match(record.slots.details[0].id, ID_PATTERN);
 });
 
 test("requires a generated relation ID and a string label field", () => {

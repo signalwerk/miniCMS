@@ -218,7 +218,15 @@ test("builds and immediately selects a complete referenced record", async () => 
         title: { widget: "string" },
         file: { widget: "image" }
       },
-      slots: { metadata: {} }
+      slots: {
+        metadata: {
+          allowed_types: ["note"],
+          default: [{ type: "note", properties: { text: "Initial note" } }]
+        }
+      }
+    },
+    note: {
+      fields: { text: { widget: "text" } }
     }
   };
   const field = { widget: "reference", collection: "images" };
@@ -251,7 +259,9 @@ test("builds and immediately selects a complete referenced record", async () => 
   assert.match(record.properties.content_id, /^[a-z0-9]{15}$/);
   assert.notEqual(record.properties.content_id, existing.properties.content_id);
   assert.equal(record.properties.file, "");
-  assert.deepEqual(record.slots, { metadata: [] });
+  assert.equal(record.slots.metadata.length, 1);
+  assert.equal(record.slots.metadata[0].properties.text, "Initial note");
+  assert.match(record.slots.metadata[0].id, /^[a-z0-9]{15}$/);
 
   const writes = [];
   const created = await createOrReuseReferencedRecord({
@@ -370,7 +380,15 @@ test("persists every edited reference field and exposes the saved item for immed
         tags: { widget: "tags", collection: "tags" },
         cover: { widget: "image" }
       },
-      slots: { notes: {} }
+      slots: {
+        notes: {
+          allowed_types: ["note"],
+          default: [{ type: "note", properties: { text: "Seed" } }]
+        }
+      }
+    },
+    note: {
+      fields: { text: { widget: "text" } }
     }
   };
   const existing = {
@@ -391,6 +409,8 @@ test("persists every edited reference field and exposes the saved item for immed
     nodeTypes,
     items: [existing]
   });
+  assert.equal(draft.slots.notes.length, 1);
+  const seededNoteId = draft.slots.notes[0].id;
   const edited = {
     ...draft,
     properties: {
@@ -452,7 +472,9 @@ test("persists every edited reference field and exposes the saved item for immed
     tags: ["tag123def456ghi"],
     cover: "/media/sources/cover.jpg"
   });
-  assert.deepEqual(finalized.slots, { notes: [] });
+  assert.equal(finalized.slots.notes.length, 1);
+  assert.equal(finalized.slots.notes[0].id, seededNoteId);
+  assert.equal(finalized.slots.notes[0].properties.text, "Seed");
   assert.equal(writes.length, 1);
   assert.equal(writes[0].collectionName, "sources");
   assert.deepEqual(writes[0].record.properties, finalized.properties);

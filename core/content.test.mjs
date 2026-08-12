@@ -71,6 +71,176 @@ test("validates the default GitHub connector and repository content paths", () =
   );
 });
 
+function slotDefaultConfig() {
+  const config = fixtureConfig();
+  config.node_types.page.slots = {
+    content: {
+      allowed_types: ["section"],
+      max: 2,
+      default: [
+        {
+          type: "section",
+          properties: {
+            title: "",
+            body: "[Source](minicms://reference/pages/home)",
+            element: "none",
+            enabled: false,
+            count: 0,
+            published_at: "2026-08-12",
+            website: ""
+          }
+        }
+      ]
+    }
+  };
+  config.node_types.section = {
+    fields: {
+      title: { widget: "string", required: true },
+      body: { widget: "markdown" },
+      element: { widget: "select", options: ["none", "h2"] },
+      enabled: { widget: "boolean" },
+      count: { widget: "number" },
+      published_at: { widget: "datetime" },
+      website: { widget: "url" },
+      content_id: { widget: "id" },
+      image: { widget: "image" },
+      file: { widget: "file" },
+      related: { widget: "reference", collection: "pages" }
+    }
+  };
+  return config;
+}
+
+test("validates ordered flat slot default templates and scalar overrides", () => {
+  const config = slotDefaultConfig();
+  assert.deepEqual(
+    validateConfig(config).node_types.page.slots.content.default,
+    config.node_types.page.slots.content.default
+  );
+
+  const invalidCases = [
+    [
+      (slot) => { slot.default = { type: "section" }; },
+      /default must be an array/
+    ],
+    [
+      (slot) => { slot.default[0].id = "stored"; },
+      /only type and properties/
+    ],
+    [
+      (slot) => { slot.default[0].type = "page"; },
+      /must be one of the slot's allowed content types/
+    ],
+    [
+      (slot) => { slot.default[0].properties.unknown = "value"; },
+      /unknown field "unknown"/
+    ],
+    [
+      (slot) => { slot.default[0].properties.content_id = "aaaaaaaaaaaaaaa"; },
+      /cannot override id field/
+    ],
+    [
+      (slot) => { slot.default[0].properties.image = ""; },
+      /cannot override image field/
+    ],
+    [
+      (slot) => { slot.default[0].properties.file = ""; },
+      /cannot override file field/
+    ],
+    [
+      (slot) => { slot.default[0].properties.related = "home"; },
+      /cannot override reference field/
+    ],
+    [
+      (slot, config) => {
+        config.node_types.section.fields.tags = { widget: "tags" };
+        slot.default[0].properties.tags = [];
+      },
+      /cannot override tags field/
+    ],
+    [
+      (slot) => { slot.default[0].properties.element = "missing"; },
+      /invalid select value/
+    ],
+    [
+      (slot) => { slot.default[0].properties.enabled = "false"; },
+      /invalid boolean value/
+    ],
+    [
+      (slot) => { slot.default[0].properties.website = "/relative"; },
+      /invalid url value/
+    ],
+    [
+      (slot) => { slot.default.push(structuredClone(slot.default[0]), structuredClone(slot.default[0])); },
+      /exceeds its maximum/
+    ]
+  ];
+
+  for (const [mutate, expected] of invalidCases) {
+    const invalid = slotDefaultConfig();
+    mutate(invalid.node_types.page.slots.content, invalid);
+    assert.throws(() => validateConfig(invalid, 400), expected);
+  }
+});
+
+test("rejects recursive slot default template cycles", () => {
+  const config = slotDefaultConfig();
+  config.node_types.section.slots = {
+    nested: {
+      allowed_types: ["page"],
+      default: [{ type: "page" }]
+    }
+  };
+  assert.throws(
+    () => validateConfig(config, 400),
+    /content-type cycle: page -> section -> page/
+  );
+});
+
+test("enforces configured slot minimums for missing and short record slots", () => {
+  const config = fixtureConfig();
+  config.node_types.page.slots = {
+    content: {
+      allowed_types: ["section"],
+      min: 2,
+      max: 3
+    }
+  };
+  config.node_types.section = { fields: {} };
+  validateConfig(config);
+  const collection = { name: "pages", ...config.collections.pages };
+  const section = (id) => ({
+    id,
+    type: "section",
+    properties: {},
+    slots: {}
+  });
+  const record = {
+    id: "home",
+    type: "page",
+    order: 0,
+    properties: { title: "Home" }
+  };
+
+  assert.throws(
+    () => validateRecord(record, collection, config),
+    /Slot "content" requires at least 2 items/
+  );
+  assert.throws(
+    () => validateRecord(
+      { ...record, slots: { content: [section("first")] } },
+      collection,
+      config
+    ),
+    /Slot "content" requires at least 2 items/
+  );
+  const valid = {
+    ...record,
+    slots: { content: [section("first"), section("second")] }
+  };
+  assert.equal(validateRecord(valid, collection, config), valid);
+});
+
 test("rejects overlapping collection and media storage folders", () => {
   const duplicate = fixtureConfig();
   duplicate.collections.archive = {

@@ -17,6 +17,11 @@ import {
 import { createId, isGeneratedIdWidget } from "../../../core/id.js";
 import { sanitizeFilenameStem } from "../../../core/slug.js";
 import { refreshImageAnnotationIds } from "./image.js";
+import {
+  defaultFieldValue,
+  defaultProperties,
+  instantiateNode
+} from "./nodeFactory.js";
 
 const ICONS = {
   "align-left": AlignLeft,
@@ -403,6 +408,66 @@ function selectedTopLevelContentNodes(record, selectedIds, includeRoot = false) 
   return result;
 }
 
+function slotMinimumViolationAfterRemoving(record, removedIds, nodeTypes) {
+  const removed = removedIds instanceof Set ? removedIds : new Set(removedIds);
+
+  function visit(node) {
+    if (!node || removed.has(node.id)) return null;
+    for (const [slotName, slot] of Object.entries(
+      nodeTypes[node.type]?.slots ?? {}
+    )) {
+      const children = (node.slots?.[slotName] ?? []).filter(
+        (child) => !removed.has(child.id)
+      );
+      if (slot.min && children.length < slot.min) {
+        return {
+          parentId: node.id,
+          parentType: node.type,
+          slotName,
+          minimum: slot.min,
+          remaining: children.length
+        };
+      }
+      for (const child of children) {
+        const nested = visit(child);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  }
+
+  return visit(record);
+}
+
+function slotMaximumViolationAfterDuplicating(record, nodes, nodeTypes) {
+  const additions = new Map();
+  for (const node of nodes ?? []) {
+    const location = findLocation(record, node.id);
+    if (!location) continue;
+    const key = `${location.parentId}\u0000${location.slotName}`;
+    const entry = additions.get(key) ?? {
+      parentId: location.parentId,
+      slotName: location.slotName,
+      count: 0,
+      current: location.children.length
+    };
+    entry.count += 1;
+    additions.set(key, entry);
+  }
+  for (const entry of additions.values()) {
+    const parent = getNode(record, entry.parentId);
+    const slot = nodeTypes[parent?.type]?.slots?.[entry.slotName];
+    if (slot?.max && entry.current + entry.count > slot.max) {
+      return {
+        ...entry,
+        parentType: parent.type,
+        maximum: slot.max
+      };
+    }
+  }
+  return null;
+}
+
 function contentPasteTarget(record, selectedId, nodes, nodeTypes) {
   const selected = getNode(record, selectedId);
   if (!selected || !nodes.length) return null;
@@ -531,35 +596,6 @@ function referenceItemsForField(items, field) {
   return items.filter((item) => allowedTypes.includes(item.type));
 }
 
-function defaultFieldValue(field, generateId = false) {
-  if (
-    field.widget === "tags" ||
-    (field.widget === "reference" && field.multiple === true)
-  ) {
-    return [];
-  }
-  let value = field.default;
-  if (value === undefined && isGeneratedIdWidget(field.widget)) {
-    value = generateId ? createId() : "";
-  }
-  if (value === undefined && field.widget === "boolean") value = false;
-  if (value === undefined && field.widget === "select") {
-    value = field.required === true
-      ? optionValue(field.options?.[0]) ?? ""
-      : "";
-  }
-  return value === undefined ? "" : value;
-}
-
-function defaultProperties(type) {
-  return Object.fromEntries(
-    typeFields(type).map((field) => [
-      field.name,
-      defaultFieldValue(field, true)
-    ])
-  );
-}
-
 function refreshGeneratedIdFields(node, nodeTypes) {
   const type = nodeTypes[node.type];
   for (const field of typeFields(type)) {
@@ -578,18 +614,6 @@ function refreshGeneratedIdFields(node, nodeTypes) {
   for (const children of Object.values(node.slots ?? {})) {
     children.forEach((child) => refreshGeneratedIdFields(child, nodeTypes));
   }
-}
-
-function newNode(typeName, type, usedIds) {
-  const node = {
-    id: createId(usedIds),
-    type: typeName,
-    properties: defaultProperties(type)
-  };
-  if (type?.slots) {
-    node.slots = Object.fromEntries(Object.keys(type.slots).map((name) => [name, []]));
-  }
-  return node;
 }
 
 function buildHierarchy(items) {
@@ -782,7 +806,7 @@ export {
   iconFor,
   isInspectorFocusShortcut,
   isSaveShortcut,
-  newNode,
+  instantiateNode,
   nextTreeSelection,
   optionValue,
   readLayoutPreferences,
@@ -793,6 +817,8 @@ export {
   selectionIdForRecord,
   selectionRouteFromHash,
   selectionRouteForState,
+  slotMinimumViolationAfterRemoving,
+  slotMaximumViolationAfterDuplicating,
   selectionRouteHash,
   selectedTopLevelContentNodes,
   slugifyId,

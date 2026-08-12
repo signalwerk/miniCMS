@@ -489,6 +489,18 @@ function ContentTree({
     const targetChildren = parent?.slots?.[slotName] ?? [];
     const sameSlot =
       activeDrag.source?.parentId === parentId && activeDrag.source?.slotName === slotName;
+    if (!sameSlot) {
+      const sourceParent = getNode(record, activeDrag.source?.parentId);
+      const sourceSlot = nodeTypes[sourceParent?.type]?.slots?.[
+        activeDrag.source?.slotName
+      ];
+      const sourceChildren = sourceParent?.slots?.[
+        activeDrag.source?.slotName
+      ] ?? [];
+      if (sourceSlot?.min && sourceChildren.length <= sourceSlot.min) {
+        return false;
+      }
+    }
     if (!sameSlot && slot.max && targetChildren.length >= slot.max) return false;
     if (targetId === activeDrag.nodeId) return false;
     if (sameSlot) {

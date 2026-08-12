@@ -55,7 +55,6 @@ import {
   contentInsertionModes,
   contentPasteTarget,
   cx,
-  defaultProperties,
   descendantIds,
   findLocation,
   fitLayoutPreferences,
@@ -64,7 +63,6 @@ import {
   iconFor,
   isInspectorFocusShortcut,
   isSaveShortcut,
-  newNode,
   nextTreeSelection,
   readLayoutPreferences,
   refreshGeneratedIdFields,
@@ -73,10 +71,16 @@ import {
   selectionRouteFromHash,
   selectionRouteForState,
   selectedTopLevelContentNodes,
+  slotMaximumViolationAfterDuplicating,
+  slotMinimumViolationAfterRemoving,
   typeField,
   uniqueRecordId,
   updateNode
 } from "./model/editor.js";
+import {
+  firstSeededDescendant,
+  instantiateNode
+} from "./model/nodeFactory.js";
 import { panelsFor } from "./model/views.js";
 import { CollectionTable } from "./components/CollectionTable/CollectionTable.jsx";
 import { useAdapterContext } from "./adapters/AdapterContext.jsx";
@@ -1152,27 +1156,18 @@ export default function App({ PreviewComponent = null }) {
 
   async function insertCollectionItem({ choice, title, id, properties: initialProperties }) {
     setActiveTreeSelection("collection");
-    const type = nodeTypes[choice.typeName];
-    const properties = structuredClone(
-      initialProperties ?? defaultProperties(type)
-    );
+    const newRecord = instantiateNode(choice.typeName, nodeTypes, {
+      id,
+      order: choice.order,
+      properties: initialProperties
+    });
+    const properties = newRecord.properties;
     properties.title = title;
     if ("slug" in properties && !properties.slug) {
       properties.slug = id;
     }
     const parentField = collection.hierarchy?.parent_field;
     if (parentField) properties[parentField] = choice.parent ?? null;
-    const slots = Object.fromEntries(
-      Object.keys(type.slots ?? {}).map((slotName) => [slotName, []])
-    );
-    const newRecord = {
-      id,
-      type: choice.typeName,
-      order: choice.order,
-      properties,
-      slots
-    };
-
     const result = await api.create(activeCollection, newRecord);
     setInsertDialog(null);
     if (dirty) {
@@ -1749,6 +1744,20 @@ export default function App({ PreviewComponent = null }) {
       duplicateCurrentRecord();
       return;
     }
+    const maximumViolation = slotMaximumViolationAfterDuplicating(
+      record,
+      selectedNodes,
+      nodeTypes
+    );
+    if (maximumViolation) {
+      const slot = nodeTypes[maximumViolation.parentType]?.slots?.[
+        maximumViolation.slotName
+      ];
+      setError(
+        `${slot?.label || maximumViolation.slotName} accepts at most ${maximumViolation.maximum} ${maximumViolation.maximum === 1 ? "item" : "items"}.`
+      );
+      return;
+    }
     setActiveTreeSelection("content");
     const usedIds = collectNodeIds(record);
     const duplicateBySourceId = new Map();
@@ -1799,11 +1808,11 @@ export default function App({ PreviewComponent = null }) {
 
   function insertContentNode({ choice }) {
     setActiveTreeSelection("content");
-    const node = newNode(
-      choice.typeName,
-      nodeTypes[choice.typeName],
-      collectNodeIds(record)
-    );
+    const node = instantiateNode(choice.typeName, nodeTypes, {
+      usedIds: collectNodeIds(record)
+    });
+    const seededChild = firstSeededDescendant(node);
+    const selectedNode = seededChild ?? node;
     changeRecord((current) =>
       updateNode(current, choice.parentId, (parent) => {
         const children = [...(parent.slots?.[choice.slotName] ?? [])];
@@ -1814,10 +1823,14 @@ export default function App({ PreviewComponent = null }) {
         };
       })
     );
-    setContentExpanded((current) => new Set([...current, choice.parentId]));
-    setSelectedId(node.id);
-    setSelectedContentIds(new Set([node.id]));
-    setContentSelectionAnchor(node.id);
+    setContentExpanded((current) => new Set([
+      ...current,
+      choice.parentId,
+      ...(seededChild ? [node.id] : [])
+    ]));
+    setSelectedId(selectedNode.id);
+    setSelectedContentIds(new Set([selectedNode.id]));
+    setContentSelectionAnchor(selectedNode.id);
     setInsertDialog(null);
     showToast(`${nodeTypes[node.type]?.label || node.type} inserted`);
   }
@@ -1838,6 +1851,20 @@ export default function App({ PreviewComponent = null }) {
       source.parentId === drop.parentId && source.slotName === drop.slotName;
     if (sameSlot && source.index < targetIndex) targetIndex -= 1;
     if (sameSlot && source.index === targetIndex) return;
+    if (!sameSlot) {
+      const violation = slotMinimumViolationAfterRemoving(
+        record,
+        new Set([drag.nodeId]),
+        nodeTypes
+      );
+      if (violation) {
+        const slot = nodeTypes[violation.parentType]?.slots?.[violation.slotName];
+        setError(
+          `${slot?.label || violation.slotName} requires at least ${violation.minimum} ${violation.minimum === 1 ? "item" : "items"}.`
+        );
+        return;
+      }
+    }
     setActiveTreeSelection("content");
 
     const movingNode = getNode(record, drag.nodeId);
@@ -1994,6 +2021,18 @@ export default function App({ PreviewComponent = null }) {
     if (!selectedNodes.length) return;
     if (selectedNodes[0].id === record.id) {
       requestDeleteCurrentRecord();
+      return;
+    }
+    const violation = slotMinimumViolationAfterRemoving(
+      record,
+      new Set(selectedNodes.map((node) => node.id)),
+      nodeTypes
+    );
+    if (violation) {
+      const slot = nodeTypes[violation.parentType]?.slots?.[violation.slotName];
+      setError(
+        `${slot?.label || violation.slotName} requires at least ${violation.minimum} ${violation.minimum === 1 ? "item" : "items"}.`
+      );
       return;
     }
     const count = selectedContentIds.size;

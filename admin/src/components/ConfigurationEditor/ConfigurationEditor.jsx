@@ -59,6 +59,7 @@ import {
   deleteSchemaEntryOperation,
   duplicateSchemaEntry,
   markSchemaEntryFresh,
+  reconcileSlotDefaultTemplates,
   renameSchemaEntry,
   schemaRenameError
 } from "../../model/configuration.js";
@@ -2542,6 +2543,128 @@ function FieldEditor({
   );
 }
 
+const SLOT_DEFAULT_PROPERTY_WIDGETS = new Set([
+  "string",
+  "text",
+  "url",
+  "markdown",
+  "select",
+  "boolean",
+  "datetime",
+  "number"
+]);
+
+function configuredOption(option) {
+  return typeof option === "object"
+    ? { label: option.label ?? String(option.value ?? ""), value: option.value }
+    : { label: String(option), value: option };
+}
+
+function initialSlotDefaultValue(field) {
+  if (field.default !== undefined) return structuredClone(field.default);
+  if (field.widget === "boolean") return false;
+  if (field.widget === "number") return 0;
+  if (field.widget === "select") {
+    return configuredOption(field.options?.[0] ?? "").value;
+  }
+  return "";
+}
+
+function SlotDefaultPropertyEditor({
+  fieldKey,
+  field,
+  template,
+  onChange
+}) {
+  const properties = template.properties ?? {};
+  const enabled = Object.hasOwn(properties, fieldKey);
+  const value = properties[fieldKey];
+
+  function updateValue(nextValue) {
+    onChange((nextTemplate) => {
+      nextTemplate.properties ??= {};
+      nextTemplate.properties[fieldKey] = nextValue;
+    });
+  }
+
+  let control = null;
+  if (enabled && field.widget === "boolean") {
+    control = (
+      <Switch
+        checked={value === true}
+        label={`${field.label || labelFromKey(fieldKey)} initial value`}
+        onChange={updateValue}
+      />
+    );
+  } else if (enabled && field.widget === "select") {
+    const options = (field.options ?? []).map(configuredOption);
+    const selectedIndex = options.findIndex((option) =>
+      Object.is(option.value, value)
+    );
+    control = (
+      <SelectInput
+        value={String(Math.max(selectedIndex, 0))}
+        onChange={(index) =>
+          updateValue(structuredClone(options[Number(index)]?.value))
+        }
+      >
+        {options.map((option, index) => (
+          <option key={`${index}:${String(option.value)}`} value={String(index)}>
+            {option.label}
+          </option>
+        ))}
+      </SelectInput>
+    );
+  } else if (enabled) {
+    control = (
+      <TextInput
+        type={
+          field.widget === "number"
+            ? "number"
+            : field.widget === "url"
+              ? "url"
+              : "text"
+        }
+        value={value}
+        onChange={(nextValue) =>
+          updateValue(
+            field.widget === "number"
+              ? Number(nextValue)
+              : nextValue
+          )
+        }
+      />
+    );
+  }
+
+  return (
+    <div className="configuration-slot-default__property">
+      <div className="configuration-inline-setting">
+        <span>
+          <strong>{field.label || labelFromKey(fieldKey)}</strong>
+          <small>{fieldKey}</small>
+        </span>
+        <Switch
+          checked={enabled}
+          label={`Set initial ${field.label || labelFromKey(fieldKey)}`}
+          onChange={(checked) => onChange((nextTemplate) => {
+            if (checked) {
+              nextTemplate.properties ??= {};
+              nextTemplate.properties[fieldKey] = initialSlotDefaultValue(field);
+              return;
+            }
+            delete nextTemplate.properties?.[fieldKey];
+            if (!Object.keys(nextTemplate.properties ?? {}).length) {
+              delete nextTemplate.properties;
+            }
+          })}
+        />
+      </div>
+      {control}
+    </div>
+  );
+}
+
 function SlotEditor({
   slotKey,
   slot,
@@ -2551,6 +2674,20 @@ function SlotEditor({
   onDelete,
   dragHandleProps
 }) {
+  const defaults = slot.default ?? [];
+  const defaultType = (slot.allowed_types ?? [])[0] ?? "";
+  const canAddDefault = Boolean(defaultType) &&
+    (!Number.isInteger(slot.max) || defaults.length < slot.max);
+
+  function updateDefaults(change) {
+    onChange((nextSlot) => {
+      const nextDefaults = structuredClone(nextSlot.default ?? []);
+      change(nextDefaults);
+      if (nextDefaults.length) nextSlot.default = nextDefaults;
+      else delete nextSlot.default;
+    });
+  }
+
   return (
     <article className="configuration-entry-card configuration-entry-card--compact">
       <div className="configuration-entry-card__top">
@@ -2585,6 +2722,11 @@ function SlotEditor({
           value={slot.allowed_types ?? []}
           onChange={(value) => onChange((nextSlot) => {
             nextSlot.allowed_types = value;
+            const allowed = new Set(value);
+            nextSlot.default = (nextSlot.default ?? []).filter((template) =>
+              allowed.has(template.type)
+            );
+            if (!nextSlot.default.length) delete nextSlot.default;
           })}
         />
       </FormField>
@@ -2606,9 +2748,104 @@ function SlotEditor({
             value={slot.max}
             onChange={(value) => onChange((nextSlot) => {
               setOptional(nextSlot, "max", value === "" ? "" : Number(value));
+              const maximum = Number(value);
+              if (
+                Number.isInteger(maximum) &&
+                maximum >= 1 &&
+                nextSlot.default?.length > maximum
+              ) {
+                nextSlot.default = nextSlot.default.slice(0, maximum);
+              }
             })}
           />
         </FormField>
+      </div>
+      <div className="configuration-slot-defaults">
+        <div className="configuration-subheading">
+          <div>
+            <strong>Initial content</strong>
+            <small>Created in order whenever this content type is inserted.</small>
+          </div>
+          <button
+            type="button"
+            className="configuration-small-button"
+            disabled={!canAddDefault}
+            onClick={() => updateDefaults((nextDefaults) => {
+              nextDefaults.push({ type: defaultType });
+            })}
+          >
+            <Plus size={13} /> Add item
+          </button>
+        </div>
+        <ConfigurationDndList
+          className="configuration-slot-default-list"
+          ariaLabel={`${slot.label || labelFromKey(slotKey)} initial content`}
+          items={defaults.map((template, index) => ({
+            id: `default-${index}`,
+            label: nodeTypes[template.type]?.label || template.type
+          }))}
+          onReorder={(sourceIndex, destinationIndex) =>
+            updateDefaults((nextDefaults) => {
+              const reordered = moveArrayEntry(
+                nextDefaults,
+                sourceIndex,
+                destinationIndex
+              );
+              nextDefaults.splice(0, nextDefaults.length, ...reordered);
+            })
+          }
+        >
+          {(item, index, { dragHandleProps }) => {
+            const template = defaults[index];
+            const templateType = nodeTypes[template.type];
+            const fields = Object.entries(templateType?.fields ?? {}).filter(
+              ([, field]) => SLOT_DEFAULT_PROPERTY_WIDGETS.has(field.widget)
+            );
+            const updateTemplate = (change) => updateDefaults((nextDefaults) => {
+              change(nextDefaults[index]);
+            });
+            return (
+              <div className="configuration-slot-default">
+                <div className="configuration-slot-default__top">
+                  <SelectInput
+                    value={template.type}
+                    aria-label={`Initial item ${index + 1} content type`}
+                    onChange={(type) => updateTemplate((nextTemplate) => {
+                      nextTemplate.type = type;
+                      delete nextTemplate.properties;
+                    })}
+                  >
+                    {(slot.allowed_types ?? []).map((typeName) => (
+                      <option key={typeName} value={typeName}>
+                        {nodeTypes[typeName]?.label || typeName}
+                      </option>
+                    ))}
+                  </SelectInput>
+                  <EntryActions
+                    count={defaults.length}
+                    dragHandleProps={dragHandleProps}
+                    dragLabel={item.label}
+                    onDelete={() => updateDefaults((nextDefaults) => {
+                      nextDefaults.splice(index, 1);
+                    })}
+                  />
+                </div>
+                {fields.map(([fieldKey, field]) => (
+                  <SlotDefaultPropertyEditor
+                    key={fieldKey}
+                    fieldKey={fieldKey}
+                    field={field}
+                    template={template}
+                    onChange={updateTemplate}
+                  />
+                ))}
+              </div>
+            );
+          }}
+        </ConfigurationDndList>
+        {!defaults.length && (
+          <p className="configuration-muted">No initial content.</p>
+        )}
       </div>
     </article>
   );
@@ -4466,6 +4703,7 @@ export default function ConfigurationEditor({
       next.collections ??= {};
       next.node_types ??= {};
       change(next);
+      reconcileSlotDefaultTemplates(next);
       return next;
     });
   }

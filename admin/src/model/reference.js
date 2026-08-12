@@ -7,8 +7,8 @@ import {
   renderSlugTemplate,
   uniqueFilenameStem
 } from "../../../core/slug.js";
-import { defaultProperties } from "./editor.js";
 import { hasImageValue, imageAssetValue } from "./image.js";
+import { instantiateNode } from "./nodeFactory.js";
 
 const REFERENCE_CREATE_WIDGETS = new Set(["string", "text", "markdown"]);
 
@@ -260,25 +260,19 @@ function createReferencedRecordDraft({
     throw new Error("The referenced collection is not configured for creation.");
   }
 
-  const properties = structuredClone(defaultProperties(creation.type));
   const generatedFields = generatedIdFieldNames(creation.type);
   const usedGeneratedIds = generatedIdsInItems(items, generatedFields);
-  for (const fieldName of generatedFields) {
-    properties[fieldName] = createId(usedGeneratedIds);
-  }
+  const draft = instantiateNode(creation.typeName, nodeTypes, {
+    id: "",
+    order: nextRootOrder(items),
+    usedIds: usedGeneratedIds
+  });
+  const properties = draft.properties;
 
   const parentField = collection?.hierarchy?.parent_field;
   if (parentField) properties[parentField] = null;
 
-  return {
-    id: "",
-    type: creation.typeName,
-    order: nextRootOrder(items),
-    properties,
-    slots: Object.fromEntries(
-      Object.keys(creation.type.slots ?? {}).map((slotName) => [slotName, []])
-    )
-  };
+  return { ...draft, properties };
 }
 
 function requiredReferenceFieldHasValue(field, value) {
@@ -540,19 +534,19 @@ function createReferencedRecord({
     throw new Error("The referenced collection is not configured for creation.");
   }
 
-  const properties = {
-    ...defaultProperties(creation.type),
-    title: name,
-    [creation.fieldName]: name
-  };
-  const parentField = collection?.hierarchy?.parent_field;
-  if (parentField) properties[parentField] = null;
-
   const generatedFields = generatedIdFieldNames(creation.type);
   const usedGeneratedIds = generatedIdsInItems(items, generatedFields);
-  for (const fieldName of generatedFields) {
-    properties[fieldName] = createId(usedGeneratedIds);
-  }
+  const record = instantiateNode(creation.typeName, nodeTypes, {
+    order: nextRootOrder(items),
+    properties: {
+      title: name,
+      [creation.fieldName]: name
+    },
+    usedIds: usedGeneratedIds
+  });
+  const properties = record.properties;
+  const parentField = collection?.hierarchy?.parent_field;
+  if (parentField) properties[parentField] = null;
 
   const id = uniqueFilenameStem(
     collection?.slug
@@ -565,15 +559,7 @@ function createReferencedRecord({
       : name,
     new Set(items.map((item) => item.id))
   );
-  const record = {
-    id,
-    type: creation.typeName,
-    order: nextRootOrder(items),
-    properties,
-    slots: Object.fromEntries(
-      Object.keys(creation.type.slots ?? {}).map((slotName) => [slotName, []])
-    )
-  };
+  record.id = id;
   if (optionForItem && !optionForItem(record)) {
     throw new Error("The new item would not provide a usable reference value.");
   }

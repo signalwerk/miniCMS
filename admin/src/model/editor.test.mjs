@@ -7,14 +7,16 @@ import {
   collectNodeIds,
   defaultFieldValue,
   isInspectorFocusShortcut,
+  instantiateNode,
   isSaveShortcut,
-  newNode,
   referenceItemsForField,
   refreshGeneratedIdFields,
   selectionIdForRecord,
   selectionRouteFromHash,
   selectionRouteForState,
-  selectionRouteHash
+  selectionRouteHash,
+  slotMaximumViolationAfterDuplicating,
+  slotMinimumViolationAfterRemoving
 } from "./editor.js";
 
 test("generates collision-resistant 15-character lowercase alphanumeric IDs", () => {
@@ -31,7 +33,9 @@ test("uses the generated ID contract for fields, inserted nodes, and copies", ()
   assert.match(defaultFieldValue({ widget: "uuid" }, true), ID_PATTERN);
 
   const usedIds = new Set(["existing"]);
-  const inserted = newNode("text", { fields: {} }, usedIds);
+  const inserted = instantiateNode("text", { text: { fields: {} } }, {
+    usedIds
+  });
   assert.match(inserted.id, ID_PATTERN);
   assert.equal(usedIds.has(inserted.id), true);
 
@@ -49,6 +53,103 @@ test("uses the generated ID contract for fields, inserted nodes, and copies", ()
   assert.notEqual(copied.id, copied.slots.content[0].id);
   assert.notEqual(copied.id, source.id);
   assert.notEqual(copied.slots.content[0].id, source.slots.content[0].id);
+});
+
+test("detects deletion and cross-slot moves that would violate slot minimums", () => {
+  const record = {
+    id: "page",
+    type: "page",
+    slots: {
+      content: [
+        {
+          id: "accordion",
+          type: "accordion",
+          slots: {
+            summary: [{ id: "summary", type: "title", slots: {} }],
+            details: [{ id: "details", type: "text", slots: {} }]
+          }
+        },
+        { id: "spare", type: "text", slots: {} }
+      ]
+    }
+  };
+  const nodeTypes = {
+    page: { slots: { content: { allowed_types: ["accordion", "text"] } } },
+    accordion: {
+      slots: {
+        summary: { allowed_types: ["title"], min: 1 },
+        details: { allowed_types: ["text"] }
+      }
+    },
+    title: {},
+    text: {}
+  };
+
+  assert.deepEqual(
+    slotMinimumViolationAfterRemoving(
+      record,
+      new Set(["summary"]),
+      nodeTypes
+    ),
+    {
+      parentId: "accordion",
+      parentType: "accordion",
+      slotName: "summary",
+      minimum: 1,
+      remaining: 0
+    }
+  );
+  assert.equal(
+    slotMinimumViolationAfterRemoving(
+      record,
+      new Set(["details"]),
+      nodeTypes
+    ),
+    null
+  );
+  assert.equal(
+    slotMinimumViolationAfterRemoving(
+      record,
+      new Set(["accordion", "summary"]),
+      nodeTypes
+    ),
+    null
+  );
+});
+
+test("detects atomic multi-duplication that would exceed slot maximums", () => {
+  const first = { id: "first", type: "title", slots: {} };
+  const second = { id: "second", type: "title", slots: {} };
+  const record = {
+    id: "accordion",
+    type: "accordion",
+    slots: { summary: [first], details: [second] }
+  };
+  const nodeTypes = {
+    accordion: {
+      slots: {
+        summary: { allowed_types: ["title"], max: 1 },
+        details: { allowed_types: ["title"], max: 3 }
+      }
+    },
+    title: {}
+  };
+
+  assert.deepEqual(
+    slotMaximumViolationAfterDuplicating(record, [first], nodeTypes),
+    {
+      parentId: "accordion",
+      parentType: "accordion",
+      slotName: "summary",
+      count: 1,
+      current: 1,
+      maximum: 1
+    }
+  );
+  assert.equal(
+    slotMaximumViolationAfterDuplicating(record, [second], nodeTypes),
+    null
+  );
 });
 
 test("regenerates field and annotation IDs across a copied subtree", () => {

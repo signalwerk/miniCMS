@@ -185,6 +185,21 @@ changing shared core modules it has imported.
   persist only `required: true`; legacy `required: false` input normalizes away
   when configuration is validated or saved.
 - Records contain `id`, `type`, `order`, `properties`, and typed `slots`.
+- A slot may configure an ordered `default` array of flat templates containing
+  exactly `{type, properties?}`. Template types must be allowed by that slot;
+  optional properties may override only known scalar fields (`string`, `text`,
+  `url`, `markdown`, `select`, `boolean`, `datetime`, and `number`) with values
+  valid for the field. Generated IDs, uploads, relations, tags, stored child
+  IDs, and stored child slots are never configuration defaults. Default-template
+  type edges must be acyclic and their count may not exceed a configured slot
+  maximum. Every genuinely new root or content node recursively instantiates
+  these templates with fresh 15-character node and generated-field IDs; an
+  existing reference-creation draft keeps its already-instantiated children
+  when finalized. Settings edits templates as an ordered DnD list and removes
+  overrides made invalid by later field, widget, option, or allowed-type edits.
+  A configured slot `min` is a persisted record invariant: missing slots count
+  as empty, record validation rejects too few children, and content deletion or
+  cross-slot dragging may not reduce a surviving parent below that minimum.
 - Collection folders and media folders must be strict descendants of consumer
   `content/`. Concrete collections owned by one connector may not use equal or
   nested folders, and default collection folders may not overlap the media

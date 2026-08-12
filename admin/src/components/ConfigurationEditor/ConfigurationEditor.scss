@@ -672,6 +672,43 @@
   gap: 12px;
 }
 
+.configuration-slot-defaults {
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid #343630;
+}
+
+.configuration-slot-default-list {
+  display: grid;
+  gap: 9px;
+}
+
+.configuration-slot-default {
+  padding: 10px;
+  background: #20211e;
+  border: 1px solid #3b3d36;
+  border-radius: 4px;
+}
+
+.configuration-slot-default__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.configuration-slot-default__property {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid #343630;
+}
+
+.configuration-slot-default__property > input,
+.configuration-slot-default__property > .configuration-select {
+  width: 100%;
+  margin-top: 8px;
+}
+
 .configuration-entry-card__top,
 .configuration-layout-group__top {
   display: flex;

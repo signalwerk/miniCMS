@@ -7,7 +7,7 @@ import {
   createId,
   isGeneratedIdWidget
 } from "../../../core/id.js";
-import { defaultProperties } from "./editor.js";
+import { instantiateNode } from "./nodeFactory.js";
 import { referenceItemValue } from "./reference.js";
 
 function normalizeTagIds(value) {
@@ -94,10 +94,6 @@ function createTagRecord({
     throw new Error("The tag collection is not configured for creation.");
   }
 
-  const properties = {
-    ...defaultProperties(type),
-    [titleField]: name
-  };
   const generatedIdFields = Object.entries(type.fields ?? {})
     .filter(([, field]) => isGeneratedIdWidget(field.widget))
     .map(([fieldName]) => fieldName);
@@ -108,9 +104,11 @@ function createTagRecord({
         .filter((value) => typeof value === "string")
     )
   );
-  for (const fieldName of generatedIdFields) {
-    properties[fieldName] = createId(usedGeneratedIds);
-  }
+  const record = instantiateNode(typeName, nodeTypes, {
+    properties: { [titleField]: name },
+    usedIds: usedGeneratedIds
+  });
+  const properties = record.properties;
 
   const usedIds = new Set(items.map((item) => item.id));
   const id = uniqueFilenameStem(
@@ -129,15 +127,9 @@ function createTagRecord({
       )
     ) + 1;
 
-  return {
-    id,
-    type: typeName,
-    order,
-    properties,
-    slots: Object.fromEntries(
-      Object.keys(type.slots ?? {}).map((slotName) => [slotName, []])
-    )
-  };
+  record.id = id;
+  record.order = order;
+  return record;
 }
 
 async function createOrReuseTag({

@@ -58,6 +58,16 @@ const FIELD_WIDGETS = new Set([
   "id",
   "uuid"
 ]);
+const SLOT_DEFAULT_PROPERTY_WIDGETS = new Set([
+  "string",
+  "text",
+  "url",
+  "markdown",
+  "select",
+  "boolean",
+  "datetime",
+  "number"
+]);
 const INLINE_REFERENCE_VALUE_WIDGETS = new Set([
   "string",
   "text",
@@ -129,6 +139,60 @@ function isWebUrl(value) {
   } catch {
     return false;
   }
+}
+
+function selectOptionValue(option) {
+  return isMapping(option) ? option.value : option;
+}
+
+function validateSlotDefaultPropertyValue(field, value) {
+  if (["string", "text", "markdown", "datetime"].includes(field.widget)) {
+    return typeof value === "string";
+  }
+  if (field.widget === "url") {
+    return typeof value === "string" && (value === "" || isWebUrl(value));
+  }
+  if (field.widget === "boolean") return typeof value === "boolean";
+  if (field.widget === "number") {
+    return typeof value === "number" && Number.isFinite(value);
+  }
+  if (field.widget === "select") {
+    return (field.options ?? []).some((option) =>
+      Object.is(selectOptionValue(option), value)
+    );
+  }
+  return false;
+}
+
+function validateSlotDefaultCycles(config, status, { source = false } = {}) {
+  const visiting = new Set();
+  const visited = new Set();
+  const path = [];
+
+  function visit(typeName) {
+    if (visited.has(typeName)) return;
+    if (visiting.has(typeName)) {
+      const cycleStart = path.indexOf(typeName);
+      const cycle = [...path.slice(cycleStart), typeName].join(" -> ");
+      throw contentError(
+        status,
+        `Slot default templates contain a content-type cycle: ${cycle}.`
+      );
+    }
+    const type = config.node_types[typeName];
+    if (!type || (source && Object.hasOwn(type, "remote_type"))) return;
+
+    visiting.add(typeName);
+    path.push(typeName);
+    for (const slot of Object.values(type.slots ?? {})) {
+      for (const template of slot.default ?? []) visit(template.type);
+    }
+    path.pop();
+    visiting.delete(typeName);
+    visited.add(typeName);
+  }
+
+  for (const typeName of Object.keys(config.node_types)) visit(typeName);
 }
 
 function isReferenceSetTemplate(value) {
@@ -975,6 +1039,31 @@ function validateConfig(config, status = 500, { source = false } = {}) {
           `Node type "${typeName}" slot "${slotName}" must define allowed_types as an array.`
         );
       }
+      if (
+        slot.min !== undefined &&
+        (!Number.isInteger(slot.min) || slot.min < 0)
+      ) {
+        fail(
+          `Node type "${typeName}" slot "${slotName}" minimum must be a non-negative integer.`
+        );
+      }
+      if (
+        slot.max !== undefined &&
+        (!Number.isInteger(slot.max) || slot.max < 1)
+      ) {
+        fail(
+          `Node type "${typeName}" slot "${slotName}" maximum must be a positive integer.`
+        );
+      }
+      if (
+        slot.min !== undefined &&
+        slot.max !== undefined &&
+        slot.min > slot.max
+      ) {
+        fail(
+          `Node type "${typeName}" slot "${slotName}" minimum cannot exceed its maximum.`
+        );
+      }
       for (const allowedType of slot.allowed_types) {
         if (!config.node_types[allowedType]) {
           fail(
@@ -988,6 +1077,64 @@ function validateConfig(config, status = 500, { source = false } = {}) {
           fail(
             `Node type "${typeName}" slot "${slotName}" cannot contain node type "${allowedType}" from another connector.`
           );
+        }
+      }
+      if (slot.default !== undefined && !Array.isArray(slot.default)) {
+        fail(
+          `Node type "${typeName}" slot "${slotName}" default must be an array of templates.`
+        );
+      }
+      if (slot.max !== undefined && (slot.default?.length ?? 0) > slot.max) {
+        fail(
+          `Node type "${typeName}" slot "${slotName}" default exceeds its maximum item count.`
+        );
+      }
+      for (const [templateIndex, template] of (slot.default ?? []).entries()) {
+        const templateContext =
+          `Node type "${typeName}" slot "${slotName}" default ${templateIndex + 1}`;
+        if (!isMapping(template)) {
+          fail(`${templateContext} must be a mapping.`);
+        }
+        const unsupportedKeys = Object.keys(template).filter(
+          (key) => !["type", "properties"].includes(key)
+        );
+        if (unsupportedKeys.length) {
+          fail(`${templateContext} may contain only type and properties.`);
+        }
+        if (
+          typeof template.type !== "string" ||
+          !slot.allowed_types.includes(template.type)
+        ) {
+          fail(
+            `${templateContext} type "${template.type ?? ""}" must be one of the slot's allowed content types.`
+          );
+        }
+        if (
+          template.properties !== undefined &&
+          !isMapping(template.properties)
+        ) {
+          fail(`${templateContext} properties must be a mapping.`);
+        }
+        const targetType = config.node_types[template.type];
+        for (const [propertyName, value] of Object.entries(
+          template.properties ?? {}
+        )) {
+          const field = targetType?.fields?.[propertyName];
+          if (!field) {
+            fail(
+              `${templateContext} properties references unknown field "${propertyName}".`
+            );
+          }
+          if (!SLOT_DEFAULT_PROPERTY_WIDGETS.has(field.widget)) {
+            fail(
+              `${templateContext} properties cannot override ${field.widget} field "${propertyName}".`
+            );
+          }
+          if (!validateSlotDefaultPropertyValue(field, value)) {
+            fail(
+              `${templateContext} property "${propertyName}" has an invalid ${field.widget} value.`
+            );
+          }
         }
       }
     }
@@ -1016,6 +1163,8 @@ function validateConfig(config, status = 500, { source = false } = {}) {
       }
     }
   }
+
+  validateSlotDefaultCycles(config, status, { source });
 
   for (const [collectionName, collection] of Object.entries(
     config.collections
@@ -1665,16 +1814,24 @@ function validateRecord(record, collection, config, status = 400) {
       }
     }
 
-    for (const [slotName, children] of Object.entries(node.slots ?? {})) {
-      const slot = config.node_types[node.type]?.slots?.[slotName];
-      if (!slot) {
-        throw contentError(
-          status,
-          `Type "${node.type}" has no slot "${slotName}".`
-        );
-      }
+    const configuredSlots = config.node_types[node.type]?.slots ?? {};
+    for (const slotName of Object.keys(node.slots ?? {})) {
+      if (configuredSlots[slotName]) continue;
+      throw contentError(
+        status,
+        `Type "${node.type}" has no slot "${slotName}".`
+      );
+    }
+    for (const [slotName, slot] of Object.entries(configuredSlots)) {
+      const children = node.slots?.[slotName] ?? [];
       if (!Array.isArray(children)) {
         throw contentError(status, `Slot "${slotName}" must be an array.`);
+      }
+      if (slot.min && children.length < slot.min) {
+        throw contentError(
+          status,
+          `Slot "${slotName}" requires at least ${slot.min} items.`
+        );
       }
       if (slot.max && children.length > slot.max) {
         throw contentError(

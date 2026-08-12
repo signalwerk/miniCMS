@@ -1,6 +1,73 @@
+import { translateInlineReferences } from "../../../core/connectors.js";
+
 const SCHEMA_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]*$/i;
 
 const SCHEMA_SECTIONS = new Set(["node_types", "collections"]);
+const SLOT_DEFAULT_PROPERTY_WIDGETS = new Set([
+  "string",
+  "text",
+  "url",
+  "markdown",
+  "select",
+  "boolean",
+  "datetime",
+  "number"
+]);
+
+function isMapping(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function optionValue(option) {
+  return isMapping(option) ? option.value : option;
+}
+
+function validSlotDefaultProperty(field, value) {
+  if (!SLOT_DEFAULT_PROPERTY_WIDGETS.has(field?.widget)) return false;
+  if (["string", "text", "url", "markdown", "datetime"].includes(field.widget)) {
+    return typeof value === "string";
+  }
+  if (field.widget === "boolean") return typeof value === "boolean";
+  if (field.widget === "number") {
+    return typeof value === "number" && Number.isFinite(value);
+  }
+  return (field.options ?? []).some((option) => Object.is(
+    optionValue(option),
+    value
+  ));
+}
+
+function reconcileSlotDefaultTemplates(config) {
+  for (const type of Object.values(config.node_types ?? {})) {
+    for (const slot of Object.values(type.slots ?? {})) {
+      if (!Array.isArray(slot.default)) continue;
+      const allowedTypes = new Set(slot.allowed_types ?? []);
+      slot.default = slot.default.flatMap((template) => {
+        if (
+          !isMapping(template) ||
+          !allowedTypes.has(template.type) ||
+          !config.node_types?.[template.type]
+        ) {
+          return [];
+        }
+        const nextTemplate = { type: template.type };
+        const fields = config.node_types[template.type].fields ?? {};
+        const properties = Object.fromEntries(
+          Object.entries(template.properties ?? {}).filter(
+            ([name, value]) => validSlotDefaultProperty(fields[name], value)
+          )
+        );
+        if (Object.keys(properties).length) nextTemplate.properties = properties;
+        return [nextTemplate];
+      });
+      if (Number.isInteger(slot.max) && slot.max >= 1) {
+        slot.default = slot.default.slice(0, slot.max);
+      }
+      if (!slot.default.length) delete slot.default;
+    }
+  }
+  return config;
+}
 
 function assertSection(section) {
   if (!SCHEMA_SECTIONS.has(section)) {
@@ -236,6 +303,9 @@ function rewriteNodeTypeDependencies(config, currentKey, nextKey) {
         currentKey,
         nextKey
       );
+      for (const template of slot.default ?? []) {
+        if (template.type === currentKey) template.type = nextKey;
+      }
     }
     for (const field of Object.values(type.fields ?? {})) {
       if (field.widget === "reference" && field.allowed_types) {
@@ -251,6 +321,19 @@ function rewriteNodeTypeDependencies(config, currentKey, nextKey) {
 
 function rewriteCollectionDependencies(config, currentKey, nextKey) {
   for (const type of Object.values(config.node_types ?? {})) {
+    for (const slot of Object.values(type.slots ?? {})) {
+      for (const template of slot.default ?? []) {
+        for (const [propertyName, value] of Object.entries(
+          template.properties ?? {}
+        )) {
+          if (typeof value !== "string") continue;
+          template.properties[propertyName] = translateInlineReferences(
+            value,
+            { [currentKey]: nextKey }
+          );
+        }
+      }
+    }
     for (const field of Object.values(type.fields ?? {})) {
       if (
         ["reference", "tags"].includes(field.widget) &&
@@ -463,6 +546,7 @@ export {
   duplicateSchemaEntry,
   markSchemaEntryFresh,
   renameSchemaEntry,
+  reconcileSlotDefaultTemplates,
   schemaRenameError,
   siblingFolder
 };
