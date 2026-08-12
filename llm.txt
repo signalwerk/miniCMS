@@ -1,92 +1,581 @@
-# miniCMS project preview contract
+# Build and publish a miniCMS website
 
-Create one project-owned React component named `ProjectPreview`. miniCMS owns
-the React root, iframe, lifecycle, content resolution, selection, and
-persistence. Do not create a React root, import `react-dom`, fetch CMS data,
-write content, or register a separate component per collection.
+This is an execution contract for a coding agent. Starting from a consumer Git
+repository, implement and verify the complete project. Do not merely describe
+the setup and do not stop after installing the editor. The finished repository
+must support:
 
-Load and initialize in this order: the miniCMS browser bundle, the project's
-IIFE preview bundle, preview registration, then miniCMS initialization.
+- local content editing through miniCMS;
+- an unsaved, project-styled live preview inside the editor;
+- static Astro pages rendered by the same React renderer;
+- local YAML and media persistence through miniCMS API;
+- a production `/admin/` that uses the GitHub connector; and
+- deployment of the website and `/admin/` to GitHub Pages.
 
-```html
-<div id="root"></div>
-<script src="https://signalwerk.github.io/miniCMS/minicms.js"></script>
-<script src="./preview.js"></script>
-<script>
-  const Preview = window.SitePreview?.ProjectPreview;
-  if (typeof Preview !== "function") throw new Error("Missing ProjectPreview");
-  window.miniCMS.registerPreview(Preview);
-  window.miniCMS.init({
-    target: "#root",
-    configUrl: "../cms.config.yml"
-  });
-</script>
+Use this document together with the checked-out `miniCMS/README.md`,
+`miniCMS/AGENTS.md`, `miniCMS-api/README.md`, and `miniCMS-api/AGENTS.md`.
+Those repositories own their reusable contracts. The consumer repository owns
+its content model, YAML records, renderer, routes, styles, admin host, process
+orchestration, and deployment.
+
+`init.sh` is only a minimal HTML/config initializer. It is not a substitute for
+the end-to-end project described here.
+
+## 1. Required outcome and boundaries
+
+Use Node.js 24 or newer. Create one private ESM root package with one workspace,
+`site/`. Add these independent repositories as pinned Git submodules:
+
+```text
+miniCMS/      https://github.com/signalwerk/miniCMS.git
+miniCMS-api/  https://github.com/signalwerk/miniCMS.server.git
 ```
 
-`registerPreview` must run before the first `init` call. miniCMS accepts one
-optional preview component and has no collection-registration map or mount
-hook. Branch inside `ProjectPreview` on `data.collection.name` when collections
-need different rendering.
+Prefer the HTTPS submodule URLs for a public consumer repository so GitHub
+Actions can check them out without an SSH deploy key. Commit `.gitmodules` and
+both gitlinks. Do not copy reusable source out of the submodules, make either
+submodule a root workspace, or edit a submodule to add project behavior.
 
-`ProjectPreview` receives exactly `{data, focus}`:
+The consumer repository has one authoritative `cms.config.yml` at its root and
+one `content/` tree. Never create a second editable config below `admin/` or
+`site/`. The Astro admin route may publish a read-only build copy of that root
+file at `/admin/cms.config.yml`.
+
+The baseline production architecture is deliberately static:
+
+- Astro reads committed YAML and media while building.
+- GitHub Pages serves the website and `/admin/`.
+- The deployed admin loads the independently published miniCMS browser bundle
+  and writes through the configured GitHub connector.
+- `miniCMS-api` is used only on loopback during local development. Do not
+  deploy it as part of the GitHub Pages site.
+- The website build does not build or copy miniCMS itself. It builds only the
+  project-owned `preview.js`.
+
+Preserve existing repository work. Inspect before writing and integrate with
+existing files instead of replacing unrelated code.
+
+## 2. Resolve project identity first
+
+Derive the exact `owner/repository` and default branch from `git remote origin`.
+If there is no unambiguous GitHub origin, ask for those two values before
+configuring production or deployment. Also obtain or sensibly derive:
+
+- the site name;
+- locale, defaulting to `en`; and
+- a basic visual direction for the site.
+
+Use the repository identity consistently in `cms.config.yml`, the Pages
+workflow trigger, documentation, and reported URLs. Do not leave
+`owner/repository`, `Website`, or another template identity in the finished
+project. Keep YAML values strings even when a valid branch or repository name
+looks like `true`, `null`, or a number.
+
+The starter uses `https://auth.signalwerk.workers.dev` for the production
+GitHub connector. A deployed admin can authenticate only when that auth worker
+trusts the exact browser origin and permits the intended GitHub identity and
+repository. An origin is scheme plus host (and a non-default port), never a
+path. The site can still build and deploy when this external authorization is
+not available, but do not claim that deployed editing works; report the exact
+origin that must be allowlisted. Never weaken browser or API CORS as a
+substitute.
+
+## 3. Target repository
+
+Create this shape, adapting names but preserving responsibilities:
+
+```text
+.github/workflows/pages.yml
+.gitignore
+.gitmodules
+.nvmrc
+AGENTS.md
+README.md
+cms.config.yml
+content/
+  pages/
+  images/
+  files/
+  media/
+miniCMS/                  # pinned submodule
+miniCMS-api/              # pinned submodule
+package.json
+package-lock.json
+site/
+  .gitignore
+  astro.config.ts
+  package.json
+  tsconfig.json
+  vite.preview.config.ts
+  src/
+    components/
+    layouts/
+    model/
+    pages/
+      [...path].astro
+      admin/
+        cms.config.yml.ts
+        index.astro
+    preview/
+      index.tsx
+    render/
+    styles/
+    env.d.ts
+```
+
+Ignore at least root `node_modules/`, `dist/`, `.astro/`, `.env`, logs, and OS
+junk. Ignore `site/public/admin/preview.js`, which is generated for development.
+Do not ignore committed YAML or `content/media/`. Keep otherwise empty content
+directories with `.gitkeep` when necessary.
+
+Add the submodules before creating the site so the shared package exports and
+starter config are available:
+
+```sh
+git submodule add https://github.com/signalwerk/miniCMS.git miniCMS
+git submodule add https://github.com/signalwerk/miniCMS.server.git miniCMS-api
+git submodule update --init --recursive
+```
+
+Read both submodules' instructions completely before using their code.
+
+Before executing any validation or seed script below, create the root and
+`site/` package manifests described in section 6 and install all three package
+boundaries:
+
+```sh
+npm install
+npm install --prefix miniCMS
+npm install --prefix miniCMS-api
+```
+
+This ordering is required in a fresh checkout: the shared core imports
+`js-yaml` from miniCMS's own install. You may author the config and seed script
+first, but do not execute their shared imports before these installs finish.
+
+## 4. Start from the maintained demo config
+
+Copy `miniCMS/cms.config.yml` to the consumer repository root as a regular
+file. Do not symlink it and do not reconstruct it from this document:
+
+```sh
+cp miniCMS/cms.config.yml cms.config.yml
+```
+
+Specialize only the project identity initially:
+
+- `connectors.default.repo` becomes the exact `owner/repository`;
+- `connectors.default.branch` becomes the deployment branch;
+- `site.name` becomes the chosen site name; and
+- `site.locale` becomes the chosen locale.
+
+Validate the result using `parseYaml` and `validateSourceConfig` from
+`miniCMS/core/content.js` before continuing.
+
+The maintained starter is the baseline content model. Preserve its internal
+dependencies unless the project explicitly asks for a different schema. It
+contains:
+
+- local collections `pages`, `images`, and `files`;
+- document types `page`, `shortcut`, `media_image`, and `media_file`;
+- content/structure types `title`, `text`, `image`, `box`, `accordion`, `grid`,
+  and `column`;
+- a concrete local image library rather than a remote alias;
+- a plain Markdown text field without a project-specific inline-reference
+  extension; and
+- no articles, sources, authors, tags, notes, or reference-list model.
+
+The production default remains GitHub. The reserved `development` connector
+remains API and is selected explicitly only by the local admin host. Collection
+folders stay distinct, non-overlapping descendants of `content/`, and they may
+not overlap `site.media_folder`.
+
+Do not put secrets or access tokens in this public config.
+
+## 5. Seed a valid home page
+
+Create a small valid record so the first static deployment has `/`. Generate
+every opaque ID with `createId()` from `miniCMS/core/id.js`; opaque IDs match
+`^[a-z0-9]{15}$`. The record's top-level `id` and YAML filename stem remain a
+readable storage key such as `home`.
+
+Prefer a one-time Node script that imports these shared helpers:
+
+```js
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dumpYaml, parseYaml, validateRecord, validateSourceConfig }
+  from "./miniCMS/core/content.js";
+import { createId } from "./miniCMS/core/id.js";
+
+const config = validateSourceConfig(
+  parseYaml(await readFile("cms.config.yml", "utf8"))
+);
+const usedIds = new Set();
+const record = {
+  id: "home",
+  type: "page",
+  order: 0,
+  properties: {
+    content_id: createId(usedIds),
+    parent_id: null,
+    title: "Home",
+    slug: "",
+    navigation_title: "Home",
+    hidden: false,
+    hide_in_navigation: false,
+    description: "",
+    noindex: false,
+    nofollow: false,
+    layout: "default"
+  },
+  slots: {
+    content: [
+      {
+        id: createId(usedIds),
+        type: "title",
+        properties: {
+          title: "Welcome",
+          element: "h2",
+          hidden: false
+        },
+        slots: {}
+      },
+      {
+        id: createId(usedIds),
+        type: "text",
+        properties: {
+          text: "Edit this page in miniCMS.",
+          hidden: false
+        },
+        slots: {}
+      }
+    ]
+  }
+};
+
+validateRecord(record, config.collections.pages, config);
+await mkdir("content/pages", { recursive: true });
+await mkdir("content/images", { recursive: true });
+await mkdir("content/files", { recursive: true });
+await mkdir("content/media", { recursive: true });
+await writeFile("content/pages/home.yml", dumpYaml(record), "utf8");
+```
+
+A complete record is always `{id, type, order, properties, slots}`. Every
+nested child is `{id, type, properties, slots}` with optional `order`. Do not
+invent partial-node storage or persist resolved URLs.
+
+## 6. Root tooling and processes
+
+Set `.nvmrc` to `24`. Make the root package private, ESM, and give it only the
+`site` workspace. Use a thin orchestration package similar to:
+
+```json
+{
+  "name": "project-content",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["site"],
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --run=dev:processes",
+    "dev:processes": "concurrently --kill-others --names site,cms,api \"npm run dev:site\" \"npm run dev:cms\" \"npm run dev:api\"",
+    "dev:site": "npm run dev --workspace @site/project",
+    "dev:cms": "node ./miniCMS/bin/minicms.mjs dev",
+    "dev:api": "node ./miniCMS-api/bin/minicms-api.mjs dev",
+    "build": "npm run check:site && npm run build:site",
+    "build:site": "npm run build --workspace @site/project",
+    "build:pages": "npm run build",
+    "check:site": "npm run check --workspace @site/project",
+    "test": "npm run check:site && npm test --workspace @site/project",
+    "test:cms": "node ./miniCMS/bin/minicms.mjs test",
+    "test:api": "npm --prefix miniCMS-api test"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.4"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
+```
+
+If the site workspace name differs, update every root script consistently.
+Running `dev:api` from the repository root is intentional: the service then
+uses this consumer repository as its project root.
+
+The site package is private ESM and depends on the published miniCMS package
+through the submodule:
+
+```json
+{
+  "name": "@site/project",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build:preview:dev && ASTRO_DEV_BACKGROUND=1 astro dev --force",
+    "build": "astro build && npm run build:preview",
+    "build:preview": "vite build --config vite.preview.config.ts",
+    "build:preview:dev": "SITE_PREVIEW_OUT_DIR=public/admin vite build --config vite.preview.config.ts",
+    "check": "astro check",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@astrojs/react": "^6.0.2",
+    "@signalwerk/minicms": "file:../miniCMS",
+    "astro": "^7.1.6",
+    "cookie": "^2.0.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "sass": "^1.102.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.13"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
+```
+
+Choose current compatible versions when this document's examples have moved,
+then commit the generated root lockfile. If the three package boundaries were
+not already installed before config validation as required in section 3, do so
+now:
+
+```sh
+npm install
+npm install --prefix miniCMS
+npm install --prefix miniCMS-api
+```
+
+The separate submodule installs are for their development servers and tests.
+GitHub Pages CI needs only root `npm ci` because it builds only the consumer
+site and checks out the submodules first.
+
+## 7. Read content through the shared adapter
+
+The static site must import the project-facing filesystem adapter, not parse
+record YAML itself:
 
 ```ts
-type PreviewProps = {
-  data: {
-    config: CmsConfig;
-    collection: CmsCollection;
-    item: ContentRecord;
-  };
-  focus: (nodeId: string) => React.HTMLAttributes<HTMLElement> & {
-    ref?: React.RefCallback<HTMLElement>;
-  };
+import { createFilesystemContentAdapter }
+  from "@signalwerk/minicms/content/fs";
+```
+
+Create `site/src/model/repository.ts` with these rules:
+
+- Resolve the consumer project root, not `site/`, as `projectRoot`.
+- In production call `createFilesystemContentAdapter({
+  projectRoot, publicBase: import.meta.env.BASE_URL })`.
+- In development use the absolute loopback miniCMS API origin for both
+  `publicBase` and `imageServiceBaseUrl`. This lets locally uploaded media and
+  derivatives render before deployment.
+- Load `pages` through `adapter.list("pages")` and map each item to the exact
+  `{config, collection, item}` envelope used by the preview.
+- Cache one repository snapshot during a production build. Do not cache it in
+  development.
+- Consume resolved references and media from the envelope. Do not refetch
+  records or reconstruct media URLs in components.
+
+Normalize `MINICMS_API_URL` in a small server-side helper. It defaults to
+`http://127.0.0.1:${PORT || 8787}`. Permit HTTP only for `localhost`, `::1`, or
+the `127.0.0.0/8` loopback range; require HTTPS otherwise. Do not create an
+Astro `/api` or `/media` proxy.
+
+The baseline starter has no protected named API connector and therefore needs
+no `MINICMS_CONNECTOR_READ_TOKENS`. If a future project adds one, parse that
+server-only JSON mapping only in Astro/Node and pass connector tokens to the
+filesystem adapter. Never expose it in browser code or built files.
+
+## 8. Own routes in the site
+
+Implement a pure route manifest for `pages`:
+
+- Build hierarchy identity from `content_id` and `parent_id`.
+- Derive a slash-free segment from each record's `slug`.
+- An empty slug on the root page produces `/`.
+- Child paths include every visible ancestor's segment.
+- Omit hidden pages and whole hidden subtrees from public routes.
+- Detect and fail on hierarchy cycles, missing parents that make a route
+  impossible, and duplicate public paths.
+- A `shortcut` in `first_child` mode redirects to its first visible child.
+- A `shortcut` in `selected_target` mode redirects to its selected visible
+  page. Resolve shortcut chains cycle-safely.
+- Apply the Astro base path to redirects and internal URLs.
+
+Create `site/src/pages/[...path].astro` with `getStaticPaths()`. Store only the
+stable route path in each generated `props`, not a record snapshot. Resolve the
+route against a newly loaded development repository for each request; Astro
+caches `getStaticPaths()` props and otherwise can keep an old YAML record after
+an editor save. In a production build, the one cached snapshot is desirable.
+
+Create a document layout that owns HTML language, title, description, robots,
+canonical URL, and responsive metadata. Use `Astro.site` plus
+`import.meta.env.BASE_URL` for canonical paths. Do not hard-code `/` when a
+Pages project base may be `/repository/`.
+
+## 9. Use one recursive React renderer
+
+Static pages and the miniCMS preview must call the same typed `Renderer`.
+Create a registry keyed by the starter type names:
+
+```text
+page, shortcut, title, text, image, media_image,
+media_file, box, accordion, grid, column
+```
+
+Include an `Unknown` fallback that makes an unsupported type diagnosable.
+Recursively render every ordered child array in every named `node.slots`
+mapping. Pass rendered slot arrays to the component by slot name.
+
+Use types from `@signalwerk/minicms/content`. A component should receive the
+current node, rendered slots, the complete `ContentData`, an `authoring`
+boolean, and authoring props. Define the focus shape accurately:
+
+```ts
+import type { ContentData } from "@signalwerk/minicms/content";
+import type { HTMLAttributes, RefCallback } from "react";
+
+export type AuthoringProps = HTMLAttributes<HTMLElement> & {
+  ref?: RefCallback<HTMLElement>;
+  "data-minicms-node-id"?: string;
+  "data-minicms-node-type"?: string;
+  "data-minicms-selected"?: string;
+  "data-minicms-hidden"?: string;
+};
+export type FocusHandler = (nodeId: string) => AuthoringProps;
+export type PreviewRendererProps = {
+  data: ContentData;
+  focus: FocusHandler;
 };
 ```
 
-`data` is resolved and read-only. `data.item` is the complete current unsaved
-record. A record and every nested content node use
-`{id, type, order?, properties, slots}`; each value in `slots` is an ordered
-array of more nodes. Read the available collections, types, fields, slots, and
-presentation settings from `data.config`, then render the actual values in
-`data.item`. Do not assume project-specific keys. References, tags, configured
-Markdown references, and media may already be resolved; consume the supplied
-values instead of loading them again.
+For the record root and every nested content node, spread `focus(node.id)`
+unchanged onto exactly one concrete DOM boundary when `focus` exists. Do not
+replace its ref, handlers, ARIA properties, `tabIndex`, or data attributes.
+This connects editor selection, keyboard activation, outlines, and
+scroll-to-node behavior.
 
-Spread `focus(node.id)` unchanged onto one concrete DOM boundary for the record
-root and every recursively rendered slot node:
+Treat `properties.hidden === true` as follows:
+
+- public/static rendering returns `null` for that node and its subtree;
+- authoring rendering keeps it mounted and adds
+  `data-minicms-hidden="true"`; and
+- project preview CSS reduces opacity on the outermost hidden boundary without
+  compounding opacity for nested hidden nodes. Do not use `hidden`, `inert`,
+  `aria-hidden`, or `pointer-events: none`, because the editor must select it.
+
+Implement accessible, responsive components for the starter:
+
+- `page`: semantic document boundary, site/page header, and `content` slot;
+- `shortcut`: useful authoring representation even though public routing turns
+  it into a redirect;
+- `title`: allow `h1` through `h6`, `p` with safe dot-separated classes such
+  as `p.eyebrow`, and `none`; render `none` as an unstyled `span` because the
+  accordion summary default uses it;
+- `text`: render resolved Markdown with `react-markdown`, skip raw HTML, and
+  retain safe ordinary links;
+- `accordion`: native `<details>` with `<summary>` first and details content
+  second; force it open only in authoring so all nested nodes remain editable;
+  public output stays closed by default;
+- `box`: map only the configured `paper`, `soft`, and `accent` values to known
+  classes;
+- `grid` and `column`: use a 12-column CSS grid; validate `width` and optional
+  `start` as 1 through 12;
+- `media_file`: render a safe download/link presentation from its resolved
+  file value; and
+- `Unknown`: show type/properties and still render its slots in authoring.
+
+Image values are structured, not strings. A resolved content `image` reference
+normally has:
+
+```js
+{
+  ref: "published-image-id",
+  record: {
+    properties: {
+      file: { hash, filename, src, width, height, regions, points },
+      alt,
+      caption
+    }
+  },
+  selections: {
+    crop: { ref: "region-id", value: /* current region or null */ },
+    focus: { ref: "point-id", value: /* current point or null */ }
+  }
+}
+```
+
+A `media_image` record preview reads its own `properties.file`. Use the
+transient resolved `src`; never persist it and never rebuild it from `hash` in
+the renderer. Honor per-node alt/caption overrides before library values.
+Implement the configured original/landscape/square/portrait presentation and
+crop/focus selection behavior. For canonical raster service URLs, use the
+public `prependImageServiceOperations` helper to prepend the source-space crop
+before resize/quality. Use a bounded CSS crop fallback for GitHub/raw images
+and byte-preserving SVG service URLs. Render useful missing-image states in
+authoring and correct intrinsic dimensions when known.
+
+Create project-owned Sass and inject no editor styles into the public site.
+The result should be a coherent starter website, not an unstyled schema dump.
+
+## 10. Build and register the project preview
+
+Create `site/src/preview/index.tsx` exporting exactly one component:
 
 ```tsx
-export function ProjectPreview({ data, focus }) {
+import Renderer from "../render/Renderer";
+import type { PreviewRendererProps } from "../render/types";
+import stylesheet from "../styles/site.scss?inline";
+
+export function ProjectPreview({ data, focus }: PreviewRendererProps) {
   return (
-    <main {...focus(data.item.id)}>
-      {data.item.properties.title}
-    </main>
+    <>
+      <style>{stylesheet}</style>
+      <Renderer data={data} focus={focus} />
+    </>
   );
 }
 ```
 
-Do not replace the returned ref, event handlers, ARIA properties, `tabIndex`,
-or data attributes. They connect click and Enter/Space selection, authoring
-outlines, and scroll-to-node behavior.
+The preview receives only `{data, focus}`. `data` is the resolved, read-only
+`{config, collection, item}` envelope and `item` includes the current unsaved
+record. Infer types, fields, and slots from `data.config` plus the actual item.
+Do not create a React root, import `react-dom`, fetch content, persist content,
+or register one component per collection. miniCMS owns the root, iframe,
+lifecycle, resolution, and selection.
 
-The component renders inside an isolated iframe document. Styles from the
-admin parent do not apply. Bundle project CSS as text and render it inside the
-component, for example with `import stylesheet from "./preview.scss?inline"`
-and `<style>{stylesheet}</style>`. Use the resolved media URLs from `data` or
-absolute asset URLs.
+The iframe is isolated from the admin document, so inline the project stylesheet
+as shown. Use resolved media URLs or absolute project asset URLs.
 
-Build `preview.js` as a named IIFE. Export `ProjectPreview`, reuse miniCMS's
-React and automatic JSX runtimes, and do not bundle another React copy:
+Build `preview.js` as a named IIFE in `site/vite.preview.config.ts`:
 
 ```ts
-// vite.preview.config.ts
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+
+const siteDirectory = path.dirname(fileURLToPath(import.meta.url));
+const outDir = process.env.SITE_PREVIEW_OUT_DIR
+  ? path.resolve(siteDirectory, process.env.SITE_PREVIEW_OUT_DIR)
+  : path.resolve(siteDirectory, "../dist/admin");
 
 export default defineConfig({
   publicDir: false,
   build: {
+    outDir,
+    emptyOutDir: false,
+    assetsInlineLimit: () => true,
+    cssCodeSplit: false,
     lib: {
-      entry: "src/preview.tsx",
+      entry: path.resolve(siteDirectory, "src/preview/index.tsx"),
       formats: ["iife"],
       name: "SitePreview",
       fileName: () => "preview.js"
@@ -105,4 +594,345 @@ export default defineConfig({
 });
 ```
 
-There is no other project-preview API.
+Externalizing both React entries is mandatory. The project preview reuses the
+React runtimes exposed by `window.miniCMS`; it must not bundle a second copy.
+`emptyOutDir: false` is also mandatory because Astro has already populated
+`dist/` when the production preview build runs.
+
+## 11. Build the Astro admin host
+
+Create a prerendered `site/src/pages/admin/cms.config.yml.ts` route that reads
+the authoritative root `cms.config.yml` and returns it with
+`content-type: application/yaml; charset=utf-8`. This route creates the build
+artifact `dist/admin/cms.config.yml`; it is not an editable second source file.
+
+Create a prerendered `site/src/pages/admin/index.astro` with a visible bootstrap
+error state and this load order:
+
+1. miniCMS provider;
+2. project `./preview.js`;
+3. `miniCMS.registerPreview(SitePreview.ProjectPreview)`; and
+4. `miniCMS.init(...)`.
+
+During Astro development, load the independent miniCMS Vite source provider:
+
+```text
+http://127.0.0.1:${ADMIN_PORT || 5173}/src/main.jsx
+```
+
+It is an ES module. Install the provider's Vite React-refresh preamble before
+loading it, as required by `@vitejs/plugin-react`. In production, load:
+
+```text
+https://signalwerk.github.io/miniCMS/minicms.js
+```
+
+Keep `MINICMS_DEV_SCRIPT_URL` and `MINICMS_SCRIPT_URL` overrides. A project may
+choose the immutable rawcdn bundle URL from `miniCMS/README.md` for stricter
+reproducibility. That immutable revision is a `gh-pages` bundle commit, not the
+miniCMS source gitlink.
+
+Load `./preview.js` with `new URL("./preview.js", document.baseURI)`. Then call:
+
+```js
+await window.miniCMS.init({
+  target: "#root",
+  configUrl: "./cms.config.yml",
+  ...(isDevelopment
+    ? {
+        environment: "development",
+        connectorOptions: {
+          development: { apiUrl: developmentApiUrl }
+        }
+      }
+    : {})
+});
+```
+
+The relative config and preview URLs are important: they work below both
+`/admin/` and a GitHub Pages project base. Production must not select the
+development connector. Registration must happen before the first `init()`;
+registration after initialization is rejected.
+
+## 12. Configure Astro for static output and fresh development data
+
+Use `@astrojs/react` and a strict TypeScript config. In
+`site/astro.config.ts` configure:
+
+```ts
+export default defineConfig({
+  output: "static",
+  outDir: "../dist",
+  base: process.env.SITE_BASE_PATH || "/",
+  site: process.env.SITE_URL,
+  trailingSlash: "ignore",
+  integrations: [react(), /* project integrations */],
+  vite: {
+    ssr: {
+      noExternal: ["cookie"]
+    }
+  }
+});
+```
+
+Add `site/src/env.d.ts` so strict checking understands Astro, inline Sass, and
+the JavaScript-only core config entry:
+
+```ts
+/// <reference types="astro/client" />
+
+declare module "*.scss?inline" {
+  const stylesheet: string;
+  export default stylesheet;
+}
+
+declare module "@signalwerk/minicms/core/content" {
+  import type { CmsConfig } from "@signalwerk/minicms/content";
+
+  export function parseYaml(source: string): unknown;
+  export function validateSourceConfig(
+    config: unknown,
+    status?: number
+  ): CmsConfig;
+}
+```
+
+Declare any project-specific compile-time globals introduced through Vite
+`define` beside the modules that consume them, or in this ambient file. Do not
+silence the entire shared package with an untyped wildcard declaration.
+
+Set Vite's `envDir` to the consumer root so an ignored root `.env` works for
+local site code. Define the absolute project root and validated development API
+origin for server-side modules without exposing secrets. Retain the known-good
+Astro prerender package-resolution pair by keeping `cookie` as a direct site
+dependency and configuring `vite.ssr.noExternal: ["cookie"]`; Astro's relocated
+SSR/prerender entry must resolve it inside the consumer build.
+
+Add a project integration that:
+
+- validates the root config during startup;
+- watches the root config plus each concrete local collection's YAML folder;
+- avoids recursively watching potentially huge `content/media` originals;
+- on add/change/unlink, invalidates Astro's `ssr` and `prerender` content data
+  with `astro:content-changed`; and
+- sends a project-specific client event consumed only by public website
+  documents, which then reload themselves.
+
+Do not trigger a global Vite full reload: `/admin/` is served by the same Astro
+process, and a global reload discards unsaved editor state. The live preview
+already receives current unsaved drafts directly from miniCMS.
+
+Add a build-done integration that writes `dist/.nojekyll` and copies
+`content/media/` to `dist/media/` when the default connector is GitHub. Make an
+empty/missing media directory harmless, or track it from the start. Do not copy
+media owned by future named remote connectors. Do not copy miniCMS or
+miniCMS-api into `dist/`.
+
+The site build order is:
+
+```text
+astro build
+vite build --config vite.preview.config.ts
+```
+
+The development site first builds `preview.js` to
+`site/public/admin/preview.js`, then starts `astro dev --force`.
+
+## 13. Run and verify local editing
+
+Install and start from the consumer root:
+
+```sh
+git submodule update --init --recursive
+npm install
+npm install --prefix miniCMS
+npm install --prefix miniCMS-api
+npm run dev
+```
+
+Expected local endpoints are:
+
+```text
+Website        http://127.0.0.1:4321/
+Editor host    http://127.0.0.1:4321/admin/
+CMS provider   http://127.0.0.1:5173/
+Content API    http://127.0.0.1:8787/api/ready
+```
+
+The API development mode is intentionally unauthenticated and loopback-only.
+Never expose it on a public interface. `PORT`, `ADMIN_PORT`, `HOST`, and
+`MINICMS_API_URL` may override local values, but remote API origins must use
+HTTPS. Restart the API process after service or imported shared-core changes;
+Node retains its imported module snapshot.
+
+Exercise the actual workflow rather than checking only that processes listen:
+
+1. Open `/admin/` and create or edit a page.
+2. Confirm unsaved changes appear in the iframe immediately.
+3. Click a rendered node and confirm the matching tree node selects; select a
+   tree node and confirm its boundary scrolls into view.
+4. Add hidden content and confirm it remains editable with reduced preview
+   opacity but is absent from public rendering.
+5. Add an accordion and edit its Summary and Details slots separately.
+6. Upload/select an image and verify its preview plus persisted structured
+   `{hash, filename}` identity.
+7. Save and confirm root `content/` YAML/media changed, the website refreshes,
+   and `/admin/` remains mounted.
+8. Reload the editor and confirm the saved record resolves identically.
+
+Local API writes modify the Git working tree; they do not commit. Review and
+commit the resulting YAML and media. Stop the API before an external process
+mutates or reorganizes the same config/content folders.
+
+## 14. Deploy with GitHub Pages
+
+Create `.github/workflows/pages.yml` using the repository's actual deployment
+branch:
+
+```yaml
+name: Deploy website to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v6
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build static website
+        run: npm run build:pages
+        env:
+          SITE_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          SITE_URL: ${{ steps.pages.outputs.origin }}
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+```
+
+If the deployment branch is not `main`, change both the workflow trigger and
+`connectors.default.branch`. Enable GitHub Pages with **GitHub Actions** as its
+source. Private submodules require an explicit least-privilege checkout
+credential; do not silently replace their URLs or expose a personal token.
+
+Commit the source, lockfile, submodule pointers, config, initial content, and
+workflow. Push a marker-free commit so the workflow runs. A later save through
+the deployed GitHub admin creates a repository commit and normally triggers the
+same Pages workflow. miniCMS's **Skip deployments** option intentionally adds
+`[ci skip]`; turning it off creates a marker-free resume commit.
+
+No API server, session secret, OAuth client secret, or service read token is
+required by this local-only starter's Pages build. If protected remote
+collections are added later, store their read tokens only in a repository
+Actions secret and pass them to server-side build code; never put them in
+`cms.config.yml`, JavaScript, HTML, or the artifact.
+
+## 15. Acceptance gates
+
+Before pushing, run at least:
+
+```sh
+npm test
+npm run test:cms
+npm run test:api
+npm run build:pages
+```
+
+Also build once with a project base to catch root-only URLs:
+
+```sh
+SITE_BASE_PATH=/repository SITE_URL=https://owner.github.io npm run build:pages
+```
+
+The final `dist/` must contain:
+
+```text
+.nojekyll
+index.html                         # from the Home page
+admin/index.html
+admin/cms.config.yml
+admin/preview.js
+media/                             # when local media exists
+```
+
+Verify that:
+
+- `cms.config.yml` passes shared validation;
+- every committed record passes shared record validation;
+- route cycles and duplicate public paths fail rather than overwrite output;
+- no secret, local filesystem path, loopback-only API URL, or stale template
+  identity appears in production artifacts;
+- the preview and static page use the same component registry and styles;
+- the production admin does not select `development`;
+- relative admin assets and website links work under the Pages base path;
+- the GitHub Actions run succeeds;
+- the live site root returns the Home page;
+- live `/admin/`, `/admin/cms.config.yml`, and `/admin/preview.js` load; and
+- a harmless deployed-admin save succeeds and retriggers Pages when the auth
+  worker has been configured for that origin.
+
+Write focused tests for route hierarchy/cycles/collisions, title parsing,
+hidden-node rendering, image/reference normalization, accordion authoring
+behavior, API-origin validation, and any nontrivial presentation geometry.
+Keep generated `dist/`, `site/public/admin/preview.js`, `.env`, logs,
+`node_modules/`, and OS files out of commits.
+
+## Definition of done
+
+The task is complete only when the repository contains the two pinned
+submodules, specialized starter config, valid initial content, working local
+three-process environment, shared static/preview renderer, project admin host,
+tests, lockfile, and Pages workflow; all local gates pass; the source is
+committed and pushed; the Pages workflow succeeds; and the public site plus
+admin artifacts have been checked.
+
+If repository identity, push permission, Pages enablement, or auth-worker
+access is genuinely unavailable, finish and verify every local artifact first,
+then report only the exact external blocker and the action required. Do not
+substitute another CMS, persistence layer, framework, or deployment target.

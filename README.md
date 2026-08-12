@@ -68,8 +68,11 @@ generated files is a no-op.
 
 The starter contains Pages, Images, and Files. Its image library is local to
 the new repository, and its Markdown field has no project-specific inline
-reference extension. Add an optional project preview later using the exact
-contract in `llm.txt` or the Project previews section below.
+reference extension. This initializer intentionally stops at the minimal
+host/config pair. Give an implementation agent [`llm.txt`](llm.txt) when the
+goal is the complete Astro/React website, local editor/API environment, shared
+live preview, and GitHub Pages deployment. The Project previews section below
+documents only that feature's runtime boundary.
 
 ## Add the local tools to a project
 

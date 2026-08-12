@@ -113,9 +113,13 @@ Preserve useful guidance and remove stale information.
   `miniCMS.init()`. miniCMS owns the preview root and passes only
   `{data, focus}`. Project preview bundles reuse `miniCMS.React` and
   `miniCMS.jsxRuntime` instead of shipping another React copy.
-- `llm.txt` documents only that project-preview registration contract for an
-  LLM. Keep it schema-neutral: the preview learns the project data model from
-  the resolved config and YAML-shaped record passed in `data`.
+- `llm.txt` is the end-to-end execution contract for an LLM building a new
+  consumer repository: pinned editor/API submodules, the reusable starter
+  config, initial content, Astro/React static rendering, the shared project
+  preview, loopback development persistence, and GitHub Pages publication. It
+  must remain generic rather than reproducing a consumer's private content or
+  visual identity, and its preview section must stay aligned with the exact
+  `{data, focus}` runtime contract.
 - `.github/workflows/pages.yml` publishes `dist/minicms.js` to `gh-pages` and
   updates the immutable, version-pinned `rawcdn.githack.com` URL in `README.md`
   to that deployment commit. `ci/update-readme.sh` is the single owner of that
