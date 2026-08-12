@@ -1131,34 +1131,34 @@ test("validates URL fields and tag collection relations", () => {
   );
 });
 
-test("validates slug widget source configuration", () => {
+test("validates slug widget template configuration", () => {
   const config = fixtureConfig();
   config.node_types.page.fields.subtitle = { widget: "string" };
   config.node_types.page.fields.slug = {
     widget: "slug",
-    sources: ["title", "subtitle"]
+    template: "{{title}}-{{subtitle}}"
   };
-  assert.deepEqual(
-    validateConfig(config).node_types.page.fields.slug.sources,
-    ["title", "subtitle"]
+  assert.equal(
+    validateConfig(config).node_types.page.fields.slug.template,
+    "{{title}}-{{subtitle}}"
   );
 
-  const missingSources = structuredClone(config);
-  delete missingSources.node_types.page.fields.slug.sources;
+  const missingTemplate = structuredClone(config);
+  delete missingTemplate.node_types.page.fields.slug.template;
   assert.throws(
-    () => validateConfig(missingSources, 400),
-    /must define a non-empty sources array/
+    () => validateConfig(missingTemplate, 400),
+    /must define a valid template/
   );
 
-  const duplicateSources = structuredClone(config);
-  duplicateSources.node_types.page.fields.slug.sources = ["title", "title"];
+  const malformedTemplate = structuredClone(config);
+  malformedTemplate.node_types.page.fields.slug.template = "{{title";
   assert.throws(
-    () => validateConfig(duplicateSources, 400),
-    /sources must be unique/
+    () => validateConfig(malformedTemplate, 400),
+    /must define a valid template/
   );
 
   const unknownSource = structuredClone(config);
-  unknownSource.node_types.page.fields.slug.sources = ["missing"];
+  unknownSource.node_types.page.fields.slug.template = "{{missing}}";
   assert.throws(
     () => validateConfig(unknownSource, 400),
     /incompatible source field "missing"/
@@ -1168,7 +1168,14 @@ test("validates slug widget source configuration", () => {
   foreignSources.node_types.page.fields.title.sources = ["subtitle"];
   assert.throws(
     () => validateConfig(foreignSources, 400),
-    /may define sources only for a slug widget/
+    /sources is not supported/
+  );
+
+  const foreignTemplate = structuredClone(config);
+  foreignTemplate.node_types.page.fields.title.template = "{{subtitle}}";
+  assert.throws(
+    () => validateConfig(foreignTemplate, 400),
+    /may define a template only for a slug widget/
   );
 });
 
@@ -1218,7 +1225,7 @@ test("requires persisted slug values to use lowercase URL slug characters", () =
   const config = fixtureConfig();
   config.node_types.page.fields.slug = {
     widget: "slug",
-    sources: ["title"]
+    template: "{{title}}"
   };
   validateConfig(config);
   const collection = { name: "pages", ...config.collections.pages };

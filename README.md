@@ -650,16 +650,16 @@ Multiple references have no configured default or target-specific selections;
 an optional empty value is `[]`.
 
 The `slug` widget stores an empty string or a lowercase URL path segment made
-of letters and numbers separated by single hyphens. Its ordered `sources`
-configuration names sibling scalar fields used to create the initial value.
-Editors can change the value manually or use the adjacent regenerate action to
-derive it again from the current source fields:
+of letters and numbers separated by single hyphens. Its `template` uses the
+same double-brace field-token syntax as collection filename patterns. Editors can
+change the value manually or use the adjacent regenerate action to derive it
+again from the current field values:
 
 ```yaml
 slug:
   label: URL segment
   widget: slug
-  sources: [title, subtitle]
+  template: "{{title}}-{{subtitle}}"
   required: true
 ```
 

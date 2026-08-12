@@ -9,7 +9,11 @@ import {
   isCanonicalImageAsset,
   validateMediaAccept
 } from "./media.js";
-import { SLUG_PATTERN } from "./slug.js";
+import {
+  SLUG_PATTERN,
+  isSlugWidgetTemplate,
+  slugWidgetTemplateFieldNames
+} from "./slug.js";
 
 const YAML_OPTIONS = {
   schema: yaml.JSON_SCHEMA
@@ -80,7 +84,7 @@ const INLINE_REFERENCE_VALUE_WIDGETS = new Set([
   "datetime",
   "id"
 ]);
-const SLUG_SOURCE_WIDGETS = new Set([
+const SLUG_TEMPLATE_FIELD_WIDGETS = new Set([
   "string",
   "text",
   "url",
@@ -923,32 +927,28 @@ function validateConfig(config, status = 500, { source = false } = {}) {
         }
       }
       if (field.widget === "uuid") field.widget = "id";
-      if (field.widget !== "slug" && field.sources !== undefined) {
+      if (field.sources !== undefined) {
         fail(
-          `Field "${typeName}.${fieldName}" may define sources only for a slug widget.`
+          `Field "${typeName}.${fieldName}" sources is not supported; use a slug template such as "{{title}}".`
+        );
+      }
+      if (field.widget !== "slug" && field.template !== undefined) {
+        fail(
+          `Field "${typeName}.${fieldName}" may define a template only for a slug widget.`
         );
       }
       if (field.widget === "slug") {
-        if (
-          !Array.isArray(field.sources) ||
-          !field.sources.length ||
-          field.sources.some((name) => typeof name !== "string" || !name)
-        ) {
+        if (!isSlugWidgetTemplate(field.template)) {
           fail(
-            `Slug field "${typeName}.${fieldName}" must define a non-empty sources array.`
+            `Slug field "${typeName}.${fieldName}" must define a valid template such as "{{title}}".`
           );
         }
-        if (new Set(field.sources).size !== field.sources.length) {
-          fail(
-            `Slug field "${typeName}.${fieldName}" sources must be unique.`
-          );
-        }
-        for (const sourceName of field.sources) {
+        for (const sourceName of slugWidgetTemplateFieldNames(field.template)) {
           const sourceField = type.fields[sourceName];
           if (
             sourceName === fieldName ||
             !sourceField ||
-            !SLUG_SOURCE_WIDGETS.has(sourceField.widget)
+            !SLUG_TEMPLATE_FIELD_WIDGETS.has(sourceField.widget)
           ) {
             fail(
               `Slug field "${typeName}.${fieldName}" references incompatible source field "${sourceName}".`

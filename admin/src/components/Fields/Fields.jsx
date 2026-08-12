@@ -21,8 +21,8 @@ import { createPortal } from "react-dom";
 import "./Fields.scss";
 import { isGeneratedIdWidget } from "../../../../core/id.js";
 import {
-  sanitizeSlug,
-  slugFromSources
+  renderSlugWidgetTemplate,
+  sanitizeSlug
 } from "../../../../core/slug.js";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import {
@@ -1013,9 +1013,11 @@ function Field({
           type="button"
           className="url-field__action slug-field__action"
           disabled={field.readonly === true}
-          aria-label={`Regenerate ${field.label || field.name} from source fields`}
-          title="Regenerate from source fields"
-          onClick={() => onChange(slugFromSources(field.sources, properties))}
+          aria-label={`Regenerate ${field.label || field.name} from its slug pattern`}
+          title="Regenerate from slug pattern"
+          onClick={() => onChange(
+            renderSlugWidgetTemplate(field.template, properties)
+          )}
         >
           <RefreshCw size={14} aria-hidden="true" />
         </button>

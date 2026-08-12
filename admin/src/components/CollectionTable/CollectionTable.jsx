@@ -20,7 +20,10 @@ import {
 } from "../../model/advancedFilter.js";
 import { cx, typeField, typeFields } from "../../model/editor.js";
 import { resolveImagePresentation } from "../../model/image.js";
-import { sanitizeSlug, slugFromSources } from "../../../../core/slug.js";
+import {
+  renderSlugWidgetTemplate,
+  sanitizeSlug
+} from "../../../../core/slug.js";
 import {
   hasReferenceValue,
   normalizeReferenceValue
@@ -338,13 +341,16 @@ function TableCell({
         <button
           type="button"
           className="table-cell__url-action table-cell__slug-action"
-          aria-label={`Regenerate ${field.label || field.name} from source fields`}
-          title="Regenerate from source fields"
+          aria-label={`Regenerate ${field.label || field.name} from its slug pattern`}
+          title="Regenerate from slug pattern"
           disabled={editing}
           onMouseDown={(event) => event.preventDefault()}
           onClick={(event) => {
             event.stopPropagation();
-            const generated = slugFromSources(field.sources, item.properties);
+            const generated = renderSlugWidgetTemplate(
+              field.template,
+              item.properties
+            );
             setDraftValue(generated);
             if (generated !== value) onEdit(item, column, generated);
           }}

@@ -2,27 +2,39 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   SLUG_PATTERN,
+  isSlugWidgetTemplate,
   renderSlugTemplate,
+  renderSlugWidgetTemplate,
   sanitizeFilenameStem,
   sanitizeSlug,
-  slugFromSources,
+  slugWidgetTemplateFieldNames,
   slugTemplateFieldNames,
   uniqueFilenameStem
 } from "./slug.js";
 
-test("sanitizes strict URL slugs and derives them from ordered fields", () => {
+test("sanitizes strict URL slugs and renders field-widget templates", () => {
   assert.equal(
     sanitizeSlug(" Crème brûlée / Zürich_2026 "),
     "creme-brulee-zurich-2026"
   );
   assert.equal(
-    slugFromSources(["title", "edition"], {
+    renderSlugWidgetTemplate("{{title}}-{{edition}}", {
       title: "Zwei Verlage",
       edition: 2026
     }),
     "zwei-verlage-2026"
   );
-  assert.equal(slugFromSources(["missing"], {}), "");
+  assert.equal(
+    renderSlugWidgetTemplate("archive-{{fields.title}}", { title: "Zürich" }),
+    "archive-zurich"
+  );
+  assert.deepEqual(
+    slugWidgetTemplateFieldNames("{{title}}-{{edition}}-{{title}}"),
+    ["title", "edition"]
+  );
+  assert.equal(isSlugWidgetTemplate("{{title}}-{{edition}}"), true);
+  assert.equal(isSlugWidgetTemplate("{{title"), false);
+  assert.equal(isSlugWidgetTemplate("fixed-value"), false);
   assert.equal(SLUG_PATTERN.test("zwei-verlage-2026"), true);
   assert.equal(SLUG_PATTERN.test("Zwei_Verlage"), false);
 });

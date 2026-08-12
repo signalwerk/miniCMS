@@ -3,7 +3,7 @@ import {
   createId,
   isGeneratedIdWidget
 } from "../../../core/id.js";
-import { slugFromSources } from "../../../core/slug.js";
+import { renderSlugWidgetTemplate } from "../../../core/slug.js";
 
 function optionValue(option) {
   return option && typeof option === "object" ? option.value : option;
@@ -46,7 +46,10 @@ function populateInitialSlugFields(type, properties) {
   const nextProperties = structuredClone(properties ?? {});
   for (const [name, field] of Object.entries(type?.fields ?? {})) {
     if (field.widget !== "slug" || nextProperties[name]) continue;
-    nextProperties[name] = slugFromSources(field.sources, nextProperties);
+    nextProperties[name] = renderSlugWidgetTemplate(
+      field.template,
+      nextProperties
+    );
   }
   return nextProperties;
 }
@@ -57,9 +60,12 @@ function updateCreationProperties(type, properties, fieldName, value) {
   for (const [name, field] of Object.entries(type?.fields ?? {})) {
     if (field.widget !== "slug" || name === fieldName) continue;
     const currentSlug = previous[name] ?? "";
-    const previousGenerated = slugFromSources(field.sources, previous);
+    const previousGenerated = renderSlugWidgetTemplate(
+      field.template,
+      previous
+    );
     if (currentSlug === "" || currentSlug === previousGenerated) {
-      next[name] = slugFromSources(field.sources, next);
+      next[name] = renderSlugWidgetTemplate(field.template, next);
     }
   }
   return next;

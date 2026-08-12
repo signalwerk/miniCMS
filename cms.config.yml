@@ -37,8 +37,7 @@ node_types:
       slug:
         label: URL segment
         widget: slug
-        sources:
-          - title
+        template: "{{title}}"
         required: true
         hint: Used in the public URL
       navigation_title:
@@ -158,8 +157,7 @@ node_types:
       slug:
         label: URL segment
         widget: slug
-        sources:
-          - title
+        template: "{{title}}"
         required: true
         hint: Used in the public URL
       mode:

@@ -278,10 +278,10 @@ changing shared core modules it has imported.
   regenerate across duplicated subtrees.
 - Slug templates support field tokens plus date/time tokens and use
   collision-safe filename suffixes.
-- A `slug` widget stores a URL path segment. It requires an ordered, non-empty
-  `sources` array of sibling scalar field names, derives its initial value from
-  those fields when a record is created, and exposes an explicit regenerate
-  action for later source-field changes. Persisted values are empty or match
+- A `slug` widget stores a URL path segment. It requires a non-empty `template`
+  string such as `"{{title}}-{{field2}}"`, derives its initial value from those
+  sibling field tokens when a record is created, and exposes an explicit
+  regenerate action for later changes to those fields. Persisted values are empty or match
   `[a-z0-9]+(?:-[a-z0-9]+)*`; filename slug templates remain a separate
   concern. Full public paths are a renderer concern.
 
@@ -289,12 +289,13 @@ Supported widgets include `string`, `slug`, `url`, `text`, `markdown`, `select`,
 `boolean`, `datetime`, `number`, `file`, `image`, `reference`, `tags`, and
 `id`. The legacy
 `uuid` widget is accepted and normalized to `id` when configuration is loaded.
-Slug sources may use scalar `string`, `text`, `url`, `markdown`, `select`,
+Slug template tokens may use scalar `string`, `text`, `url`, `markdown`, `select`,
 `datetime`, `number`, or generated-ID fields. Slug inputs normalize typing to
 lowercase ASCII and hyphens. Their regenerate button uses the same compact
 input-action layout as URL fields; configured defaults, self references,
-duplicates, unknown fields, relation/media fields, and slug-to-slug sources are
-invalid.
+unknown fields, relation/media fields, and slug-to-slug template fields are
+invalid. The obsolete `sources` array is rejected; do not introduce a second
+slug configuration grammar beside the established double-brace templates.
 URL fields store empty strings or absolute HTTP(S) URLs and use the browser's
 semantic URL input; shared record validation enforces the same contract. Valid
 URL values expose a compact external-link action beside Inspector controls and
@@ -364,7 +365,7 @@ the permitted primary record type and renders every currently applicable
 declared field through the normal field widgets, even when a configured
 Inspector panel omits that field.
 Its stable full-record draft carries defaults, collision-aware generated IDs,
-root hierarchy/order, and empty slots. A `slug` widget derives from its sources;
+root hierarchy/order, and empty slots. A `slug` widget derives from its template;
 for backward compatibility only, an empty plain field named `slug` receives the
 final collision-safe record ID. Visible required fields validate before the
 active adapter writes it. A successful adapter result is selected

@@ -19,6 +19,8 @@ function stringValue(value) {
 }
 
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const SLUG_WIDGET_TOKEN =
+  /{{\s*((?:fields\.)?[A-Za-z0-9][A-Za-z0-9_-]*)\s*}}/g;
 
 export function sanitizeSlug(value, fallback = "") {
   const sanitized = String(value ?? "")
@@ -31,12 +33,29 @@ export function sanitizeSlug(value, fallback = "") {
   return sanitized || fallback;
 }
 
-export function slugFromSources(sources, fields = {}) {
-  const value = (Array.isArray(sources) ? sources : [])
-    .map((name) => stringValue(fieldValue(fields, name)))
-    .filter(Boolean)
-    .join("-");
-  return sanitizeSlug(value);
+export function slugWidgetTemplateFieldNames(template) {
+  const names = [];
+  for (const match of String(template ?? "").matchAll(SLUG_WIDGET_TOKEN)) {
+    const name = match[1].replace(/^fields\./, "");
+    if (!names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
+export function isSlugWidgetTemplate(template) {
+  if (typeof template !== "string" || !template.trim()) return false;
+  const fields = slugWidgetTemplateFieldNames(template);
+  const remainder = template.replace(SLUG_WIDGET_TOKEN, "");
+  return fields.length > 0 && !/[{}]/.test(remainder);
+}
+
+export function renderSlugWidgetTemplate(template, fields = {}) {
+  const rendered = String(template ?? "").replace(
+    SLUG_WIDGET_TOKEN,
+    (_match, rawName) =>
+      stringValue(fieldValue(fields, rawName.replace(/^fields\./, "")))
+  );
+  return sanitizeSlug(rendered);
 }
 
 export function sanitizeFilenameStem(value, fallback = "item") {

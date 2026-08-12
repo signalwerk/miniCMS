@@ -84,6 +84,7 @@ import {
   acceptTokens,
   validateMediaAccept
 } from "../../../../core/media.js";
+import { slugWidgetTemplateFieldNames } from "../../../../core/slug.js";
 import {
   REFERENCE_SET_DEFAULTS,
   compatibleReferenceSetEntries,
@@ -114,7 +115,7 @@ const WIDGET_OPTIONS = [
   ["id", "Generated ID"]
 ];
 
-const SLUG_SOURCE_WIDGETS = new Set([
+const SLUG_TEMPLATE_WIDGETS = new Set([
   "string",
   "text",
   "url",
@@ -124,6 +125,16 @@ const SLUG_SOURCE_WIDGETS = new Set([
   "number",
   "id"
 ]);
+
+function withoutSlugTemplateField(template, fieldName) {
+  return String(template ?? "")
+    .replace(
+      new RegExp(`{{\\s*(?:fields\\.)?${fieldName}\\s*}}`, "g"),
+      ""
+    )
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
 function generatedIdFieldName(type) {
   return Object.entries(type?.fields ?? {}).find(([, field]) =>
@@ -2010,11 +2021,10 @@ function FieldEditor({
   const conditionFields = Object.entries(fields).filter(
     ([key]) => key !== fieldKey
   );
-  const slugSourceFields = Object.entries(fields)
+  const slugTemplateFields = Object.entries(fields)
     .filter(([key, candidate]) =>
-      key !== fieldKey && SLUG_SOURCE_WIDGETS.has(candidate.widget)
-    )
-    .map(([key, candidate]) => [key, candidate.label || labelFromKey(key)]);
+      key !== fieldKey && SLUG_TEMPLATE_WIDGETS.has(candidate.widget)
+    );
   const conditionField = fields[field.visible_when?.field];
   const inlineReference = field.blocknote?.inline_reference;
   const inlineReferenceCollection = collections[inlineReference?.collection];
@@ -2129,9 +2139,14 @@ function FieldEditor({
               }
               if (value === "slug") {
                 delete nextField.default;
-                const firstSource = slugSourceFields[0]?.[0];
-                nextField.sources = firstSource ? [firstSource] : [];
+                const firstSource =
+                  slugTemplateFields.find(([name]) => name === "title")?.[0] ??
+                  slugTemplateFields[0]?.[0];
+                nextField.template = firstSource ? `{{${firstSource}}}` : "";
               } else {
+                delete nextField.template;
+              }
+              if (nextField.sources !== undefined) {
                 delete nextField.sources;
               }
             })}
@@ -2170,12 +2185,12 @@ function FieldEditor({
         />
       )}
       {widget === "slug" && (
-        <FormField label="Source fields">
-          <MultiChoice
-            options={slugSourceFields}
-            value={field.sources ?? []}
+        <FormField label="Slug pattern">
+          <TextInput
+            value={field.template}
+            placeholder="{{title}}-{{field2}}"
             onChange={(value) => onChange((nextField) => {
-              nextField.sources = value;
+              nextField.template = value;
             })}
           />
         </FormField>
@@ -5132,9 +5147,18 @@ export default function ConfigurationEditor({
             delete candidateField.visible_when;
           }
           if (candidateField.widget === "slug") {
-            candidateField.sources = (candidateField.sources ?? []).filter(
-              (sourceName) => sourceName !== fieldKey
+            candidateField.template = withoutSlugTemplateField(
+              candidateField.template,
+              fieldKey
             );
+            if (!slugWidgetTemplateFieldNames(candidateField.template).length) {
+              const fallback = Object.entries(type.fields ?? {}).find(
+                ([, fallbackField]) =>
+                  fallbackField !== candidateField &&
+                  SLUG_TEMPLATE_WIDGETS.has(fallbackField.widget)
+              )?.[0];
+              candidateField.template = fallback ? `{{${fallback}}}` : "";
+            }
           }
         }
         for (const [collectionKey, collection] of Object.entries(

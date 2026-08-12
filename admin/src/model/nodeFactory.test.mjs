@@ -104,12 +104,12 @@ test("always emits complete slots and rejects explicit ID collisions", () => {
   );
 });
 
-test("derives empty slug widgets from their configured source fields", () => {
+test("derives empty slug widgets from their configured templates", () => {
   const type = {
     fields: {
       title: { widget: "string" },
       edition: { widget: "number" },
-      slug: { widget: "slug", sources: ["title", "edition"] }
+      slug: { widget: "slug", template: "{{title}}-{{edition}}" }
     }
   };
   assert.deepEqual(
