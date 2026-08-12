@@ -768,6 +768,29 @@ function contentInsertionModes(record, selectedId, nodeTypes) {
   ];
 }
 
+function contentTreeSlotPresentation(node, type) {
+  const slotNames = [
+    ...new Set([
+      ...Object.keys(type?.slots ?? {}),
+      ...Object.keys(node?.slots ?? {})
+    ])
+  ];
+  const entries = slotNames.map((slotName) => [
+    slotName,
+    Array.isArray(node?.slots?.[slotName]) ? node.slots[slotName] : []
+  ]);
+  const showLabels = entries.length > 1;
+  const visibleEntries = showLabels
+    ? entries
+    : entries.filter(([, children]) => children.length > 0);
+
+  return {
+    entries: visibleEntries,
+    expandable: visibleEntries.length > 0,
+    showLabels
+  };
+}
+
 
 export {
   DRAG_OVERLAY_MODIFIERS,
@@ -795,6 +818,7 @@ export {
   collectionNameFromHash,
   contentInsertionModes,
   contentPasteTarget,
+  contentTreeSlotPresentation,
   cx,
   defaultFieldValue,
   defaultProperties,

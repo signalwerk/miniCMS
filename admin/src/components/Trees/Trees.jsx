@@ -22,6 +22,7 @@ import {
   DRAG_OVERLAY_MODIFIERS,
   TREE_AUTO_SCROLL,
   buildHierarchy,
+  contentTreeSlotPresentation,
   cx,
   descendantIds,
   getNode,
@@ -520,8 +521,11 @@ function ContentTree({
 
   function renderNode(node, depth = 0, isRoot = false, source = null, isLast = false) {
     const type = nodeTypes[node.type] ?? {};
-    const childEntries = Object.entries(node.slots ?? {}).filter(([, children]) => children.length);
-    const hasChildren = childEntries.length > 0;
+    const {
+      entries: childEntries,
+      expandable: hasChildren,
+      showLabels: showSlot
+    } = contentTreeSlotPresentation(node, type);
     const isExpanded = expanded.has(node.id);
     const label =
       node.properties?.title ||
@@ -585,7 +589,6 @@ function ContentTree({
         {hasChildren &&
           isExpanded &&
           childEntries.map(([slotName, children]) => {
-            const showSlot = Object.keys(node.slots ?? {}).length > 1;
             return (
               <div key={slotName}>
                 {showSlot && (

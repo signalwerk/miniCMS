@@ -508,6 +508,9 @@ grip, and delete action visible while collapsed.
   crossed badge on the type icon. Do not add a trailing visibility icon or an
   accent/active state to the toolbar visibility action.
 - Both tree add actions use the searchable insertion overlay.
+- Expanded content nodes with multiple slots show every declared slot label,
+  including empty destinations, so editors can distinguish where new children
+  will be inserted. A single empty slot keeps the compact leaf-row treatment.
 - Both trees use `@dnd-kit/core`, identical inside-drop behavior, absolute
   no-layout-shift indicators, and a pointer-offset drag overlay.
 - Hierarchy is visible and edited in the collection tree; do not duplicate

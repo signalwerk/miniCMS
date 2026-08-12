@@ -5,6 +5,7 @@ import {
   ICON_NAMES,
   cloneContentNode,
   collectNodeIds,
+  contentTreeSlotPresentation,
   defaultFieldValue,
   isInspectorFocusShortcut,
   instantiateNode,
@@ -18,6 +19,72 @@ import {
   slotMaximumViolationAfterDuplicating,
   slotMinimumViolationAfterRemoving
 } from "./editor.js";
+
+test("keeps every declared multi-slot destination visible in the content tree", () => {
+  const title = { id: "summary", type: "title", slots: {} };
+  const accordion = {
+    id: "accordion",
+    type: "accordion",
+    slots: { summary: [title], details: [] }
+  };
+  const type = {
+    slots: {
+      summary: { label: "Summary" },
+      details: { label: "Details" }
+    }
+  };
+
+  assert.deepEqual(contentTreeSlotPresentation(accordion, type), {
+    entries: [
+      ["summary", [title]],
+      ["details", []]
+    ],
+    expandable: true,
+    showLabels: true
+  });
+});
+
+test("keeps an empty single-slot content node compact", () => {
+  assert.deepEqual(
+    contentTreeSlotPresentation(
+      { id: "box", type: "box", slots: { content: [] } },
+      { slots: { content: { label: "Content" } } }
+    ),
+    { entries: [], expandable: false, showLabels: false }
+  );
+});
+
+test("expands a populated single slot without adding a redundant label", () => {
+  const child = { id: "text", type: "text", slots: {} };
+  assert.deepEqual(
+    contentTreeSlotPresentation(
+      { id: "box", type: "box", slots: { content: [child] } },
+      { slots: { content: { label: "Content" } } }
+    ),
+    {
+      entries: [["content", [child]]],
+      expandable: true,
+      showLabels: false
+    }
+  );
+});
+
+test("shows declared multi-slot destinations missing from stored slot mappings", () => {
+  assert.deepEqual(
+    contentTreeSlotPresentation(
+      { id: "accordion", type: "accordion", slots: { summary: [] } },
+      { slots: { summary: {}, details: {} } }
+    ),
+    {
+      entries: [
+        ["summary", []],
+        ["details", []]
+      ],
+      expandable: true,
+      showLabels: true
+    }
+  );
+});
 
 test("generates collision-resistant 15-character lowercase alphanumeric IDs", () => {
   const ids = new Set();
