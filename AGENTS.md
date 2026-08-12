@@ -128,7 +128,9 @@ Preserve useful guidance and remove stale information.
   The package-root `cms.config.yml` is the sole reusable bootstrap template,
   based on the reference content model but containing no project records,
   remote aliases, or Beowolf-only research collections. Do not turn it into a
-  live miniCMS project or add project-specific content.
+  live miniCMS project or add project-specific content. Its accordion template
+  seeds one unstyled Summary title for a useful initial disclosure, but the
+  Summary slot has a minimum of zero so an editor may remove that title.
 
 The website, editor, and API service are one controlled pre-release stack.
 When the shared image contract changes, update every consumer atomically and
