@@ -439,12 +439,60 @@ function ContentNodeRow({
   );
 }
 
+function ContentSlotRow({
+  parentId,
+  parentLabel,
+  slotName,
+  slotLabel,
+  depth,
+  selected,
+  dropEnabled,
+  onSelect
+}) {
+  const drop = {
+    kind: "content-drop",
+    parentId,
+    slotName,
+    targetId: parentId,
+    position: "inside"
+  };
+  const { isOver, setNodeRef } = useDroppable({
+    id: `content-slot:${parentId}:${slotName}`,
+    data: drop,
+    disabled: !dropEnabled
+  });
+
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      className={cx(
+        "slot-label",
+        selected && "slot-label--selected",
+        dropEnabled && "slot-label--drop-available",
+        dropEnabled && isOver && "slot-label--drop-inside"
+      )}
+      style={{ "--depth": depth }}
+      aria-label={`${slotLabel} slot in ${parentLabel}`}
+      aria-pressed={selected}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect({ parentId, slotName });
+      }}
+    >
+      {slotLabel}
+    </button>
+  );
+}
+
 function ContentTree({
   record,
   nodeTypes,
   selectedIds,
+  selectedSlot,
   selectionAnchor,
   onSelectionChange,
+  onSlotSelectionChange,
   expanded,
   onToggle,
   onMove,
@@ -536,20 +584,18 @@ function ContentTree({
     const dropBase = source
       ? `${source.parentId}:${source.slotName}:${node.id}`
       : null;
-    const insideDrop = Object.keys(type.slots ?? {}).reduce(
-      (result, slotName) => {
-        if (result) return result;
-        if (!canDropAt(node.id, slotName, node.id, "inside")) return null;
-        return {
+    const insideDrops = Object.keys(type.slots ?? {}).flatMap((slotName) =>
+      canDropAt(node.id, slotName, node.id, "inside")
+        ? [{
           kind: "content-drop",
           parentId: node.id,
           slotName,
           targetId: node.id,
           position: "inside"
-        };
-      },
-      null
+        }]
+        : []
     );
+    const insideDrop = insideDrops.length === 1 ? insideDrops[0] : null;
 
     return (
       <div key={node.id} className={cx("content-branch", isLast && "is-last")}>
@@ -592,9 +638,24 @@ function ContentTree({
             return (
               <div key={slotName}>
                 {showSlot && (
-                  <div className="slot-label" style={{ "--depth": depth + 1 }}>
-                    {type.slots?.[slotName]?.label || slotName}
-                  </div>
+                  <ContentSlotRow
+                    parentId={node.id}
+                    parentLabel={label}
+                    slotName={slotName}
+                    slotLabel={type.slots?.[slotName]?.label || slotName}
+                    depth={depth + 1}
+                    selected={
+                      selectedSlot?.parentId === node.id &&
+                      selectedSlot?.slotName === slotName
+                    }
+                    dropEnabled={canDropAt(
+                      node.id,
+                      slotName,
+                      node.id,
+                      "inside"
+                    )}
+                    onSelect={onSlotSelectionChange}
+                  />
                 )}
                 {children.map((child, index) =>
                   renderNode(

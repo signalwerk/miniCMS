@@ -510,7 +510,12 @@ grip, and delete action visible while collapsed.
 - Both tree add actions use the searchable insertion overlay.
 - Expanded content nodes with multiple slots show every declared slot label,
   including empty destinations, so editors can distinguish where new children
-  will be inserted. A single empty slot keeps the compact leaf-row treatment.
+  will be inserted. Those labels are keyboard-selectable, mutually exclusive
+  insertion and paste destinations; selecting one clears real-node selection,
+  disables node-only actions, and scopes Inside choices and drops to that exact
+  slot without falling back to a sibling slot. Slot selection is transient and
+  serializes only the owning record in the URL, never a synthetic content-node
+  ID. A single empty slot keeps the compact leaf-row treatment.
 - Both trees use `@dnd-kit/core`, identical inside-drop behavior, absolute
   no-layout-shift indicators, and a pointer-offset drag overlay.
 - Hierarchy is visible and edited in the collection tree; do not duplicate

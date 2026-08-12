@@ -70,6 +70,7 @@ import {
   selectionIdForRecord,
   selectionRouteFromHash,
   selectionRouteForState,
+  selectedContentSlotTarget,
   selectedTopLevelContentNodes,
   slotMaximumViolationAfterDuplicating,
   slotMinimumViolationAfterRemoving,
@@ -119,6 +120,7 @@ export default function App({ PreviewComponent = null }) {
   const [recordSelectionAnchor, setRecordSelectionAnchor] = useState("");
   const [selectedContentIds, setSelectedContentIds] = useState(new Set());
   const [contentSelectionAnchor, setContentSelectionAnchor] = useState("");
+  const [selectedContentSlot, setSelectedContentSlot] = useState(null);
   const [pageExpanded, setPageExpanded] = useState(new Set());
   const [contentExpanded, setContentExpanded] = useState(new Set());
   const [search, setSearch] = useState("");
@@ -189,6 +191,19 @@ export default function App({ PreviewComponent = null }) {
     previewRecordDraft?.source === record ? previewRecordDraft.record : record;
   const selectedNode = getNode(record, selectedId);
   const selectedNodePath = getNodePath(record, selectedId);
+  const selectedSlotTarget = useMemo(
+    () => selectedContentSlotTarget(record, nodeTypes, selectedContentSlot),
+    [nodeTypes, record, selectedContentSlot]
+  );
+  const selectedSlotPath = selectedSlotTarget
+    ? getNodePath(record, selectedSlotTarget.parentId)
+    : [];
+  const selectedBreadcrumbPath = selectedSlotTarget
+    ? selectedSlotPath
+    : selectedNodePath;
+  const selectedSlotLabel = selectedSlotTarget
+    ? selectedSlotTarget.slot.label || selectedSlotTarget.slotName
+    : "";
   const selectedNodeType = selectedNode ? nodeTypes[selectedNode.type] : null;
   const selectedIsDocument = Boolean(
     selectedNode && record && selectedNode.id === record.id
@@ -206,14 +221,32 @@ export default function App({ PreviewComponent = null }) {
   const collectionInsertModes = collection
     ? collectionInsertionModes(collection, items, record)
     : [];
-  const contentInsertModes = contentInsertionModes(record, selectedId, nodeTypes);
+  const contentInsertModes = contentInsertionModes(
+    record,
+    selectedId,
+    nodeTypes,
+    selectedContentSlot
+  );
+  const selectedSlotCanInsert = contentInsertModes.some(
+    (mode) => mode.choices.length > 0
+  );
+  const selectedSlotAtMaximum = Boolean(
+    selectedSlotTarget?.slot.max &&
+      selectedSlotTarget.children.length >= selectedSlotTarget.slot.max
+  );
   const copyableContentNodes = useMemo(
     () => selectedTopLevelContentNodes(record, selectedContentIds),
     [record, selectedContentIds]
   );
   const contentPasteDestination =
     clipboard?.kind === "content"
-      ? contentPasteTarget(record, selectedId, clipboard.nodes, nodeTypes)
+      ? contentPasteTarget(
+          record,
+          selectedId,
+          clipboard.nodes,
+          nodeTypes,
+          selectedContentSlot
+        )
       : null;
   const collectionPasteContext = useMemo(() => {
     if (
@@ -322,6 +355,7 @@ export default function App({ PreviewComponent = null }) {
       setSelectedId("");
       setSelectedContentIds(new Set());
       setContentSelectionAnchor("");
+      setSelectedContentSlot(null);
       try {
         const nextRecord = await api.record(collectionName, id);
         if (
@@ -341,6 +375,7 @@ export default function App({ PreviewComponent = null }) {
         setSelectedId(nextSelectedId);
         setSelectedContentIds(new Set([nextSelectedId]));
         setContentSelectionAnchor(nextSelectedId);
+        setSelectedContentSlot(null);
         setActiveTreeSelection(selectsContentNode ? "content" : "collection");
         const expanded = new Set([nextRecord.id]);
         const expandContainers = (node) => {
@@ -366,6 +401,7 @@ export default function App({ PreviewComponent = null }) {
         setRecordSelectionAnchor("");
         setSelectedContentIds(new Set());
         setContentSelectionAnchor("");
+        setSelectedContentSlot(null);
       } finally {
         if (selectionLoadTokenRef.current === loadToken) {
           setLoading(false);
@@ -391,6 +427,7 @@ export default function App({ PreviewComponent = null }) {
       setRecordSelectionAnchor("");
       setSelectedContentIds(new Set());
       setContentSelectionAnchor("");
+      setSelectedContentSlot(null);
       setLoading(true);
       setError("");
       try {
@@ -476,7 +513,27 @@ export default function App({ PreviewComponent = null }) {
   useEffect(() => {
     if (!breadcrumbRef.current) return;
     breadcrumbRef.current.scrollLeft = breadcrumbRef.current.scrollWidth;
-  }, [selectedId, record?.id]);
+  }, [selectedContentSlot, selectedId, record?.id]);
+
+  useEffect(() => {
+    if (!selectedContentSlot || selectedSlotTarget) return;
+    const fallbackId =
+      getNode(record, selectedContentSlot.parentId)?.id || record?.id || "";
+    setSelectedContentSlot(null);
+    setSelectedId(fallbackId);
+    setSelectedContentIds(fallbackId ? new Set([fallbackId]) : new Set());
+    setContentSelectionAnchor(fallbackId);
+  }, [nodeTypes, record, selectedContentSlot, selectedSlotTarget]);
+
+  useEffect(() => {
+    setInsertDialog(null);
+  }, [
+    activeCollection,
+    record?.id,
+    selectedContentSlot?.parentId,
+    selectedContentSlot?.slotName,
+    selectedId
+  ]);
 
   useEffect(() => {
     setTableSurface("table");
@@ -509,6 +566,7 @@ export default function App({ PreviewComponent = null }) {
     config,
     loading,
     record?.id,
+    selectedContentSlot,
     selectedId
   ]);
 
@@ -577,6 +635,7 @@ export default function App({ PreviewComponent = null }) {
       setSelectedContentIds(new Set());
       setContentSelectionAnchor("");
       setSelectedId("");
+      setSelectedContentSlot(null);
       setRecord(null);
     };
 
@@ -639,6 +698,7 @@ export default function App({ PreviewComponent = null }) {
         setSelectedContentIds(new Set([nextSelectedId]));
         setContentSelectionAnchor(nextSelectedId);
         setSelectedId(nextSelectedId);
+        setSelectedContentSlot(null);
         if (selectsContentNode) {
           const path = getNodePath(record, nextSelectedId);
           setContentExpanded(
@@ -675,6 +735,7 @@ export default function App({ PreviewComponent = null }) {
     loadRecord,
     loading,
     record,
+    selectedContentSlot,
     selectedId
   ]);
 
@@ -853,6 +914,7 @@ export default function App({ PreviewComponent = null }) {
       setSelectedId(id);
       setSelectedContentIds(new Set([id]));
       setContentSelectionAnchor(id);
+      setSelectedContentSlot(null);
       return;
     }
     runAfterDiscardCheck(() => {
@@ -874,6 +936,7 @@ export default function App({ PreviewComponent = null }) {
       setSelectedId(record.id);
       setSelectedContentIds(new Set([record.id]));
       setContentSelectionAnchor(record.id);
+      setSelectedContentSlot(null);
       return undefined;
     };
     if (activeId === record?.id) applySelection();
@@ -891,6 +954,7 @@ export default function App({ PreviewComponent = null }) {
       setSelectedContentIds(new Set());
       setContentSelectionAnchor("");
       setSelectedId("");
+      setSelectedContentSlot(null);
       setRecord(null);
     });
   }
@@ -900,6 +964,22 @@ export default function App({ PreviewComponent = null }) {
     setSelectedContentIds(selectedIds);
     setContentSelectionAnchor(anchorId);
     setSelectedId(activeId);
+    setSelectedContentSlot(null);
+  }
+
+  function changeContentSlotSelection(slot) {
+    const target = selectedContentSlotTarget(record, nodeTypes, slot);
+    if (!target) return;
+    setActiveTreeSelection("content");
+    setSelectedContentIds(new Set());
+    setContentSelectionAnchor("");
+    setSelectedId("");
+    setSelectedContentSlot({
+      parentId: target.parentId,
+      slotName: target.slotName
+    });
+    setPreviewRevealRequest(null);
+    setInspectorFocus(null);
   }
 
   function changeContentStructureSelection(selection) {
@@ -934,11 +1014,12 @@ export default function App({ PreviewComponent = null }) {
   }
 
   function clearContentSelection() {
-    if (!selectedContentIds.size && !selectedId) return;
+    if (!selectedContentIds.size && !selectedId && !selectedContentSlot) return;
     setActiveTreeSelection("content");
     setSelectedContentIds(new Set());
     setContentSelectionAnchor("");
     setSelectedId("");
+    setSelectedContentSlot(null);
   }
 
   function changeRecord(update) {
@@ -1486,6 +1567,7 @@ export default function App({ PreviewComponent = null }) {
     setSelectedContentIds(new Set(pastedIds));
     setContentSelectionAnchor(pastedIds[0]);
     setSelectedId(pastedIds.at(-1));
+    setSelectedContentSlot(null);
     showToast(
       `${nodes.length} content ${nodes.length === 1 ? "item" : "items"} pasted`
     );
@@ -1797,6 +1879,7 @@ export default function App({ PreviewComponent = null }) {
     setSelectedId(duplicateIds.at(-1));
     setSelectedContentIds(new Set(duplicateIds));
     setContentSelectionAnchor(duplicateIds[0]);
+    setSelectedContentSlot(null);
     showToast(
       `${duplicateIds.length} content ${duplicateIds.length === 1 ? "item" : "items"} duplicated`
     );
@@ -1831,6 +1914,7 @@ export default function App({ PreviewComponent = null }) {
     setSelectedId(selectedNode.id);
     setSelectedContentIds(new Set([selectedNode.id]));
     setContentSelectionAnchor(selectedNode.id);
+    setSelectedContentSlot(null);
     setInsertDialog(null);
     showToast(`${nodeTypes[node.type]?.label || node.type} inserted`);
   }
@@ -1890,6 +1974,7 @@ export default function App({ PreviewComponent = null }) {
     });
     setContentExpanded((current) => new Set([...current, drop.parentId]));
     setSelectedId(drag.nodeId);
+    setSelectedContentSlot(null);
     if (!selectedContentIds.has(drag.nodeId)) {
       setSelectedContentIds(new Set([drag.nodeId]));
       setContentSelectionAnchor(drag.nodeId);
@@ -2006,6 +2091,7 @@ export default function App({ PreviewComponent = null }) {
     setSelectedId(nextSelectedId);
     setSelectedContentIds(new Set([nextSelectedId]));
     setContentSelectionAnchor(nextSelectedId);
+    setSelectedContentSlot(null);
     showToast(
       `${selectedCount} content ${selectedCount === 1 ? "item" : "items"} deleted`
     );
@@ -2059,6 +2145,16 @@ export default function App({ PreviewComponent = null }) {
     });
   }
 
+  function toggleContentExpanded(id) {
+    if (contentExpanded.has(id) && selectedSlotTarget) {
+      const parentPath = getNodePath(record, selectedSlotTarget.parentId);
+      if (parentPath.some((node) => node.id === id)) {
+        clearContentSelection();
+      }
+    }
+    toggleSet(setContentExpanded, id);
+  }
+
   function renderPreviewPane(onCollectionClick) {
     return (
       <section className="center-pane">
@@ -2076,13 +2172,13 @@ export default function App({ PreviewComponent = null }) {
             >
               {collection?.label}
             </button>
-            {selectedNodePath.length ? (
-              selectedNodePath.map((node, index) => {
+            {selectedBreadcrumbPath.length ? (
+              selectedBreadcrumbPath.map((node, index, path) => {
                 const label =
                   index === 0
                     ? node.properties?.title || node.id
                     : nodeTypes[node.type]?.label || node.type;
-                const isCurrent = index === selectedNodePath.length - 1;
+                const isCurrent = !selectedSlotTarget && index === path.length - 1;
                 return (
                   <span className="breadcrumb-segment" key={node.id}>
                     <ChevronRight size={13} aria-hidden="true" />
@@ -2100,7 +2196,32 @@ export default function App({ PreviewComponent = null }) {
                     </button>
                   </span>
                 );
-              })
+              }).concat(
+                selectedSlotTarget
+                  ? [
+                      <span
+                        className="breadcrumb-segment"
+                        key={`slot:${selectedSlotTarget.parentId}:${selectedSlotTarget.slotName}`}
+                      >
+                        <ChevronRight size={13} aria-hidden="true" />
+                        <button
+                          type="button"
+                          className="breadcrumb-link is-current"
+                          title={`${selectedSlotLabel} slot`}
+                          aria-current="page"
+                          onClick={() =>
+                            changeContentSlotSelection({
+                              parentId: selectedSlotTarget.parentId,
+                              slotName: selectedSlotTarget.slotName
+                            })
+                          }
+                        >
+                          {selectedSlotLabel}
+                        </button>
+                      </span>
+                    ]
+                  : []
+              )
             ) : (
               <span className="breadcrumb-segment">
                 <ChevronRight size={13} />
@@ -2403,8 +2524,17 @@ export default function App({ PreviewComponent = null }) {
             <div className="document-toolbar content-toolbar" aria-label="Content node actions">
               <button
                 type="button"
-                title="Insert content"
-                disabled={!record}
+                title={
+                  selectedSlotTarget
+                    ? selectedSlotCanInsert
+                      ? `Insert content into ${selectedSlotLabel}`
+                      : `${selectedSlotLabel} cannot accept more content`
+                    : "Insert content"
+                }
+                disabled={
+                  !record ||
+                  Boolean(selectedSlotTarget && !selectedSlotCanInsert)
+                }
                 onClick={() => setInsertDialog("content")}
               >
                 <Plus size={18} />
@@ -2464,10 +2594,12 @@ export default function App({ PreviewComponent = null }) {
                   record={record}
                   nodeTypes={nodeTypes}
                   selectedIds={selectedContentIds}
+                  selectedSlot={selectedContentSlot}
                   selectionAnchor={contentSelectionAnchor}
                   onSelectionChange={changeContentStructureSelection}
+                  onSlotSelectionChange={changeContentSlotSelection}
                   expanded={contentExpanded}
-                  onToggle={(id) => toggleSet(setContentExpanded, id)}
+                  onToggle={toggleContentExpanded}
                   onMove={moveContentByDrag}
                   dragEnabled={!saving}
                 />
@@ -2501,7 +2633,9 @@ export default function App({ PreviewComponent = null }) {
 
         <aside className="right-rail">
           <div className="pane-heading">
-            {multipleTreeSelection ? (
+            {selectedSlotTarget ? (
+              <strong className="inspector-selection-title">Slot</strong>
+            ) : multipleTreeSelection ? (
               <strong className="inspector-selection-title">Selection</strong>
             ) : (
               <div className="inspector-tabs">
@@ -2518,7 +2652,17 @@ export default function App({ PreviewComponent = null }) {
               </div>
             )}
           </div>
-          {multipleTreeSelection ? (
+          {selectedSlotTarget ? (
+            <EmptyState icon={Layers3} title={`${selectedSlotLabel} slot`}>
+              {selectedSlotTarget.children.length}{" "}
+              {selectedSlotTarget.children.length === 1 ? "item" : "items"}.{" "}
+              {selectedSlotCanInsert
+                ? "Use the + action to insert content into this slot."
+                : selectedSlotAtMaximum
+                  ? "This slot has reached its configured limit."
+                  : "No content types are configured for this slot."}
+            </EmptyState>
+          ) : multipleTreeSelection ? (
             <MultiSelectionNotice
               count={multipleTreeSelection.count}
               label={multipleTreeSelection.label}

@@ -468,13 +468,55 @@ function slotMaximumViolationAfterDuplicating(record, nodes, nodeTypes) {
   return null;
 }
 
-function contentPasteTarget(record, selectedId, nodes, nodeTypes) {
-  const selected = getNode(record, selectedId);
-  if (!selected || !nodes.length) return null;
+function selectedContentSlotTarget(record, nodeTypes, selectedSlot) {
+  if (
+    !selectedSlot ||
+    typeof selectedSlot.parentId !== "string" ||
+    typeof selectedSlot.slotName !== "string"
+  ) {
+    return null;
+  }
+  const parent = getNode(record, selectedSlot.parentId);
+  const configuredSlots = nodeTypes?.[parent?.type]?.slots ?? {};
+  if (!parent || !Object.hasOwn(configuredSlots, selectedSlot.slotName)) {
+    return null;
+  }
+  const slot = configuredSlots[selectedSlot.slotName];
+  return {
+    parent,
+    slot,
+    parentId: parent.id,
+    slotName: selectedSlot.slotName,
+    children: Array.isArray(parent.slots?.[selectedSlot.slotName])
+      ? parent.slots[selectedSlot.slotName]
+      : []
+  };
+}
+
+function contentPasteTarget(record, selectedId, nodes, nodeTypes, selectedSlot) {
+  if (!nodes?.length) return null;
+  const explicitSlot = selectedContentSlotTarget(
+    record,
+    nodeTypes,
+    selectedSlot
+  );
   const types = nodes.map((node) => node.type);
   const fits = (slot, childCount) =>
     types.every((type) => slot?.allowed_types?.includes(type)) &&
     (!slot.max || childCount + nodes.length <= slot.max);
+  if (selectedSlot) {
+    if (!explicitSlot || !fits(explicitSlot.slot, explicitSlot.children.length)) {
+      return null;
+    }
+    return {
+      parentId: explicitSlot.parentId,
+      slotName: explicitSlot.slotName,
+      index: explicitSlot.children.length
+    };
+  }
+
+  const selected = getNode(record, selectedId);
+  if (!selected || !nodes.length) return null;
   const location =
     selected.id === record.id ? null : findLocation(record, selected.id);
 
@@ -707,7 +749,34 @@ function collectionInsertionModes(collection, items, record) {
   ];
 }
 
-function contentInsertionModes(record, selectedId, nodeTypes) {
+function contentInsertionModes(record, selectedId, nodeTypes, selectedSlot) {
+  const explicitSlot = selectedContentSlotTarget(
+    record,
+    nodeTypes,
+    selectedSlot
+  );
+  if (selectedSlot) {
+    const insideChoices =
+      explicitSlot &&
+      (!explicitSlot.slot.max ||
+        explicitSlot.children.length < explicitSlot.slot.max)
+        ? (explicitSlot.slot.allowed_types ?? []).map((typeName) => ({
+            key: `inside:${explicitSlot.parentId}:${explicitSlot.slotName}:${typeName}`,
+            typeName,
+            mode: "inside",
+            parentId: explicitSlot.parentId,
+            slotName: explicitSlot.slotName,
+            slotLabel: explicitSlot.slot.label || explicitSlot.slotName,
+            index: explicitSlot.children.length
+          }))
+        : [];
+    return [
+      { id: "before", label: "Before", choices: [] },
+      { id: "inside", label: "Inside", choices: insideChoices },
+      { id: "after", label: "After", choices: [] }
+    ];
+  }
+
   const selected = getNode(record, selectedId);
   if (!selected) {
     return ["before", "inside", "after"].map((id) => ({
@@ -844,6 +913,7 @@ export {
   slotMinimumViolationAfterRemoving,
   slotMaximumViolationAfterDuplicating,
   selectionRouteHash,
+  selectedContentSlotTarget,
   selectedTopLevelContentNodes,
   slugifyId,
   typeField,

@@ -444,12 +444,36 @@
 .slot-label {
   @extend %type-consulting;
   display: flex;
+  width: 100%;
   height: 22px;
   align-items: center;
   padding-left: calc(49px + var(--depth) * 17px);
   color: #65675f;
+  background: transparent;
   letter-spacing: 0.09em;
+  text-align: left;
   text-transform: uppercase;
+}
+
+.slot-label:hover {
+  color: #a9aba3;
+  background: rgb(255 255 255 / 3%);
+}
+
+.slot-label--selected,
+.slot-label--selected:hover {
+  color: var(--lime);
+  background: rgb(215 255 67 / 7%);
+}
+
+.slot-label--drop-available {
+  color: #aeb98a;
+}
+
+.slot-label--drop-inside,
+.slot-label--drop-inside:hover {
+  color: #1d1e1b;
+  background: var(--lime);
 }
 
 .add-menu {

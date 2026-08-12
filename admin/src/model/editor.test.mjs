@@ -5,6 +5,8 @@ import {
   ICON_NAMES,
   cloneContentNode,
   collectNodeIds,
+  contentInsertionModes,
+  contentPasteTarget,
   contentTreeSlotPresentation,
   defaultFieldValue,
   isInspectorFocusShortcut,
@@ -16,9 +18,141 @@ import {
   selectionRouteFromHash,
   selectionRouteForState,
   selectionRouteHash,
+  selectedContentSlotTarget,
   slotMaximumViolationAfterDuplicating,
   slotMinimumViolationAfterRemoving
 } from "./editor.js";
+
+const multiSlotRecord = {
+  id: "page",
+  type: "page",
+  properties: {},
+  slots: {
+    content: [
+      {
+        id: "accordion",
+        type: "accordion",
+        properties: {},
+        slots: {
+          summary: [
+            { id: "summary", type: "title", properties: {}, slots: {} }
+          ],
+          details: []
+        }
+      }
+    ]
+  }
+};
+const multiSlotTypes = {
+  page: { slots: { content: { allowed_types: ["accordion"] } } },
+  accordion: {
+    slots: {
+      summary: {
+        label: "Summary",
+        allowed_types: ["title"],
+        max: 1
+      },
+      details: {
+        label: "Details",
+        allowed_types: ["text", "image"]
+      }
+    }
+  },
+  title: {},
+  text: {},
+  image: {}
+};
+
+test("resolves only real configured content-slot selections", () => {
+  assert.equal(
+    selectedContentSlotTarget(multiSlotRecord, multiSlotTypes, {
+      parentId: "missing",
+      slotName: "details"
+    }),
+    null
+  );
+  assert.equal(
+    selectedContentSlotTarget(multiSlotRecord, multiSlotTypes, {
+      parentId: "accordion",
+      slotName: "missing"
+    }),
+    null
+  );
+  assert.equal(
+    selectedContentSlotTarget(multiSlotRecord, multiSlotTypes, {
+      parentId: "accordion",
+      slotName: "details"
+    })?.children.length,
+    0
+  );
+});
+
+test("scopes inside insertion to the selected slot without fallback", () => {
+  const details = contentInsertionModes(
+    multiSlotRecord,
+    "",
+    multiSlotTypes,
+    { parentId: "accordion", slotName: "details" }
+  );
+  assert.deepEqual(details.map((mode) => mode.choices.length), [0, 2, 0]);
+  assert.deepEqual(
+    details[1].choices.map((choice) => [choice.typeName, choice.slotName]),
+    [
+      ["text", "details"],
+      ["image", "details"]
+    ]
+  );
+
+  const summary = contentInsertionModes(
+    multiSlotRecord,
+    "",
+    multiSlotTypes,
+    { parentId: "accordion", slotName: "summary" }
+  );
+  assert.deepEqual(summary.map((mode) => mode.choices.length), [0, 0, 0]);
+
+  const missing = contentInsertionModes(
+    multiSlotRecord,
+    "accordion",
+    multiSlotTypes,
+    { parentId: "accordion", slotName: "missing" }
+  );
+  assert.deepEqual(missing.map((mode) => mode.choices.length), [0, 0, 0]);
+});
+
+test("pastes only into the selected slot when every copied node fits", () => {
+  const selectedDetails = { parentId: "accordion", slotName: "details" };
+  assert.deepEqual(
+    contentPasteTarget(
+      multiSlotRecord,
+      "",
+      [{ id: "copy", type: "text", slots: {} }],
+      multiSlotTypes,
+      selectedDetails
+    ),
+    { parentId: "accordion", slotName: "details", index: 0 }
+  );
+  assert.equal(
+    contentPasteTarget(
+      multiSlotRecord,
+      "",
+      [{ id: "copy", type: "title", slots: {} }],
+      multiSlotTypes,
+      selectedDetails
+    ),
+    null
+  );
+  assert.equal(
+    contentPasteTarget(
+      multiSlotRecord,
+      "",
+      [{ id: "copy", type: "title", slots: {} }],
+      multiSlotTypes,
+      { parentId: "accordion", slotName: "summary" }
+    ),
+    null
+  );
+});
 
 test("keeps every declared multi-slot destination visible in the content tree", () => {
   const title = { id: "summary", type: "title", slots: {} };
@@ -425,6 +559,14 @@ test("derives a compact route from the active editor selection", () => {
       collectionName: "pages",
       recordId: "home",
       contentId: "hero"
+    }
+  );
+  assert.deepEqual(
+    selectionRouteForState("pages", "home", "", "content"),
+    {
+      collectionName: "pages",
+      recordId: "home",
+      contentId: null
     }
   );
 });
