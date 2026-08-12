@@ -4,6 +4,7 @@ import {
   CircleAlert,
   Files as FilesIcon,
   Plus,
+  RefreshCw,
   Search,
   SlidersHorizontal,
   X
@@ -19,6 +20,10 @@ import {
 import { createPortal } from "react-dom";
 import "./Fields.scss";
 import { isGeneratedIdWidget } from "../../../../core/id.js";
+import {
+  sanitizeSlug,
+  slugFromSources
+} from "../../../../core/slug.js";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import {
   cx,
@@ -28,6 +33,7 @@ import {
   referenceItemsForField,
   typeFields
 } from "../../model/editor.js";
+import { updateCreationProperties } from "../../model/nodeFactory.js";
 import {
   focusableElements,
   isolateFocusSurface
@@ -741,6 +747,7 @@ function ReferenceField({
                         key={creationField.name}
                         field={creationField}
                         value={creationDraft.properties?.[creationField.name]}
+                        properties={creationDraft.properties ?? {}}
                         idPrefix={`${dialogId}-create-field`}
                         collectionName={targetCollection.name}
                         collections={collections}
@@ -753,10 +760,12 @@ function ReferenceField({
                           setCreateError("");
                           setCreationDraft((current) => ({
                             ...current,
-                            properties: {
-                              ...current.properties,
-                              [creationField.name]: nextValue
-                            }
+                            properties: updateCreationProperties(
+                              creation.type,
+                              current.properties,
+                              creationField.name,
+                              nextValue
+                            )
                           }));
                         }}
                       />
@@ -812,6 +821,7 @@ function Field({
   collectionName,
   collections = [],
   nodeTypes = {},
+  properties = {},
   referenceCreateStack = []
 }) {
   const id = `${idPrefix}-${field.name}`;
@@ -963,7 +973,9 @@ function Field({
                     ? ""
                     : Number(event.target.value)
                 )
-            : common.onChange
+            : field.widget === "slug"
+              ? (event) => onChange(sanitizeSlug(event.target.value))
+              : common.onChange
         }
         type={
           field.widget === "datetime"
@@ -975,9 +987,10 @@ function Field({
                 : "text"
         }
         inputMode={field.widget === "url" ? "url" : undefined}
-        autoCapitalize={field.widget === "url" ? "none" : undefined}
-        autoCorrect={field.widget === "url" ? "off" : undefined}
-        spellCheck={field.widget === "url" ? false : undefined}
+        autoCapitalize={["url", "slug"].includes(field.widget) ? "none" : undefined}
+        autoCorrect={["url", "slug"].includes(field.widget) ? "off" : undefined}
+        spellCheck={["url", "slug"].includes(field.widget) ? false : undefined}
+        pattern={field.widget === "slug" ? "[a-z0-9]+(?:-[a-z0-9]+)*" : undefined}
         readOnly={field.readonly === true}
         placeholder={
           field.hint || (field.widget === "url" ? "https://" : "")
@@ -992,6 +1005,20 @@ function Field({
           label={field.label || field.name || "URL"}
           className="url-field__action"
         />
+      </div>
+    ) : field.widget === "slug" ? (
+      <div className="url-field slug-field">
+        {scalarInput}
+        <button
+          type="button"
+          className="url-field__action slug-field__action"
+          disabled={field.readonly === true}
+          aria-label={`Regenerate ${field.label || field.name} from source fields`}
+          title="Regenerate from source fields"
+          onClick={() => onChange(slugFromSources(field.sources, properties))}
+        >
+          <RefreshCw size={14} aria-hidden="true" />
+        </button>
       </div>
     ) : scalarInput;
   }

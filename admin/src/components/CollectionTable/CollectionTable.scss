@@ -295,6 +295,14 @@
   border-radius: 3px;
 }
 
+.table-cell__slug-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
 .table-cell__url-action:hover {
   color: #e5e6df;
   background: #30312c;

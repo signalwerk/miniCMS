@@ -18,6 +18,27 @@ function stringValue(value) {
   return String(value);
 }
 
+export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export function sanitizeSlug(value, fallback = "") {
+  const sanitized = String(value ?? "")
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return sanitized || fallback;
+}
+
+export function slugFromSources(sources, fields = {}) {
+  const value = (Array.isArray(sources) ? sources : [])
+    .map((name) => stringValue(fieldValue(fields, name)))
+    .filter(Boolean)
+    .join("-");
+  return sanitizeSlug(value);
+}
+
 export function sanitizeFilenameStem(value, fallback = "item") {
   const sanitized = String(value ?? "")
     .normalize("NFKD")

@@ -3,6 +3,7 @@ import {
   createId,
   isGeneratedIdWidget
 } from "../../../core/id.js";
+import { slugFromSources } from "../../../core/slug.js";
 
 function optionValue(option) {
   return option && typeof option === "object" ? option.value : option;
@@ -39,6 +40,29 @@ function defaultProperties(type, usedIds) {
       defaultFieldValue(field, true, usedIds)
     ])
   );
+}
+
+function populateInitialSlugFields(type, properties) {
+  const nextProperties = structuredClone(properties ?? {});
+  for (const [name, field] of Object.entries(type?.fields ?? {})) {
+    if (field.widget !== "slug" || nextProperties[name]) continue;
+    nextProperties[name] = slugFromSources(field.sources, nextProperties);
+  }
+  return nextProperties;
+}
+
+function updateCreationProperties(type, properties, fieldName, value) {
+  const previous = structuredClone(properties ?? {});
+  const next = { ...previous, [fieldName]: value };
+  for (const [name, field] of Object.entries(type?.fields ?? {})) {
+    if (field.widget !== "slug" || name === fieldName) continue;
+    const currentSlug = previous[name] ?? "";
+    const previousGenerated = slugFromSources(field.sources, previous);
+    if (currentSlug === "" || currentSlug === previousGenerated) {
+      next[name] = slugFromSources(field.sources, next);
+    }
+  }
+  return next;
 }
 
 function instantiateNode(
@@ -85,13 +109,14 @@ function instantiateNode(
     }
   }
 
+  const nodeProperties = populateInitialSlugFields(type, {
+    ...defaultProperties(type, usedIds),
+    ...propertyOverrides
+  });
   const node = {
     id: id === undefined ? createId(usedIds) : id,
     type: typeName,
-    properties: {
-      ...defaultProperties(type, usedIds),
-      ...propertyOverrides
-    }
+    properties: nodeProperties
   };
   if (order !== undefined) node.order = order;
 
@@ -122,5 +147,7 @@ export {
   defaultFieldValue,
   defaultProperties,
   firstSeededDescendant,
-  instantiateNode
+  instantiateNode,
+  populateInitialSlugFields,
+  updateCreationProperties
 };

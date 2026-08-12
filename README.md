@@ -649,6 +649,20 @@ the array to ordered `{ref, record, selections}` envelopes for consumers.
 Multiple references have no configured default or target-specific selections;
 an optional empty value is `[]`.
 
+The `slug` widget stores an empty string or a lowercase URL path segment made
+of letters and numbers separated by single hyphens. Its ordered `sources`
+configuration names sibling scalar fields used to create the initial value.
+Editors can change the value manually or use the adjacent regenerate action to
+derive it again from the current source fields:
+
+```yaml
+slug:
+  label: URL segment
+  widget: slug
+  sources: [title, subtitle]
+  required: true
+```
+
 The `url` widget stores an empty string or an absolute HTTP(S) URL and renders a
 semantic browser URL input; shared validation enforces the same rule. The
 `tags` widget is a multi-relation to a collection. Its YAML value is

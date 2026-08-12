@@ -9,6 +9,7 @@ import {
   isCanonicalImageAsset,
   validateMediaAccept
 } from "./media.js";
+import { SLUG_PATTERN } from "./slug.js";
 
 const YAML_OPTIONS = {
   schema: yaml.JSON_SCHEMA
@@ -44,6 +45,7 @@ const FIELD_APPEARANCES = new Set(["title", "muted", "monospace"]);
 const FIELD_ALIGNMENTS = new Set(["left", "center", "right"]);
 const FIELD_WIDGETS = new Set([
   "string",
+  "slug",
   "text",
   "url",
   "markdown",
@@ -70,12 +72,24 @@ const SLOT_DEFAULT_PROPERTY_WIDGETS = new Set([
 ]);
 const INLINE_REFERENCE_VALUE_WIDGETS = new Set([
   "string",
+  "slug",
   "text",
   "url",
   "markdown",
   "select",
   "datetime",
   "id"
+]);
+const SLUG_SOURCE_WIDGETS = new Set([
+  "string",
+  "text",
+  "url",
+  "markdown",
+  "select",
+  "datetime",
+  "number",
+  "id",
+  "uuid"
 ]);
 const INLINE_REFERENCE_PREVIEW_WIDGETS = new Set([
   ...INLINE_REFERENCE_VALUE_WIDGETS,
@@ -909,6 +923,44 @@ function validateConfig(config, status = 500, { source = false } = {}) {
         }
       }
       if (field.widget === "uuid") field.widget = "id";
+      if (field.widget !== "slug" && field.sources !== undefined) {
+        fail(
+          `Field "${typeName}.${fieldName}" may define sources only for a slug widget.`
+        );
+      }
+      if (field.widget === "slug") {
+        if (
+          !Array.isArray(field.sources) ||
+          !field.sources.length ||
+          field.sources.some((name) => typeof name !== "string" || !name)
+        ) {
+          fail(
+            `Slug field "${typeName}.${fieldName}" must define a non-empty sources array.`
+          );
+        }
+        if (new Set(field.sources).size !== field.sources.length) {
+          fail(
+            `Slug field "${typeName}.${fieldName}" sources must be unique.`
+          );
+        }
+        for (const sourceName of field.sources) {
+          const sourceField = type.fields[sourceName];
+          if (
+            sourceName === fieldName ||
+            !sourceField ||
+            !SLUG_SOURCE_WIDGETS.has(sourceField.widget)
+          ) {
+            fail(
+              `Slug field "${typeName}.${fieldName}" references incompatible source field "${sourceName}".`
+            );
+          }
+        }
+        if (field.default !== undefined) {
+          fail(
+            `Slug field "${typeName}.${fieldName}" cannot define a default.`
+          );
+        }
+      }
       if (field.blocknote !== undefined && field.widget !== "markdown") {
         fail(
           `Field "${typeName}.${fieldName}" may configure BlockNote only for a markdown widget.`
@@ -1795,6 +1847,15 @@ function validateRecord(record, collection, config, status = 400) {
         throw contentError(
           status,
           `URL field "${node.type}.${fieldName}" must be empty or contain an absolute HTTP or HTTPS URL.`
+        );
+      }
+      if (
+        field.widget === "slug" &&
+        (typeof value !== "string" || (value !== "" && !SLUG_PATTERN.test(value)))
+      ) {
+        throw contentError(
+          status,
+          `Slug field "${node.type}.${fieldName}" must be empty or contain lowercase letters and numbers separated by single hyphens.`
         );
       }
       if (

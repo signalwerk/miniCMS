@@ -8,7 +8,10 @@ import {
   uniqueFilenameStem
 } from "../../../core/slug.js";
 import { hasImageValue, imageAssetValue } from "./image.js";
-import { instantiateNode } from "./nodeFactory.js";
+import {
+  instantiateNode,
+  populateInitialSlugFields
+} from "./nodeFactory.js";
 
 const REFERENCE_CREATE_WIDGETS = new Set(["string", "text", "markdown"]);
 
@@ -376,7 +379,10 @@ function finalizeReferencedRecordDraft({
   date
 }) {
   const properties = collisionSafeGeneratedProperties(
-    referenceRecordSlugFields(draft, creation, collection),
+    populateInitialSlugFields(
+      creation.type,
+      referenceRecordSlugFields(draft, creation, collection)
+    ),
     creation.type,
     items
   );
@@ -399,7 +405,11 @@ function finalizeReferencedRecordDraft({
     renderedId,
     new Set((Array.isArray(items) ? items : []).map((item) => item.id))
   );
-  if (Object.hasOwn(properties, "slug") && !properties.slug) {
+  if (
+    Object.hasOwn(properties, "slug") &&
+    !properties.slug &&
+    creation.type.fields?.slug?.widget !== "slug"
+  ) {
     properties.slug = id;
   }
   return {
@@ -436,8 +446,16 @@ async function storeReferencedRecordDraft({
     throw new Error("The referenced collection is not configured for creation.");
   }
 
+  const preparedDraft = {
+    ...draft,
+    properties: populateInitialSlugFields(
+      creation.type,
+      draft?.properties ?? {}
+    )
+  };
+
   const validation = validateReferencedRecordDraft({
-    draft,
+    draft: preparedDraft,
     fields,
     type: creation.type
   });
@@ -457,7 +475,7 @@ async function storeReferencedRecordDraft({
 
   async function create(currentItems) {
     const record = finalizeReferencedRecordDraft({
-      draft,
+      draft: preparedDraft,
       collection,
       creation,
       items: currentItems,

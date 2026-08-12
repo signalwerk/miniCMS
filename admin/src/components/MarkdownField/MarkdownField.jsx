@@ -60,6 +60,7 @@ import {
   referenceRecordCreationConfig,
   storeReferencedRecordDraft
 } from "../../model/reference.js";
+import { updateCreationProperties } from "../../model/nodeFactory.js";
 import { fieldIsVisible } from "../../model/views.js";
 import "./MarkdownField.scss";
 
@@ -850,6 +851,7 @@ function MarkdownField({
             renderReferenceField?.({
               field,
               value: referenceDraft?.properties?.[field.name],
+              properties: referenceDraft?.properties ?? {},
               idPrefix: `${id}-reference-create`,
               collectionName: targetCollection?.name,
               collections,
@@ -862,10 +864,12 @@ function MarkdownField({
                 setReferenceError("");
                 setReferenceDraft((current) => ({
                   ...current,
-                  properties: {
-                    ...current.properties,
-                    [field.name]: nextValue
-                  }
+                  properties: updateCreationProperties(
+                    availableReferenceCreation.type,
+                    current.properties,
+                    field.name,
+                    nextValue
+                  )
                 }));
               }
             })

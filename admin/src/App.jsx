@@ -1244,7 +1244,10 @@ export default function App({ PreviewComponent = null }) {
     });
     const properties = newRecord.properties;
     properties.title = title;
-    if ("slug" in properties && !properties.slug) {
+    if (
+      newRecord.properties.slug === "" &&
+      nodeTypes[choice.typeName]?.fields?.slug?.widget !== "slug"
+    ) {
       properties.slug = id;
     }
     const parentField = collection.hierarchy?.parent_field;

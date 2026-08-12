@@ -5,6 +5,7 @@ import {
   Eye,
   Image,
   Plus,
+  RefreshCw,
   Search,
   X
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
 } from "../../model/advancedFilter.js";
 import { cx, typeField, typeFields } from "../../model/editor.js";
 import { resolveImagePresentation } from "../../model/image.js";
+import { sanitizeSlug, slugFromSources } from "../../../../core/slug.js";
 import {
   hasReferenceValue,
   normalizeReferenceValue
@@ -272,13 +274,18 @@ function TableCell({
         }
         value={draftValue}
         inputMode={field.widget === "url" ? "url" : undefined}
-        autoCapitalize={field.widget === "url" ? "none" : undefined}
-        autoCorrect={field.widget === "url" ? "off" : undefined}
-        spellCheck={field.widget === "url" ? false : undefined}
+        autoCapitalize={["url", "slug"].includes(field.widget) ? "none" : undefined}
+        autoCorrect={["url", "slug"].includes(field.widget) ? "off" : undefined}
+        spellCheck={["url", "slug"].includes(field.widget) ? false : undefined}
+        pattern={field.widget === "slug" ? "[a-z0-9]+(?:-[a-z0-9]+)*" : undefined}
         aria-label={field.label || field.name}
         disabled={editing}
         onClick={(event) => event.stopPropagation()}
-        onChange={(event) => setDraftValue(event.target.value)}
+        onChange={(event) => setDraftValue(
+          field.widget === "slug"
+            ? sanitizeSlug(event.target.value)
+            : event.target.value
+        )}
         onBlur={commitDraft}
         onKeyDown={(event) => {
           event.stopPropagation();
@@ -321,6 +328,29 @@ function TableCell({
           label={field.label || field.name || "URL"}
           className="table-cell__url-action"
         />
+      </span>
+    );
+  }
+  if (field.widget === "slug" && editable) {
+    content = (
+      <span className="table-cell__url table-cell__slug">
+        <span className="table-cell__url-value">{content}</span>
+        <button
+          type="button"
+          className="table-cell__url-action table-cell__slug-action"
+          aria-label={`Regenerate ${field.label || field.name} from source fields`}
+          title="Regenerate from source fields"
+          disabled={editing}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            event.stopPropagation();
+            const generated = slugFromSources(field.sources, item.properties);
+            setDraftValue(generated);
+            if (generated !== value) onEdit(item, column, generated);
+          }}
+        >
+          <RefreshCw size={13} aria-hidden="true" />
+        </button>
       </span>
     );
   }

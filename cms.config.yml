@@ -36,7 +36,9 @@ node_types:
         required: true
       slug:
         label: URL segment
-        widget: string
+        widget: slug
+        sources:
+          - title
         required: true
         hint: Used in the public URL
       navigation_title:
@@ -155,7 +157,9 @@ node_types:
         required: true
       slug:
         label: URL segment
-        widget: string
+        widget: slug
+        sources:
+          - title
         required: true
         hint: Used in the public URL
       mode:
@@ -707,4 +711,3 @@ collections:
         description:
           - file
           - description
-

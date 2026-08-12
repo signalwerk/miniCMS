@@ -99,6 +99,7 @@ import "./ConfigurationEditor.scss";
 
 const WIDGET_OPTIONS = [
   ["string", "Single-line text"],
+  ["slug", "Slug"],
   ["url", "URL"],
   ["text", "Long text"],
   ["markdown", "Rich text / Markdown"],
@@ -112,6 +113,17 @@ const WIDGET_OPTIONS = [
   ["tags", "Tags"],
   ["id", "Generated ID"]
 ];
+
+const SLUG_SOURCE_WIDGETS = new Set([
+  "string",
+  "text",
+  "url",
+  "markdown",
+  "select",
+  "datetime",
+  "number",
+  "id"
+]);
 
 function generatedIdFieldName(type) {
   return Object.entries(type?.fields ?? {}).find(([, field]) =>
@@ -1998,6 +2010,11 @@ function FieldEditor({
   const conditionFields = Object.entries(fields).filter(
     ([key]) => key !== fieldKey
   );
+  const slugSourceFields = Object.entries(fields)
+    .filter(([key, candidate]) =>
+      key !== fieldKey && SLUG_SOURCE_WIDGETS.has(candidate.widget)
+    )
+    .map(([key, candidate]) => [key, candidate.label || labelFromKey(key)]);
   const conditionField = fields[field.visible_when?.field];
   const inlineReference = field.blocknote?.inline_reference;
   const inlineReferenceCollection = collections[inlineReference?.collection];
@@ -2015,6 +2032,7 @@ function FieldEditor({
   const supportsDefault =
     widget !== "tags" &&
     !(widget === "reference" && field.multiple === true) &&
+    widget !== "slug" &&
     !isGeneratedIdWidget(widget);
 
   function defaultConditionValue(sourceField) {
@@ -2109,6 +2127,13 @@ function FieldEditor({
               if (value !== "markdown") {
                 delete nextField.blocknote;
               }
+              if (value === "slug") {
+                delete nextField.default;
+                const firstSource = slugSourceFields[0]?.[0];
+                nextField.sources = firstSource ? [firstSource] : [];
+              } else {
+                delete nextField.sources;
+              }
             })}
           >
             {WIDGET_OPTIONS.map(([value, label]) => (
@@ -2143,6 +2168,17 @@ function FieldEditor({
             }
           })}
         />
+      )}
+      {widget === "slug" && (
+        <FormField label="Source fields">
+          <MultiChoice
+            options={slugSourceFields}
+            value={field.sources ?? []}
+            onChange={(value) => onChange((nextField) => {
+              nextField.sources = value;
+            })}
+          />
+        </FormField>
       )}
       {widget === "markdown" && (
         <div className="configuration-options">
@@ -5094,6 +5130,11 @@ export default function ConfigurationEditor({
         for (const candidateField of Object.values(type.fields ?? {})) {
           if (candidateField.visible_when?.field === fieldKey) {
             delete candidateField.visible_when;
+          }
+          if (candidateField.widget === "slug") {
+            candidateField.sources = (candidateField.sources ?? []).filter(
+              (sourceName) => sourceName !== fieldKey
+            );
           }
         }
         for (const [collectionKey, collection] of Object.entries(

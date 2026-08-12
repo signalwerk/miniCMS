@@ -90,6 +90,19 @@
   border-radius: 3px;
 }
 
+.slug-field__action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.slug-field__action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .url-field__action:hover {
   color: #e5e6df;
   background: #30312c;

@@ -3,7 +3,9 @@ import test from "node:test";
 import { ID_PATTERN } from "../../../core/id.js";
 import {
   firstSeededDescendant,
-  instantiateNode
+  instantiateNode,
+  populateInitialSlugFields,
+  updateCreationProperties
 } from "./nodeFactory.js";
 
 const nodeTypes = {
@@ -99,5 +101,51 @@ test("always emits complete slots and rejects explicit ID collisions", () => {
       usedIds: new Set(["aaaaaaaaaaaaaaa"])
     }),
     /already in use/
+  );
+});
+
+test("derives empty slug widgets from their configured source fields", () => {
+  const type = {
+    fields: {
+      title: { widget: "string" },
+      edition: { widget: "number" },
+      slug: { widget: "slug", sources: ["title", "edition"] }
+    }
+  };
+  assert.deepEqual(
+    populateInitialSlugFields(type, {
+      title: "Crème brûlée",
+      edition: 2026,
+      slug: ""
+    }),
+    {
+      title: "Crème brûlée",
+      edition: 2026,
+      slug: "creme-brulee-2026"
+    }
+  );
+  assert.equal(
+    populateInitialSlugFields(type, {
+      title: "Changed",
+      edition: 2026,
+      slug: "kept-manually"
+    }).slug,
+    "kept-manually"
+  );
+  assert.equal(
+    updateCreationProperties(type, {
+      title: "Old title",
+      edition: 2026,
+      slug: "old-title-2026"
+    }, "title", "New title").slug,
+    "new-title-2026"
+  );
+  assert.equal(
+    updateCreationProperties(type, {
+      title: "Old title",
+      edition: 2026,
+      slug: "custom-slug"
+    }, "title", "New title").slug,
+    "custom-slug"
   );
 });

@@ -1131,6 +1131,47 @@ test("validates URL fields and tag collection relations", () => {
   );
 });
 
+test("validates slug widget source configuration", () => {
+  const config = fixtureConfig();
+  config.node_types.page.fields.subtitle = { widget: "string" };
+  config.node_types.page.fields.slug = {
+    widget: "slug",
+    sources: ["title", "subtitle"]
+  };
+  assert.deepEqual(
+    validateConfig(config).node_types.page.fields.slug.sources,
+    ["title", "subtitle"]
+  );
+
+  const missingSources = structuredClone(config);
+  delete missingSources.node_types.page.fields.slug.sources;
+  assert.throws(
+    () => validateConfig(missingSources, 400),
+    /must define a non-empty sources array/
+  );
+
+  const duplicateSources = structuredClone(config);
+  duplicateSources.node_types.page.fields.slug.sources = ["title", "title"];
+  assert.throws(
+    () => validateConfig(duplicateSources, 400),
+    /sources must be unique/
+  );
+
+  const unknownSource = structuredClone(config);
+  unknownSource.node_types.page.fields.slug.sources = ["missing"];
+  assert.throws(
+    () => validateConfig(unknownSource, 400),
+    /incompatible source field "missing"/
+  );
+
+  const foreignSources = structuredClone(config);
+  foreignSources.node_types.page.fields.title.sources = ["subtitle"];
+  assert.throws(
+    () => validateConfig(foreignSources, 400),
+    /may define sources only for a slug widget/
+  );
+});
+
 test("requires persisted URL values to be empty or use HTTP(S)", () => {
   const config = fixtureConfig();
   config.node_types.page.fields.website = { widget: "url" };
@@ -1169,6 +1210,46 @@ test("requires persisted URL values to be empty or use HTTP(S)", () => {
           config
         ),
       /must be empty or contain an absolute HTTP or HTTPS URL/
+    );
+  }
+});
+
+test("requires persisted slug values to use lowercase URL slug characters", () => {
+  const config = fixtureConfig();
+  config.node_types.page.fields.slug = {
+    widget: "slug",
+    sources: ["title"]
+  };
+  validateConfig(config);
+  const collection = { name: "pages", ...config.collections.pages };
+  const record = {
+    id: "home",
+    type: "page",
+    order: 0,
+    properties: { title: "Home", slug: "research-2026" },
+    slots: {}
+  };
+
+  assert.equal(validateRecord(record, collection, config), record);
+  for (const slug of ["", "Research", "research_page", "research--page", 42]) {
+    if (slug === "") {
+      assert.equal(
+        validateRecord(
+          { ...record, properties: { ...record.properties, slug } },
+          collection,
+          config
+        ).properties.slug,
+        ""
+      );
+      continue;
+    }
+    assert.throws(
+      () => validateRecord(
+        { ...record, properties: { ...record.properties, slug } },
+        collection,
+        config
+      ),
+      /must be empty or contain lowercase letters and numbers/
     );
   }
 });

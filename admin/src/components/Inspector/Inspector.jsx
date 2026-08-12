@@ -192,6 +192,7 @@ function Inspector({
           <Field
             field={field}
             value={node.properties?.[field.name]}
+            properties={node.properties ?? {}}
             collectionName={collection.name}
             collections={collections}
             nodeTypes={nodeTypes}

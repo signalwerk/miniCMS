@@ -22,6 +22,7 @@ import {
   typeField,
   typeFields
 } from "../../model/editor.js";
+import { populateInitialSlugFields } from "../../model/nodeFactory.js";
 import {
   renderSlugTemplate,
   slugTemplateFieldNames,
@@ -81,11 +82,11 @@ function InsertionDialog({
     [selectedTypeName, selectedType]
   );
   const propertyOverrides = propertyOverridesByType[selectedTypeName] ?? {};
-  const previewProperties = {
+  const previewProperties = populateInitialSlugFields(selectedType, {
     ...initialProperties,
     ...propertyOverrides,
     title: title.trim()
-  };
+  });
   const templateFields = collection?.slug
     ? slugTemplateFieldNames(collection.slug, identifierField)
         .filter((name) => name !== "title")
@@ -288,6 +289,7 @@ function InsertionDialog({
                   key={field.name}
                   field={field}
                   value={previewProperties[field.name]}
+                  properties={previewProperties}
                   idPrefix="insert-field"
                   collectionName={collection?.name}
                   collections={collections}
