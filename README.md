@@ -26,7 +26,7 @@ page loads both, registers its component, and then starts the editor:
   </head>
   <body>
     <div id="root"></div>
-    <script src="https://rawcdn.githack.com/signalwerk/miniCMS/e31a3e4/minicms.js"></script>
+    <script src="https://rawcdn.githack.com/signalwerk/miniCMS/e5806d9/minicms.js"></script>
     <script src="./preview.js"></script>
     <script>
       miniCMS.registerPreview(window.SitePreview.ProjectPreview);
@@ -298,7 +298,7 @@ build system. miniCMS owns the React root, renders the component inside its
 isolated preview document, and passes exactly two props:
 
 ```html
-<script src="https://rawcdn.githack.com/signalwerk/miniCMS/e31a3e4/minicms.js"></script>
+<script src="https://rawcdn.githack.com/signalwerk/miniCMS/e5806d9/minicms.js"></script>
 <script src="./preview.js"></script>
 <script>
   miniCMS.registerPreview(window.SitePreview.ProjectPreview);
