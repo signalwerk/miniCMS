@@ -57,6 +57,7 @@ async function runTests() {
       "Preview",
       "registration.test.mjs"
     ),
+    path.join(packageRoot, "admin", "vite.config.test.mjs"),
     path.join(packageRoot, "admin", "vite-plugin-inline-css.test.mjs")
   ];
   const child = spawn(process.execPath, ["--test", ...testFiles], {

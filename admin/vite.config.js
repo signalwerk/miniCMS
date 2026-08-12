@@ -12,6 +12,14 @@ const host = process.env.HOST || "127.0.0.1";
 const apiUrl = process.env.MINICMS_API_URL || `http://127.0.0.1:${apiPort}`;
 process.env.MINICMS_PUBLIC_API_URL = apiUrl;
 
+export const markdownOptimizeDependencies = [
+  "@blocknote/core",
+  "@blocknote/core/extensions",
+  "@blocknote/core/locales",
+  "@blocknote/mantine",
+  "@blocknote/react"
+];
+
 export default defineConfig({
   root: adminRoot,
   base: "./",
@@ -19,6 +27,9 @@ export default defineConfig({
   plugins: [react(), inlineCssPlugin()],
   resolve: {
     dedupe: ["react", "react-dom"]
+  },
+  optimizeDeps: {
+    include: markdownOptimizeDependencies
   },
   server: {
     host,

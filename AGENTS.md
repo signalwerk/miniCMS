@@ -88,9 +88,13 @@ Preserve useful guidance and remove stale information.
   change so reference-target caches cannot outlive an editor-owned write.
   Unsaved source-record drafts remain safe to resolve repeatedly.
 - `admin/vite.config.js`: editor development configuration and the standalone
-  browser build. Production emits only `dist/minicms.js`, a classic IIFE with
-  CSS, assets, and dynamic modules inlined. `admin/index.html` is development
-  scaffolding, not a deployment template.
+  browser build. Development explicitly prebundles every BlockNote entry
+  imported by the lazy Markdown editor; consumer admin shells request editor
+  modules cross-origin without loading miniCMS's development HTML, so on-demand
+  discovery must not invalidate an already loaded dependency generation.
+  Production emits only `dist/minicms.js`, a classic IIFE with CSS, assets, and
+  dynamic modules inlined. `admin/index.html` is development scaffolding, not a
+  deployment template.
 - `bin/minicms.mjs`: package CLI. `build` is project-independent and `dev`
   starts only the Vite editor. Its development bootstrap sends API and media
   requests directly to `MINICMS_API_URL` and reads its trusted bootstrap
