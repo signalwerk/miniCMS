@@ -1,0 +1,710 @@
+connectors:
+  default:
+    name: github
+    repo: owner/repository
+    base_url: https://auth.signalwerk.workers.dev
+    branch: main
+  development:
+    name: api
+site:
+  name: Website
+  locale: en
+  media_folder: content/media
+  public_folder: /media
+  image_processing:
+    width: 2400
+    height: 2400
+    fit: inside
+    format: jpg
+    quality: 82
+    cache:
+      schema: v1
+node_types:
+  page:
+    label: Page
+    kind: document
+    icon: file-text
+    fields:
+      content_id:
+        label: ID
+        widget: id
+        readonly: true
+        required: true
+      title:
+        label: Title
+        widget: string
+        required: true
+      slug:
+        label: URL segment
+        widget: string
+        required: true
+        hint: Used in the public URL
+      navigation_title:
+        label: Navigation title
+        widget: string
+      hidden:
+        label: Hide page
+        widget: boolean
+        default: false
+      hide_in_navigation:
+        label: Hide in navigation
+        widget: boolean
+        default: false
+      description:
+        label: Meta description
+        widget: text
+      keywords:
+        label: Keywords
+        widget: string
+      noindex:
+        label: Hide from search engines (noindex)
+        widget: boolean
+        default: false
+      nofollow:
+        label: Do not follow links (nofollow)
+        widget: boolean
+        default: false
+      layout:
+        label: Page layout
+        widget: select
+        default: default
+        options:
+          - label: Default
+            value: default
+          - label: Wide
+            value: wide
+    views:
+      detail:
+        panels:
+          inspector:
+            label: Inspector
+            groups:
+              content:
+                label: Content
+                icon: file-text
+                fields:
+                  - title
+              navigation:
+                label: Navigation & visibility
+                icon: menu
+                fields:
+                  - slug
+                  - navigation_title
+                  - hidden
+                  - hide_in_navigation
+          seo:
+            label: SEO
+            groups:
+              search:
+                label: Search & sharing
+                icon: search
+                fields:
+                  - description
+                  - keywords
+                  - noindex
+                  - nofollow
+          settings:
+            label: Settings
+            groups:
+              layout:
+                label: Layout
+                icon: layout-template
+                description: Controls the presentation used when this page is rendered.
+                fields:
+                  - layout
+          info:
+            label: Info
+            groups:
+              identity:
+                label: Identity
+                icon: file-text
+                description: System-generated identifiers for this record.
+                fields:
+                  - content_id
+              stored_file:
+                label: Stored file
+                icon: file-text
+                description: Repository-relative collection record location.
+                fields:
+                  - $filename
+                  - $storage_path
+                  - $updated_at
+    slots:
+      content:
+        label: Page content
+        allowed_types:
+          - title
+          - text
+          - image
+          - box
+          - accordion
+          - grid
+  shortcut:
+    label: Shortcut
+    kind: document
+    icon: file-symlink
+    fields:
+      content_id:
+        label: ID
+        widget: id
+        readonly: true
+        required: true
+      title:
+        label: Title
+        widget: string
+        required: true
+      slug:
+        label: URL segment
+        widget: string
+        required: true
+        hint: Used in the public URL
+      mode:
+        label: Shortcut mode
+        widget: select
+        default: first_child
+        required: true
+        options:
+          - label: First child node
+            value: first_child
+          - label: Selected target
+            value: selected_target
+      target:
+        label: Target page
+        widget: reference
+        collection: pages
+        value_field: content_id
+        allowed_types:
+          - page
+        visible_when:
+          field: mode
+          equals: selected_target
+      hidden:
+        label: Hide shortcut
+        widget: boolean
+        default: false
+      hide_in_navigation:
+        label: Hide in navigation
+        widget: boolean
+        default: false
+    views:
+      detail:
+        panels:
+          inspector:
+            label: Inspector
+            groups:
+              content:
+                label: Content
+                icon: file-symlink
+                fields:
+                  - title
+              target:
+                label: Target
+                icon: file-symlink
+                fields:
+                  - mode
+                  - target
+              navigation:
+                label: Navigation & visibility
+                icon: menu
+                fields:
+                  - slug
+                  - hidden
+                  - hide_in_navigation
+          info:
+            label: Info
+            groups:
+              identity:
+                label: Identity
+                icon: file-text
+                description: System-generated identifiers for this record.
+                fields:
+                  - content_id
+              stored_file:
+                label: Stored file
+                icon: file-text
+                description: Repository-relative collection record location.
+                fields:
+                  - $filename
+                  - $storage_path
+                  - $updated_at
+  media_image:
+    label: Image
+    kind: document
+    icon: image
+    fields:
+      content_id:
+        label: ID
+        widget: id
+        readonly: true
+        required: true
+      alt:
+        label: Alternative text
+        widget: string
+        required: true
+      title:
+        label: Title
+        widget: string
+      file:
+        label: Image file
+        widget: image
+        required: true
+        accept:
+          - image/jpeg
+          - image/png
+          - image/gif
+          - image/webp
+          - image/avif
+          - image/tiff
+          - .tif
+          - .tiff
+          - image/svg+xml
+      caption:
+        label: Caption
+        widget: text
+  media_file:
+    label: File
+    kind: document
+    icon: file-text
+    fields:
+      content_id:
+        label: ID
+        widget: id
+        readonly: true
+        required: true
+      title:
+        label: Title
+        widget: string
+        required: true
+      file:
+        label: File
+        widget: file
+        required: true
+        accept:
+          - "*/*"
+      description:
+        label: Description
+        widget: text
+    views:
+      detail:
+        panels:
+          inspector:
+            label: Inspector
+            groups:
+              file:
+                label: File
+                icon: file-text
+                fields:
+                  - file
+                  - title
+                  - description
+          info:
+            label: Info
+            groups:
+              identity:
+                label: Identity
+                icon: file-text
+                fields:
+                  - content_id
+              stored_file:
+                label: Stored file
+                icon: file-text
+                fields:
+                  - $filename
+                  - $storage_path
+                  - $updated_at
+  title:
+    label: Title
+    kind: content
+    icon: align-left
+    fields:
+      title:
+        label: Title
+        widget: text
+        required: true
+      element:
+        label: Style
+        widget: select
+        default: h2
+        options:
+          - label: Heading 1
+            value: h1
+          - label: Heading 2
+            value: h2
+          - label: Heading 3
+            value: h3
+          - label: Heading 4
+            value: h4
+          - label: Heading 5
+            value: h5
+          - label: Heading 6
+            value: h6
+          - label: Eyebrow
+            value: p.eyebrow
+          - label: None
+            value: none
+      hidden:
+        label: Hide content
+        widget: boolean
+        default: false
+  text:
+    label: Text
+    kind: content
+    icon: align-left
+    fields:
+      text:
+        label: Text
+        widget: markdown
+        required: true
+      hidden:
+        label: Hide content
+        widget: boolean
+        default: false
+    views:
+      detail:
+        panels:
+          inspector:
+            label: Inspector
+            groups:
+              content:
+                label: Content
+                icon: align-left
+                fields:
+                  - text
+              visibility:
+                label: Visibility
+                icon: settings
+                fields:
+                  - hidden
+  image:
+    label: Image
+    kind: content
+    icon: image
+    fields:
+      asset:
+        label: Image
+        widget: reference
+        collection: images
+        required: true
+        selections:
+          - crop
+          - focus
+      alt:
+        label: Alternative text override
+        widget: string
+      caption:
+        label: Caption override
+        widget: text
+      ratio:
+        label: Presentation ratio
+        widget: select
+        default: original
+        options:
+          - label: Original or selected crop
+            value: original
+          - label: Landscape (16:9)
+            value: landscape
+          - label: Square (1:1)
+            value: square
+          - label: Portrait (3:4)
+            value: portrait
+      hidden:
+        label: Hide content
+        widget: boolean
+        default: false
+  box:
+    label: Box
+    kind: content
+    icon: layers
+    fields:
+      background:
+        label: Background
+        widget: select
+        default: soft
+        options:
+          - label: Paper
+            value: paper
+          - label: Soft
+            value: soft
+          - label: Accent
+            value: accent
+      hidden:
+        label: Hide content
+        widget: boolean
+        default: false
+    slots:
+      content:
+        label: Box content
+        allowed_types:
+          - title
+          - text
+          - image
+          - grid
+  accordion:
+    label: Accordion
+    kind: content
+    icon: menu
+    fields:
+      hidden:
+        label: Hide content
+        widget: boolean
+        default: false
+    slots:
+      summary:
+        label: Summary
+        allowed_types:
+          - title
+        min: 1
+        max: 1
+        default:
+          - type: title
+            properties:
+              element: none
+      details:
+        label: Details
+        allowed_types:
+          - title
+          - text
+          - image
+          - box
+          - grid
+  grid:
+    label: Grid
+    kind: content
+    icon: columns-3
+    fields:
+      layout:
+        label: Layout
+        widget: select
+        default: default
+        options:
+          - label: Default
+            value: default
+          - label: Full width
+            value: full_width
+      hidden:
+        label: Hide content
+        widget: boolean
+        default: false
+    slots:
+      columns:
+        label: Columns
+        allowed_types:
+          - column
+        min: 1
+        max: 4
+        default:
+          - type: column
+  column:
+    label: Column
+    kind: structure
+    icon: panel-left
+    fields:
+      width:
+        label: Span
+        widget: select
+        default: "12"
+        options:
+          - label: 1 column
+            value: "1"
+          - label: 2 columns
+            value: "2"
+          - label: 3 columns
+            value: "3"
+          - label: 4 columns
+            value: "4"
+          - label: 5 columns
+            value: "5"
+          - label: 6 columns
+            value: "6"
+          - label: 7 columns
+            value: "7"
+          - label: 8 columns
+            value: "8"
+          - label: 9 columns
+            value: "9"
+          - label: 10 columns
+            value: "10"
+          - label: 11 columns
+            value: "11"
+          - label: 12 columns
+            value: "12"
+      start:
+        label: Start
+        widget: select
+        options:
+          - label: Column 1
+            value: "1"
+          - label: Column 2
+            value: "2"
+          - label: Column 3
+            value: "3"
+          - label: Column 4
+            value: "4"
+          - label: Column 5
+            value: "5"
+          - label: Column 6
+            value: "6"
+          - label: Column 7
+            value: "7"
+          - label: Column 8
+            value: "8"
+          - label: Column 9
+            value: "9"
+          - label: Column 10
+            value: "10"
+          - label: Column 11
+            value: "11"
+          - label: Column 12
+            value: "12"
+      hidden:
+        label: Hide content
+        widget: boolean
+        default: false
+    slots:
+      content:
+        label: Column content
+        allowed_types:
+          - title
+          - text
+          - image
+          - box
+          - grid
+collections:
+  pages:
+    label: Pages
+    label_singular: Page
+    icon: files
+    folder: content/pages
+    extension: yml
+    slug: "{{title}}-{{year}}-{{month}}"
+    node_type: page
+    allowed_types:
+      - page
+      - shortcut
+    hierarchy:
+      enabled: true
+      id_field: content_id
+      parent_field: parent_id
+      allowed_child_types:
+        - page
+        - shortcut
+    summary: "{{properties.title}}"
+    views:
+      list:
+        type: tree
+      reference:
+        value: content_id
+        title: title
+        description:
+          - slug
+  images:
+    label: Images
+    label_singular: Image
+    icon: image
+    folder: content/images
+    extension: yml
+    slug: "{{title}}-{{year}}-{{month}}"
+    node_type: media_image
+    allowed_types:
+      - media_image
+    hierarchy:
+      enabled: false
+    summary: "{{properties.title}}"
+    delete_files_with_record: true
+    views:
+      list:
+        type: table
+        search:
+          fields:
+            - title
+            - alt
+            - caption
+        sort:
+          field: title
+          direction: asc
+        columns:
+          - field: file
+            label: ""
+            mode: read
+            display: image
+            width: 5rem
+          - field: title
+            mode: read
+          - field: alt
+            mode: read
+      reference:
+        value: content_id
+        image: file
+        title: title
+        description:
+          - alt
+          - caption
+        selections:
+          crop:
+            label: Crop region
+            kind: image_region
+            options:
+              field: file
+              path: regions
+              value: id
+              label: label
+          focus:
+            label: Focus point
+            kind: image_point
+            options:
+              field: file
+              path: points
+              value: id
+              label: label
+  files:
+    label: Files
+    label_singular: File
+    icon: file-text
+    folder: content/files
+    extension: yml
+    slug: "{{title}}-{{year}}-{{month}}"
+    node_type: media_file
+    allowed_types:
+      - media_file
+    hierarchy:
+      enabled: false
+    summary: "{{properties.title}}"
+    delete_files_with_record: true
+    views:
+      list:
+        type: table
+        search:
+          fields:
+            - title
+            - file
+            - description
+            - $filename
+        sort:
+          field: title
+          direction: asc
+        columns:
+          - field: title
+            mode: read
+            appearance: title
+            width: minmax(12rem, 1fr)
+          - field: file
+            mode: read
+            display: code
+            width: minmax(14rem, 2fr)
+          - field: description
+            mode: read
+            appearance: muted
+            width: minmax(14rem, 2fr)
+          - field: $updated_at
+            label: Updated
+            mode: read
+            display: datetime
+            appearance: muted
+            width: 11rem
+      reference:
+        value: content_id
+        title: title
+        description:
+          - file
+          - description
+

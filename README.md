@@ -13,9 +13,10 @@ repository supplies `cms.config.yml`, `content/`, and its own `/admin/` HTML.
 The published editor is one classic JavaScript file. It contains the editor's
 React runtime, styles, assets, and lazy-loaded modules. It exposes
 `window.miniCMS` and never starts until the host page calls `miniCMS.init()`.
-A project-owned preview is another independent browser bundle; the plain admin
-page loads both, registers its component, and then starts the editor:
+The minimal host page starts the editor without a project preview; the
+initializer below extracts this exact marked example from the live README:
 
+<!-- minicms-init:index:start -->
 ```html
 <!doctype html>
 <html lang="en">
@@ -27,27 +28,48 @@ page loads both, registers its component, and then starts the editor:
   <body>
     <div id="root"></div>
     <script src="https://rawcdn.githack.com/signalwerk/miniCMS/078d12e/minicms.js"></script>
-    <script src="./preview.js"></script>
     <script>
-      miniCMS.registerPreview(window.SitePreview.ProjectPreview);
       miniCMS.init({
         target: "#root",
-        configUrl: "./cms.config.yml"
+        configUrl: "../cms.config.yml"
       });
     </script>
   </body>
 </html>
 ```
+<!-- minicms-init:index:end -->
 
-`0000000` is the initial publishing placeholder. After every successful
-main-branch deployment, CI replaces every README bundle URL with the current
-seven-character `gh-pages` commit. That `rawcdn.githack.com` URL is immutable.
+After every successful main-branch deployment, CI replaces every README bundle
+URL with the current seven-character `gh-pages` commit. That
+`rawcdn.githack.com` URL is immutable.
 The stable URL that always follows the latest published build is
 `https://signalwerk.github.io/miniCMS/minicms.js`.
 
-The HTML page owns deployment and must place `cms.config.yml` beside itself.
-For example, `/admin/index.html` loads `/admin/cms.config.yml`. miniCMS does not
-copy the config, media, or website output.
+The HTML page owns deployment. The GitHub adapter reads and writes the one
+authoritative `cms.config.yml` at the repository root, so
+`/admin/index.html` loads `../cms.config.yml`. miniCMS does not copy media or
+website output.
+
+## Initialize a repository
+
+From the `admin/` directory of a new Git repository, run:
+
+```sh
+bash <(curl -fsSL https://raw.githubusercontent.com/signalwerk/miniCMS/main/init.sh)
+```
+
+The initializer derives `owner/repository` and the current branch from Git,
+extracts `admin/index.html` from the marked Browser bundle example above, and
+copies the reusable starter configuration to the repository root as
+`cms.config.yml`. Set `MINICMS_REPOSITORY=owner/repository` or
+`MINICMS_BRANCH=branch` only when Git cannot supply those values. Existing
+different files and symlinks are never overwritten; rerunning against the same
+generated files is a no-op.
+
+The starter contains Pages, Images, and Files. Its image library is local to
+the new repository, and its Markdown field has no project-specific inline
+reference extension. Add an optional project preview later using the exact
+contract in `llm.txt` or the Project previews section below.
 
 ## Add the local tools to a project
 
@@ -206,7 +228,7 @@ The host selects the development connector explicitly:
 
 ```js
 miniCMS.init({
-  configUrl: "./cms.config.yml",
+  configUrl: "../cms.config.yml",
   environment: "development",
   connectorOptions: {
     development: { apiUrl: "http://127.0.0.1:8787" }
@@ -302,7 +324,7 @@ isolated preview document, and passes exactly two props:
 <script src="./preview.js"></script>
 <script>
   miniCMS.registerPreview(window.SitePreview.ProjectPreview);
-  miniCMS.init({ target: "#root", configUrl: "./cms.config.yml" });
+  miniCMS.init({ target: "#root", configUrl: "../cms.config.yml" });
 </script>
 ```
 
@@ -315,7 +337,9 @@ The preview payload has only two values:
 ```ts
 type PreviewProps = {
   data: { config: CmsConfig; collection: CmsCollection; item: ContentRecord };
-  focus: (nodeId: string) => React.HTMLAttributes<HTMLElement>;
+  focus: (nodeId: string) => React.HTMLAttributes<HTMLElement> & {
+    ref?: React.RefCallback<HTMLElement>;
+  };
 };
 ```
 

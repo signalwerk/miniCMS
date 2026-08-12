@@ -23,6 +23,7 @@ async function runTests() {
     path.join(packageRoot, "core", "image-service.test.mjs"),
     path.join(packageRoot, "core", "media.test.mjs"),
     path.join(packageRoot, "core", "slug.test.mjs"),
+    path.join(packageRoot, "init.test.mjs"),
     path.join(packageRoot, "admin", "src", "adapters", "api.test.mjs"),
     path.join(packageRoot, "admin", "src", "adapters", "connectors.test.mjs"),
     path.join(packageRoot, "admin", "src", "adapters", "github.test.mjs"),

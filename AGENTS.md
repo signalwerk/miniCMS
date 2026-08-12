@@ -99,16 +99,32 @@ Preserve useful guidance and remove stale information.
 - Consumer websites own `/admin/index.html`, config/media copying, deployment,
   and runtime preview registration. Never resolve or bundle consumer preview
   source while building miniCMS.
+- `init.sh` is the safe, idempotent new-repository bootstrap. It must be run
+  from the consumer's `admin/` directory, extracts the one explicitly marked
+  HTML fence from the live README, writes that directory's `index.html`, and
+  specializes the reusable root `cms.config.yml` template into the consumer
+  repository root. The GitHub adapter owns only that root configuration path;
+  never generate a second admin-local config copy. The initializer derives a
+  safe GitHub repository and branch, fails before writes on malformed input or
+  target conflicts, never follows/overwrites symlinks, and treats an identical
+  rerun as a no-op. `init.test.mjs` exercises the shell boundary without the
+  network.
 - A project registers one optional React preview component before
   `miniCMS.init()`. miniCMS owns the preview root and passes only
   `{data, focus}`. Project preview bundles reuse `miniCMS.React` and
   `miniCMS.jsxRuntime` instead of shipping another React copy.
+- `llm.txt` documents only that project-preview registration contract for an
+  LLM. Keep it schema-neutral: the preview learns the project data model from
+  the resolved config and YAML-shaped record passed in `data`.
 - `.github/workflows/pages.yml` publishes `dist/minicms.js` to `gh-pages` and
   updates the immutable, version-pinned `rawcdn.githack.com` URL in `README.md`
   to that deployment commit. `ci/update-readme.sh` is the single owner of that
   pin update; the GitHub Pages URL remains the stable latest-build URL.
-- Consumer repositories own `cms.config.yml` and `content/`; miniCMS must not
-  contain project-specific models or records.
+- Consumer repositories own their specialized `cms.config.yml` and `content/`.
+  The package-root `cms.config.yml` is the sole reusable bootstrap template,
+  based on the reference content model but containing no project records,
+  remote aliases, or Beowolf-only research collections. Do not turn it into a
+  live miniCMS project or add project-specific content.
 
 The website, editor, and API service are one controlled pre-release stack.
 When the shared image contract changes, update every consumer atomically and

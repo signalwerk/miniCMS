@@ -1,0 +1,108 @@
+# miniCMS project preview contract
+
+Create one project-owned React component named `ProjectPreview`. miniCMS owns
+the React root, iframe, lifecycle, content resolution, selection, and
+persistence. Do not create a React root, import `react-dom`, fetch CMS data,
+write content, or register a separate component per collection.
+
+Load and initialize in this order: the miniCMS browser bundle, the project's
+IIFE preview bundle, preview registration, then miniCMS initialization.
+
+```html
+<div id="root"></div>
+<script src="https://signalwerk.github.io/miniCMS/minicms.js"></script>
+<script src="./preview.js"></script>
+<script>
+  const Preview = window.SitePreview?.ProjectPreview;
+  if (typeof Preview !== "function") throw new Error("Missing ProjectPreview");
+  window.miniCMS.registerPreview(Preview);
+  window.miniCMS.init({
+    target: "#root",
+    configUrl: "../cms.config.yml"
+  });
+</script>
+```
+
+`registerPreview` must run before the first `init` call. miniCMS accepts one
+optional preview component and has no collection-registration map or mount
+hook. Branch inside `ProjectPreview` on `data.collection.name` when collections
+need different rendering.
+
+`ProjectPreview` receives exactly `{data, focus}`:
+
+```ts
+type PreviewProps = {
+  data: {
+    config: CmsConfig;
+    collection: CmsCollection;
+    item: ContentRecord;
+  };
+  focus: (nodeId: string) => React.HTMLAttributes<HTMLElement> & {
+    ref?: React.RefCallback<HTMLElement>;
+  };
+};
+```
+
+`data` is resolved and read-only. `data.item` is the complete current unsaved
+record. A record and every nested content node use
+`{id, type, order?, properties, slots}`; each value in `slots` is an ordered
+array of more nodes. Read the available collections, types, fields, slots, and
+presentation settings from `data.config`, then render the actual values in
+`data.item`. Do not assume project-specific keys. References, tags, configured
+Markdown references, and media may already be resolved; consume the supplied
+values instead of loading them again.
+
+Spread `focus(node.id)` unchanged onto one concrete DOM boundary for the record
+root and every recursively rendered slot node:
+
+```tsx
+export function ProjectPreview({ data, focus }) {
+  return (
+    <main {...focus(data.item.id)}>
+      {data.item.properties.title}
+    </main>
+  );
+}
+```
+
+Do not replace the returned ref, event handlers, ARIA properties, `tabIndex`,
+or data attributes. They connect click and Enter/Space selection, authoring
+outlines, and scroll-to-node behavior.
+
+The component renders inside an isolated iframe document. Styles from the
+admin parent do not apply. Bundle project CSS as text and render it inside the
+component, for example with `import stylesheet from "./preview.scss?inline"`
+and `<style>{stylesheet}</style>`. Use the resolved media URLs from `data` or
+absolute asset URLs.
+
+Build `preview.js` as a named IIFE. Export `ProjectPreview`, reuse miniCMS's
+React and automatic JSX runtimes, and do not bundle another React copy:
+
+```ts
+// vite.preview.config.ts
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  publicDir: false,
+  build: {
+    lib: {
+      entry: "src/preview.tsx",
+      formats: ["iife"],
+      name: "SitePreview",
+      fileName: () => "preview.js"
+    },
+    rollupOptions: {
+      external: ["react", "react/jsx-runtime"],
+      output: {
+        exports: "named",
+        globals: {
+          react: "miniCMS.React",
+          "react/jsx-runtime": "miniCMS.jsxRuntime"
+        }
+      }
+    }
+  }
+});
+```
+
+There is no other project-preview API.
