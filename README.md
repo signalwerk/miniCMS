@@ -27,7 +27,7 @@ initializer below extracts this exact marked example from the live README:
   </head>
   <body>
     <div id="root"></div>
-    <script src="https://rawcdn.githack.com/signalwerk/miniCMS/57fc988/minicms.js"></script>
+    <script src="https://rawcdn.githack.com/signalwerk/miniCMS/8b7d2fc/minicms.js"></script>
     <script>
       miniCMS.init({
         target: "#root",
@@ -323,7 +323,7 @@ build system. miniCMS owns the React root, renders the component inside its
 isolated preview document, and passes exactly two props:
 
 ```html
-<script src="https://rawcdn.githack.com/signalwerk/miniCMS/57fc988/minicms.js"></script>
+<script src="https://rawcdn.githack.com/signalwerk/miniCMS/8b7d2fc/minicms.js"></script>
 <script src="./preview.js"></script>
 <script>
   miniCMS.registerPreview(window.SitePreview.ProjectPreview);
