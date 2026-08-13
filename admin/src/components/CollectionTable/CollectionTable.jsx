@@ -34,6 +34,7 @@ import {
   relationValueKey,
   tableRelationOptions
 } from "../../model/views.js";
+import { rawUrlValue } from "../../model/url.js";
 import {
   EmptyState,
   ExternalUrlLink,
@@ -118,6 +119,7 @@ function sortableTableValue(
     { field: fieldName },
     nodeTypes
   );
+  if (field.widget === "url") return rawUrlValue(value);
   if (!["reference", "tags"].includes(field.widget)) return value;
   const formatted = displayValue(
     value,
@@ -149,12 +151,15 @@ function TableCell({
     (field.multiple === true ||
       (Array.isArray(field.selections) && field.selections.length > 0) ||
       (value && typeof value === "object"));
+  const inspectorOnlyUrl =
+    field.widget === "url" && Boolean(field.internal_links);
   const editable =
     column.mode === "edit" &&
     !column.field.startsWith("$") &&
     field.widget !== "image" &&
     field.widget !== "tags" &&
     !structuredReference &&
+    !inspectorOnlyUrl &&
     field.readonly !== true;
   const [draftValue, setDraftValue] = useState(value ?? "");
 
@@ -638,8 +643,10 @@ function CollectionTable({
   const visibleItems = useMemo(() => {
     const compiledFilter = compileFilterExpression(appliedFilter, {
       fields: filterFields,
-      getValue: (item, fieldName) =>
-        getTableValue(item, fieldName, collection),
+      getValue: (item, fieldName, field) => {
+        const value = getTableValue(item, fieldName, collection);
+        return field?.widget === "url" ? rawUrlValue(value) : value;
+      },
       now: new Date()
     });
     const scopedItems = items.filter(compiledFilter.test);

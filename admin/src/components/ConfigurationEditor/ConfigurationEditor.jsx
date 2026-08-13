@@ -98,6 +98,7 @@ import { ConfirmationDialog } from "../Dialogs/Dialogs.jsx";
 import { DeploymentControl } from "../DeploymentControl/DeploymentControl.jsx";
 import { Spinner } from "../Common/Common.jsx";
 import { FilterExpressionEditor } from "../AdvancedFilter/AdvancedFilter.jsx";
+import { parsedContentUrl, resolvedUrlLabel } from "../../model/url.js";
 import "./ConfigurationEditor.scss";
 
 const WIDGET_OPTIONS = [
@@ -2031,6 +2032,7 @@ function FieldEditor({
   const conditionField = fields[field.visible_when?.field];
   const inlineReference = field.blocknote?.inline_reference;
   const internalLinks = field.blocknote?.internal_links;
+  const urlInternalLinks = field.internal_links;
   const internalLinkCollectionOptions = internalLinkCollectionEntries({
     collections,
     node_types: nodeTypes
@@ -2054,6 +2056,9 @@ function FieldEditor({
     !(widget === "reference" && field.multiple === true) &&
     widget !== "slug" &&
     !isGeneratedIdWidget(widget);
+  const internalUrlDefault = widget === "url"
+    ? parsedContentUrl(field.default)
+    : null;
 
   function defaultConditionValue(sourceField) {
     if (sourceField?.default !== undefined) return sourceField.default;
@@ -2147,6 +2152,9 @@ function FieldEditor({
               if (value !== "markdown") {
                 delete nextField.blocknote;
               }
+              if (value !== "url") {
+                delete nextField.internal_links;
+              }
               if (value === "slug") {
                 delete nextField.default;
                 const firstSource =
@@ -2204,6 +2212,46 @@ function FieldEditor({
             })}
           />
         </FormField>
+      )}
+      {widget === "url" && (
+        <div className="configuration-options">
+          <div className="configuration-inline-setting">
+            <span>
+              <strong>Internal content links</strong>
+            </span>
+            <Switch
+              checked={Boolean(urlInternalLinks)}
+              disabled={!internalLinkCollectionOptions.length}
+              label={`${field.label || fieldKey} internal content links`}
+              onChange={(checked) => onChange((nextField) => {
+                if (!checked) {
+                  delete nextField.internal_links;
+                  return;
+                }
+                const firstCollection = internalLinkCollectionOptions[0]?.[0];
+                if (!firstCollection) return;
+                nextField.internal_links = {
+                  collections: [firstCollection]
+                };
+              })}
+            />
+          </div>
+          {urlInternalLinks && (
+            <FormField label="Linkable collections">
+              <MultiChoice
+                options={internalLinkCollectionOptions}
+                value={urlInternalLinks.collections ?? []}
+                onChange={(value) => onChange((nextField) => {
+                  if (value.length) {
+                    nextField.internal_links.collections = [...new Set(value)];
+                  } else {
+                    delete nextField.internal_links;
+                  }
+                })}
+              />
+            </FormField>
+          )}
+        </div>
       )}
       {widget === "markdown" && (
         <div className="configuration-options">
@@ -2542,6 +2590,23 @@ function FieldEditor({
               })}
             </SelectInput>
           </FormField>
+        ) : widget === "url" && internalUrlDefault ? (
+          <FormField label="Default value" optional>
+            <div className="configuration-inline-setting">
+              <span>
+                <strong>{resolvedUrlLabel(field.default)}</strong>
+                <small>Stable content link</small>
+              </span>
+              <button
+                type="button"
+                onClick={() => onChange((nextField) => {
+                  delete nextField.default;
+                })}
+              >
+                Clear
+              </button>
+            </div>
+          </FormField>
         ) : !supportsDefault ? null : (
           <FormField
             label={
@@ -2720,6 +2785,18 @@ function SlotDefaultPropertyEditor({
           </option>
         ))}
       </SelectInput>
+    );
+  } else if (enabled && field.widget === "url" && parsedContentUrl(value)) {
+    control = (
+      <div className="configuration-inline-setting">
+        <span>
+          <strong>{resolvedUrlLabel(value)}</strong>
+          <small>Stable content link</small>
+        </span>
+        <button type="button" onClick={() => updateValue("")}>
+          Use web URL
+        </button>
+      </div>
     );
   } else if (enabled) {
     control = (
@@ -5149,8 +5226,10 @@ export default function ConfigurationEditor({
     const internalLinkUse = typeEntries.find(([, type]) =>
       Object.values(type.fields ?? {}).some(
         (field) =>
-          field.widget === "markdown" &&
-          field.blocknote?.internal_links?.collections?.includes(collectionKey)
+          (field.widget === "markdown" &&
+            field.blocknote?.internal_links?.collections?.includes(collectionKey)) ||
+          (field.widget === "url" &&
+            field.internal_links?.collections?.includes(collectionKey))
       )
     );
     const referenceSetUse = Object.entries(

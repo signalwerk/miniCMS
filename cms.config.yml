@@ -400,6 +400,12 @@ node_types:
       caption:
         label: Caption override
         widget: text
+      link:
+        label: Link
+        widget: url
+        internal_links:
+          collections:
+            - pages
       ratio:
         label: Presentation ratio
         widget: select

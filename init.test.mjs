@@ -94,6 +94,11 @@ test("starter configuration is local, self-contained, and valid", async () => {
   assert.deepEqual(config.node_types.text.fields.text.blocknote, {
     internal_links: { collections: ["pages"] }
   });
+  assert.deepEqual(config.node_types.image.fields.link, {
+    label: "Link",
+    widget: "url",
+    internal_links: { collections: ["pages"] }
+  });
   assert.equal(config.site.reference_sets, undefined);
   assert.equal(
     config.node_types.page.slots.content.allowed_types.includes("reference_list"),

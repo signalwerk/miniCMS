@@ -9,6 +9,7 @@ import {
   validateSourceConfig,
   validateRecord
 } from "./content.js";
+import { buildInlineLinkUrl } from "./inline-link.js";
 
 function fixtureConfig() {
   return {
@@ -1057,6 +1058,77 @@ test("validates configurable Markdown internal-link collections", () => {
   );
 });
 
+test("validates configurable URL internal-link collections", () => {
+  const config = fixtureConfig();
+  const internalUrl = buildInlineLinkUrl("pages", "home");
+  config.node_types.page.fields.website = {
+    widget: "url",
+    internal_links: { collections: ["pages"] },
+    default: internalUrl
+  };
+
+  assert.deepEqual(validateConfig(config).node_types.page.fields.website, {
+    widget: "url",
+    internal_links: { collections: ["pages"] },
+    default: internalUrl
+  });
+
+  for (const [change, expected] of [
+    [(field) => { field.internal_links = []; }, /internal_links must be a mapping/],
+    [(field) => { field.internal_links.collections = []; }, /at least one collection/],
+    [(field) => { field.internal_links.collections = ["pages", "pages"]; }, /repeat collection "pages"/],
+    [(field) => { field.internal_links.collections = ["missing"]; }, /use unknown collection "missing"/]
+  ]) {
+    const invalid = structuredClone(config);
+    delete invalid.node_types.page.fields.website.default;
+    change(invalid.node_types.page.fields.website);
+    assert.throws(() => validateConfig(invalid, 400), expected);
+  }
+
+  const wrongWidget = structuredClone(config);
+  wrongWidget.node_types.page.fields.website.widget = "string";
+  assert.throws(
+    () => validateConfig(wrongWidget, 400),
+    /configure internal_links only for a URL widget/
+  );
+
+  const incompatible = structuredClone(config);
+  incompatible.node_types.page.fields.sequence = { widget: "number" };
+  incompatible.collections.pages.views = {
+    reference: { value: "sequence" }
+  };
+  assert.throws(
+    () => validateConfig(incompatible, 400),
+    /value field "sequence" must store strings/
+  );
+
+  const disallowedDefault = structuredClone(config);
+  disallowedDefault.collections.articles = {
+    folder: "content/articles",
+    node_type: "page"
+  };
+  disallowedDefault.node_types.page.fields.website.default =
+    buildInlineLinkUrl("articles", "article");
+  assert.throws(
+    () => validateConfig(disallowedDefault, 400),
+    /default must be an absolute HTTP or HTTPS URL or an allowed internal content link/
+  );
+
+  const slotDefault = slotDefaultConfig();
+  slotDefault.node_types.section.fields.website.internal_links = {
+    collections: ["pages"]
+  };
+  slotDefault.node_types.page.slots.content.default[0].properties.website =
+    internalUrl;
+  assert.doesNotThrow(() => validateConfig(slotDefault, 400));
+  slotDefault.node_types.page.slots.content.default[0].properties.website =
+    "minicms://link/pages/home%2fchild";
+  assert.throws(
+    () => validateConfig(slotDefault, 400),
+    /property "website" has an invalid url value/
+  );
+});
+
 test("validates named inline-reference sets and safe item templates", () => {
   const config = fixtureConfig();
   config.site.reference_sets = {
@@ -1328,6 +1400,47 @@ test("requires persisted URL values to be empty or use HTTP(S)", () => {
           config
         ),
       /must be empty or contain an absolute HTTP or HTTPS URL/
+    );
+  }
+});
+
+test("allows only configured canonical internal values in URL fields", () => {
+  const config = fixtureConfig();
+  config.collections.articles = {
+    folder: "content/articles",
+    node_type: "page"
+  };
+  config.node_types.page.fields.website = {
+    widget: "url",
+    internal_links: { collections: ["pages"] }
+  };
+  validateConfig(config);
+  const collection = { name: "pages", ...config.collections.pages };
+  const record = {
+    id: "home",
+    type: "page",
+    order: 0,
+    properties: {
+      title: "Home",
+      website: buildInlineLinkUrl("pages", "about")
+    },
+    slots: {}
+  };
+
+  assert.equal(validateRecord(record, collection, config), record);
+  for (const website of [
+    buildInlineLinkUrl("articles", "article"),
+    "minicms://link/pages/about%2fteam",
+    "minicms://link/pages/",
+    "minicms://reference/pages/about"
+  ]) {
+    assert.throws(
+      () => validateRecord(
+        { ...record, properties: { ...record.properties, website } },
+        collection,
+        config
+      ),
+      /allowed internal content link/
     );
   }
 });

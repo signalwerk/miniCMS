@@ -1,5 +1,9 @@
 import { translateInlineReferences } from "../../../core/connectors.js";
 import { isInternalLinkCollectionCompatible } from "../../../core/content.js";
+import {
+  buildInlineLinkUrl,
+  parseInlineLinkUrl
+} from "../../../core/inline-link.js";
 
 const SCHEMA_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]*$/i;
 
@@ -24,8 +28,22 @@ function optionValue(option) {
 
 function validSlotDefaultProperty(field, value) {
   if (!SLOT_DEFAULT_PROPERTY_WIDGETS.has(field?.widget)) return false;
-  if (["string", "text", "url", "markdown", "datetime"].includes(field.widget)) {
+  if (["string", "text", "markdown", "datetime"].includes(field.widget)) {
     return typeof value === "string";
+  }
+  if (field.widget === "url") {
+    if (typeof value !== "string") return false;
+    if (value === "") return true;
+    try {
+      const url = new URL(value);
+      if (["http:", "https:"].includes(url.protocol)) return true;
+    } catch {
+      // A strict internal URL may still be valid below.
+    }
+    const link = parseInlineLinkUrl(value);
+    return Boolean(
+      link && field.internal_links?.collections?.includes(link.collection)
+    );
   }
   if (field.widget === "boolean") return typeof value === "boolean";
   if (field.widget === "number") {
@@ -71,32 +89,57 @@ function reconcileSlotDefaultTemplates(config) {
 
 function reconcileMarkdownInternalLinks(config) {
   const collectionKeys = new Set(Object.keys(config.collections ?? {}));
+  function reconcile(internalLinks) {
+    if (!internalLinks) return false;
+    const seen = new Set();
+    const collections = (Array.isArray(internalLinks.collections)
+      ? internalLinks.collections
+      : []
+    ).filter((collection) => {
+      if (
+        typeof collection !== "string" ||
+        !collection ||
+        !collectionKeys.has(collection) ||
+        !isInternalLinkCollectionCompatible(config, collection) ||
+        seen.has(collection)
+      ) {
+        return false;
+      }
+      seen.add(collection);
+      return true;
+    });
+    if (!collections.length) return false;
+    internalLinks.collections = collections;
+    return true;
+  }
+
   for (const type of Object.values(config.node_types ?? {})) {
     for (const field of Object.values(type.fields ?? {})) {
-      const internalLinks = field.blocknote?.internal_links;
-      if (!internalLinks) continue;
-      const seen = new Set();
-      const collections = (Array.isArray(internalLinks.collections)
-        ? internalLinks.collections
-        : []
-      ).filter((collection) => {
-        if (
-          typeof collection !== "string" ||
-          !collection ||
-          !collectionKeys.has(collection) ||
-          seen.has(collection)
-        ) {
-          return false;
+      if (field.widget === "url") {
+        if (field.internal_links && !reconcile(field.internal_links)) {
+          delete field.internal_links;
         }
-        seen.add(collection);
-        return true;
-      });
-      if (collections.length) {
-        internalLinks.collections = collections;
-        continue;
+        const defaultLink = parseInlineLinkUrl(field.default);
+        if (
+          defaultLink &&
+          !field.internal_links?.collections?.includes(defaultLink.collection)
+        ) {
+          delete field.default;
+        }
+      } else {
+        delete field.internal_links;
       }
-      delete field.blocknote.internal_links;
-      if (!Object.keys(field.blocknote).length) delete field.blocknote;
+
+      const markdownInternalLinks = field.blocknote?.internal_links;
+      if (field.widget === "markdown") {
+        if (markdownInternalLinks && !reconcile(markdownInternalLinks)) {
+          delete field.blocknote.internal_links;
+          if (!Object.keys(field.blocknote).length) delete field.blocknote;
+        }
+      } else if (markdownInternalLinks) {
+        delete field.blocknote.internal_links;
+        if (!Object.keys(field.blocknote).length) delete field.blocknote;
+      }
     }
   }
   return config;
@@ -362,14 +405,17 @@ function rewriteCollectionDependencies(config, currentKey, nextKey) {
   for (const type of Object.values(config.node_types ?? {})) {
     for (const slot of Object.values(type.slots ?? {})) {
       for (const template of slot.default ?? []) {
+        const templateFields = config.node_types?.[template.type]?.fields ?? {};
         for (const [propertyName, value] of Object.entries(
           template.properties ?? {}
         )) {
           if (typeof value !== "string") continue;
-          template.properties[propertyName] = translateInlineReferences(
-            value,
-            { [currentKey]: nextKey }
-          );
+          const field = templateFields[propertyName];
+          const link = field?.widget === "url" ? parseInlineLinkUrl(value) : null;
+          template.properties[propertyName] =
+            link?.collection === currentKey
+              ? buildInlineLinkUrl(nextKey, link.ref)
+              : translateInlineReferences(value, { [currentKey]: nextKey });
         }
       }
     }
@@ -397,6 +443,22 @@ function rewriteCollectionDependencies(config, currentKey, nextKey) {
           currentKey,
           nextKey
         );
+      }
+      if (
+        field.widget === "url" &&
+        Array.isArray(field.internal_links?.collections)
+      ) {
+        field.internal_links.collections = replaceArrayValue(
+          field.internal_links.collections,
+          currentKey,
+          nextKey
+        );
+        if (typeof field.default === "string") {
+          const parsedDefault = parseInlineLinkUrl(field.default);
+          if (parsedDefault?.collection === currentKey) {
+            field.default = buildInlineLinkUrl(nextKey, parsedDefault.ref);
+          }
+        }
       }
     }
   }

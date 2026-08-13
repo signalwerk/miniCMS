@@ -227,6 +227,8 @@ contains:
 - a concrete local image library rather than a remote alias;
 - a Markdown text field with stable internal links enabled for `pages`, but no
   project-specific citation/reference extension; and
+- an optional URL-widget link on image content that accepts either HTTP(S) or
+  a stable `pages` content identity; and
 - no articles, sources, authors, tags, notes, or reference-list model.
 
 The production default remains GitHub. The reserved `development` connector
@@ -637,6 +639,18 @@ normally has:
 A `media_image` record preview reads its own `properties.file`. Use the
 transient resolved `src`; never persist it and never rebuild it from `hash` in
 the renderer. Honor per-node alt/caption overrides before library values.
+The content `image` node's optional `link` URL property is adapter-resolved as
+`{url, link}`. Preserve valid absolute HTTP(S) destinations. A configured
+internal destination remains stored as
+`minicms://link/pages/<content_id>`; accept it for rendering only when the
+resolved link metadata exactly matches that collection and reference, the
+target's current `content_id` still matches, and the site route model proves
+the target plus all ancestors are visible and valid. Derive the base-aware
+current path at render time. Wrap only the image frame/viewport in the anchor,
+leaving `figcaption` outside. Missing, malformed, hidden, mismatched, and
+shortcut targets render without an anchor, and no `minicms://` value may reach
+public HTML. Keep `media_image` library previews outside this image-content
+link behavior.
 Implement the configured original/landscape/square/portrait presentation and
 crop/focus selection behavior. For canonical raster service URLs, use the
 public `prependImageServiceOperations` helper to prepend the source-space crop
@@ -942,7 +956,12 @@ Exercise the actual workflow rather than checking only that processes listen:
    and verify both preview and static output point to its new base-aware path
    without rewriting the Markdown. A missing or hidden target must render as
    non-navigable text and no `minicms://link` URI may reach browser HTML.
-9. Reload the editor and confirm the saved record resolves identically.
+9. Set an image Link first to an HTTP(S) destination and then to an internal
+   page. Confirm only the image frame is clickable, its caption stays outside
+   the anchor, and moving the target updates the rendered destination without
+   changing the stored stable identity. Missing or hidden targets must remove
+   the anchor and must not leak the custom URI.
+10. Reload the editor and confirm the saved record resolves identically.
 
 Local API writes modify the Git working tree; they do not commit. Review and
 commit the resulting YAML and media. Stop the API before an external process
@@ -1086,6 +1105,9 @@ Verify that:
 - relative admin assets and website links work under the Pages base path;
 - Markdown content links store published stable IDs, remain correct after a
   page hierarchy move, and never leak the custom URI into public output;
+- image URL fields preserve HTTP(S) destinations, resolve exact stable page
+  identities to current base-aware paths, link only the image frame, and fail
+  closed without leaking the custom URI;
 - the GitHub Actions run succeeds;
 - the live site root returns the Home page;
 - live `/admin/`, `/admin/cms.config.yml`, and `/admin/preview.js` load; and

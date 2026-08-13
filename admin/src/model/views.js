@@ -6,6 +6,7 @@ import {
   normalizeReferenceValues,
   referencePickerOption
 } from "./reference.js";
+import { rawUrlValue, resolvedUrlLabel } from "./url.js";
 
 function relationValueKey(value) {
   return ["string", "number", "boolean"].includes(typeof value) &&
@@ -68,6 +69,7 @@ function displayValue(value, field, relationPresentation) {
     const reference = normalizeReferenceValue(value).ref;
     return hasReferenceValue(reference) ? String(reference) : "—";
   }
+  if (field.widget === "url") return resolvedUrlLabel(value);
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (field.widget === "image") {
     return imageFilename(value) || "—";
@@ -92,9 +94,10 @@ function displayValue(value, field, relationPresentation) {
 }
 
 function externalHttpUrl(value) {
-  if (typeof value !== "string" || !value) return null;
+  const raw = rawUrlValue(value);
+  if (!raw) return null;
   try {
-    const url = new URL(value);
+    const url = new URL(raw);
     return ["http:", "https:"].includes(url.protocol) ? url.href : null;
   } catch {
     return null;

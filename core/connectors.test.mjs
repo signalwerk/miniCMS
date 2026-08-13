@@ -80,6 +80,11 @@ function remoteConfig() {
       gallery: {
         fields: {
           title: { widget: "string" },
+          website: {
+            widget: "url",
+            internal_links: { collections: ["galleries"] },
+            default: buildInlineLinkUrl("galleries", "featured")
+          },
           lead: {
             widget: "reference",
             collection: "images",
@@ -96,7 +101,8 @@ function remoteConfig() {
                 collections: ["galleries", "images"]
               }
             }
-          }
+          },
+          literal: { widget: "string" }
         },
         slots: {
           images: {
@@ -104,7 +110,8 @@ function remoteConfig() {
             default: [{
               type: "image",
               properties: {
-                title: "[Lead](minicms://reference/images/lead)"
+                title: "Lead",
+                caption: "[Lead](minicms://reference/images/lead)"
               }
             }]
           }
@@ -114,6 +121,7 @@ function remoteConfig() {
         fields: {
           content_id: { widget: "id", required: true },
           title: { widget: "string", required: true },
+          caption: { widget: "markdown" },
           image: { widget: "image" }
         }
       }
@@ -167,7 +175,8 @@ test("materializes remote definitions and exposes deterministic routing maps", (
     [{
       type: "central_image",
       properties: {
-        title: "[Lead](minicms://reference/central_images/lead)"
+        title: "Lead",
+        caption: "[Lead](minicms://reference/central_images/lead)"
       }
     }]
   );
@@ -179,6 +188,15 @@ test("materializes remote definitions and exposes deterministic routing maps", (
     materialized.config.node_types.central_gallery.fields.copy.blocknote
       .internal_links.collections,
     ["central_galleries", "central_images"]
+  );
+  assert.deepEqual(
+    materialized.config.node_types.central_gallery.fields.website.internal_links
+      .collections,
+    ["central_galleries"]
+  );
+  assert.equal(
+    materialized.config.node_types.central_gallery.fields.website.default,
+    buildInlineLinkUrl("central_galleries", "featured")
   );
   assert.deepEqual(
     materialized.config.node_types.central_gallery.fields.lead.allowed_types,
@@ -261,6 +279,8 @@ test("translates recursive record types and canonical inline-reference links", (
     order: 0,
     properties: {
       title: "Gallery",
+      website: localContentLink,
+      literal: localContentLink,
       copy: `[Image](${localLink}), [Gallery](${localContentLink}), and \`[code](${localLink})\``
     },
     slots: {
@@ -281,6 +301,8 @@ test("translates recursive record types and canonical inline-reference links", (
   );
   assert.equal(translated.type, "gallery");
   assert.equal(translated.slots.images[0].type, "image");
+  assert.equal(translated.properties.website, remoteContentLink);
+  assert.equal(translated.properties.literal, localContentLink);
   assert.equal(
     translated.properties.copy,
     `[Image](${remoteLink}), [Gallery](${remoteContentLink}), and \`[code](${localLink})\``
@@ -320,6 +342,11 @@ test("migrates explicit schema keys through records without mutating image asset
       page: {
         fields: {
           copy: { widget: "markdown" },
+          website: {
+            widget: "url",
+            internal_links: { collections: ["pages"] }
+          },
+          literal: { widget: "string" },
           attachment: { widget: "file" },
           image: { widget: "image" }
         }
@@ -359,6 +386,9 @@ test("migrates explicit schema keys through records without mutating image asset
     type: "page",
     properties: {
       copy: `[Asset](${oldLink}) [Home](${oldContentLink})`,
+      website: oldContentLink,
+      literal: oldContentLink,
+      plain: `Keep literal ${oldContentLink}`,
       attachment: `/media/assets/${hash}/brief.pdf`,
       image
     },
@@ -387,6 +417,9 @@ test("migrates explicit schema keys through records without mutating image asset
     migrated.properties.copy,
     `[Asset](${nextLink}) [Home](${nextContentLink})`
   );
+  assert.equal(migrated.properties.website, nextContentLink);
+  assert.equal(migrated.properties.literal, oldContentLink);
+  assert.equal(migrated.properties.plain, `Keep literal ${oldContentLink}`);
   assert.equal(
     migrated.properties.attachment,
     `/media/media/${hash}/brief.pdf`
@@ -849,7 +882,7 @@ test("rekeys local remote aliases without renaming their owner schema", () => {
   ];
   effective.node_types.central_gallery.slots.images.default[0].type =
     "media_image";
-  effective.node_types.central_gallery.slots.images.default[0].properties.title =
+  effective.node_types.central_gallery.slots.images.default[0].properties.caption =
     "[Lead](minicms://reference/media_images/lead)";
   effective.collections.media_images.node_type = "media_image";
   effective.collections.media_images.allowed_types = ["media_image"];

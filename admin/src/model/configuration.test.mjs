@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { buildInlineLinkUrl } from "../../../core/inline-link.js";
 import {
   createContentTypeDefinition,
   createSchemaOperations,
@@ -41,6 +42,10 @@ function fixture() {
               inline_reference: { collection: "sources" },
               internal_links: { collections: ["pages", "sources"] }
             }
+          },
+          destination: {
+            widget: "url",
+            internal_links: { collections: ["pages", "sources"] }
           }
         },
         slots: {
@@ -406,7 +411,7 @@ test("does not discard slot defaults for an invalid maximum draft", () => {
 
 test("preserves transient scalar slot-default values for save validation", () => {
   const source = fixture();
-  source.node_types.quote.fields.website = { widget: "url" };
+  source.node_types.quote.fields.website = { widget: "datetime" };
   source.node_types.page.slots.content.default = [{
     type: "quote",
     properties: { website: "h" }
@@ -416,6 +421,33 @@ test("preserves transient scalar slot-default values for save validation", () =>
     source.node_types.page.slots.content.default[0].properties.website,
     "h"
   );
+});
+
+test("removes unsafe and disallowed URL slot defaults", () => {
+  const values = [
+    "relative/path",
+    "javascript:alert(1)",
+    "minicms://link/pages/not%ZZcanonical",
+    "minicms://reference/pages/home",
+    buildInlineLinkUrl("sources", "source-one")
+  ];
+  for (const value of values) {
+    const source = fixture();
+    source.node_types.quote.fields.destination = {
+      widget: "url",
+      internal_links: { collections: ["pages"] }
+    };
+    source.node_types.page.slots.content.default = [{
+      type: "quote",
+      properties: { destination: value }
+    }];
+    reconcileSlotDefaultTemplates(source);
+    assert.equal(
+      source.node_types.page.slots.content.default[0].properties,
+      undefined,
+      value
+    );
+  }
 });
 
 test("composes repeated renames, cancels a rename back, and cancels on delete", () => {
@@ -545,6 +577,10 @@ test("reconciles Markdown internal-link collections without changing inline refe
     "people",
     ""
   ];
+  source.node_types.page.fields.destination.default = buildInlineLinkUrl(
+    "pages",
+    "home"
+  );
 
   reconcileMarkdownInternalLinks(source);
   assert.deepEqual(body.blocknote.internal_links.collections, [
@@ -552,11 +588,20 @@ test("reconciles Markdown internal-link collections without changing inline refe
     "people"
   ]);
   assert.deepEqual(body.blocknote.inline_reference, { collection: "sources" });
+  assert.deepEqual(
+    source.node_types.page.fields.destination.internal_links.collections,
+    ["pages", "sources"]
+  );
 
   delete source.collections.pages;
   delete source.collections.people;
   reconcileMarkdownInternalLinks(source);
   assert.equal(body.blocknote.internal_links, undefined);
+  assert.deepEqual(
+    source.node_types.page.fields.destination.internal_links,
+    { collections: ["sources"] }
+  );
+  assert.equal(source.node_types.page.fields.destination.default, undefined);
   assert.deepEqual(body.blocknote.inline_reference, { collection: "sources" });
 
   const internalOnly = {
@@ -643,6 +688,20 @@ test("offers internal links only for text-backed published identities", () => {
 
 test("renames concrete collections, their folders, and collection dependencies", () => {
   const source = fixture();
+  source.node_types.quote.fields.destination = {
+    widget: "url",
+    internal_links: { collections: ["sources"] }
+  };
+  source.node_types.page.fields.destination.default = buildInlineLinkUrl(
+    "sources",
+    "source-one"
+  );
+  source.node_types.page.slots.content.default = [{
+    type: "quote",
+    properties: {
+      destination: buildInlineLinkUrl("sources", "source-two")
+    }
+  }];
   const result = renameSchemaEntry(
     source,
     createSchemaOperations(),
@@ -669,6 +728,18 @@ test("renames concrete collections, their folders, and collection dependencies",
   assert.deepEqual(
     result.config.node_types.page.fields.body.blocknote.internal_links.collections,
     ["pages", "library"]
+  );
+  assert.deepEqual(
+    result.config.node_types.page.fields.destination.internal_links.collections,
+    ["pages", "library"]
+  );
+  assert.equal(
+    result.config.node_types.page.fields.destination.default,
+    buildInlineLinkUrl("library", "source-one")
+  );
+  assert.equal(
+    result.config.node_types.page.slots.content.default[0].properties.destination,
+    buildInlineLinkUrl("library", "source-two")
   );
   assert.deepEqual(result.config.site.reference_sets.notes.collections, [
     "library",

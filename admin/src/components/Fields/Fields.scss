@@ -109,6 +109,94 @@
   border-color: #55584f;
 }
 
+.configured-url-field {
+  display: grid;
+  gap: 7px;
+}
+
+.configured-url-field > .content-link-types {
+  justify-self: start;
+}
+
+.configured-url-field__content {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px;
+  background: #20211e;
+  border: 1px solid #3b3d36;
+  border-radius: 3px;
+}
+
+.configured-url-field__selection {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  align-items: center;
+  color: #9da093;
+}
+
+.configured-url-field__selection > svg {
+  flex: 0 0 auto;
+}
+
+.configured-url-field__selection > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.configured-url-field__selection strong {
+  @extend %type-normal-bold;
+  overflow: hidden;
+  color: #d9dbd3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.configured-url-field__selection small {
+  margin: 0;
+}
+
+.configured-url-field__actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.configured-url-field__actions button {
+  @extend %type-consulting;
+  min-height: 28px;
+  padding: 0 8px;
+  color: #d3d5cc;
+  background: #2a2b27;
+  border: 1px solid #46483f;
+  border-radius: 3px;
+}
+
+.configured-url-field__actions button:hover:not(:disabled),
+.configured-url-field__actions button:focus-visible {
+  color: #fff;
+  background: #343630;
+  border-color: #5c5f54;
+  outline: none;
+}
+
+.configured-url-field__actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.configured-url-field__clear {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
 .select-wrap {
   position: relative;
 }

@@ -81,6 +81,21 @@ function translateInlineReferences(markdown, collectionNames) {
   return translated;
 }
 
+function translatePropertyValue(value, field, collectionNames) {
+  if (typeof value !== "string" || !isMapping(collectionNames)) return value;
+  if (field?.widget === "markdown") {
+    return translateInlineReferences(value, collectionNames);
+  }
+  if (field?.widget !== "url" || !isMapping(field.internal_links)) {
+    return value;
+  }
+  const link = parseInlineLinkUrl(value);
+  const nextCollection = link ? collectionNames[link.collection] : null;
+  return link && nextCollection
+    ? buildInlineLinkUrl(nextCollection, link.ref)
+    : value;
+}
+
 function translateRecord(record, connectorRoute, direction) {
   if (!isMapping(record)) {
     throw new TypeError("translateRecord requires a record mapping.");
@@ -110,12 +125,13 @@ function translateRecord(record, connectorRoute, direction) {
     const translated = cloneValue(node);
     translated.type = translatedType;
     if (isMapping(translated.properties)) {
+      const fields = connectorRoute.node_type_definitions?.[direction]?.[
+        node.type
+      ]?.fields ?? {};
       translated.properties = Object.fromEntries(
         Object.entries(translated.properties).map(([name, value]) => [
           name,
-          typeof value === "string"
-            ? translateInlineReferences(value, collectionNames)
-            : value
+          translatePropertyValue(value, fields[name], collectionNames)
         ])
       );
     }
@@ -144,8 +160,39 @@ function connectorRoutes() {
     node_types: {
       local_to_remote: {},
       remote_to_local: {}
+    },
+    node_type_definitions: {
+      local_to_remote: {},
+      remote_to_local: {}
     }
   };
+}
+
+function populateRouteTypeDefinitions(
+  routes,
+  { localConfig, remoteConfigs = {} } = {}
+) {
+  for (const [localName, declaration] of Object.entries(
+    routes.node_types ?? {}
+  )) {
+    const connector = declaration.connector;
+    const remoteName = declaration.remote_type;
+    const connectorRoute = routes.connectors?.[connector];
+    if (!connectorRoute) continue;
+    const localType = localConfig?.node_types?.[localName];
+    if (isMapping(localType) && isMapping(localType.fields)) {
+      connectorRoute.node_type_definitions.local_to_remote[localName] =
+        localType;
+    }
+    const remoteType = connector === "default"
+      ? localType
+      : remoteConfigs?.[connector]?.node_types?.[remoteName];
+    if (isMapping(remoteType) && isMapping(remoteType.fields)) {
+      connectorRoute.node_type_definitions.remote_to_local[remoteName] =
+        remoteType;
+    }
+  }
+  return routes;
 }
 
 function addRoute(routes, kind, localName, connector, remoteName, status) {
@@ -214,12 +261,12 @@ function translateTypeDefinition(type, route, direction, context, status) {
               properties: Object.fromEntries(
                 Object.entries(template.properties).map(([name, value]) => [
                   name,
-                  typeof value === "string"
-                    ? translateInlineReferences(
-                        value,
-                        route.collections?.[direction]
-                      )
-                    : value
+                  translatePropertyValue(
+                    value,
+                    route.node_type_definitions?.[direction]?.[template.type]
+                      ?.fields?.[name],
+                    route.collections?.[direction]
+                  )
                 ])
               )
             }
@@ -272,6 +319,27 @@ function translateTypeDefinition(type, route, direction, context, status) {
     const internalLinks = field?.blocknote?.internal_links;
     if (Array.isArray(internalLinks?.collections)) {
       internalLinks.collections = internalLinks.collections.map(
+        (collectionName) =>
+          translatedDependency(
+            route,
+            "collections",
+            collectionName,
+            direction,
+            `${context} field "${fieldName}" internal links`,
+            status
+          )
+      );
+    }
+    const urlInternalLinks = field?.internal_links;
+    if (Array.isArray(urlInternalLinks?.collections)) {
+      if (typeof field.default === "string") {
+        field.default = translatePropertyValue(
+          field.default,
+          field,
+          route.collections?.[direction]
+        );
+      }
+      urlInternalLinks.collections = urlInternalLinks.collections.map(
         (collectionName) =>
           translatedDependency(
             route,
@@ -592,6 +660,13 @@ function migrateRecordSchemaKeys(
       route[kind].remote_to_local[name] = name;
     }
   }
+  for (const [name, definition] of Object.entries(
+    currentConfig.node_types ?? {}
+  )) {
+    if (isMapping(definition) && isMapping(definition.fields)) {
+      route.node_type_definitions.local_to_remote[name] = definition;
+    }
+  }
   const migrated = translateRecord(record, route, "local_to_remote");
   if (storage !== "api" || !Object.keys(renames.collections).length) {
     return migrated;
@@ -692,6 +767,14 @@ function materializeConfig({ sourceConfig, remoteConfigs = {}, status = 500 } = 
     validatedRemoteConfigs[connector] = remoteConfig;
   }
 
+  // Remote definitions provide the field schema used while translating
+  // hydrated type defaults. Keeping this context on the route also lets every
+  // record adapter translate only schema-declared Markdown and URL values.
+  populateRouteTypeDefinitions(routes, {
+    localConfig: source,
+    remoteConfigs: validatedRemoteConfigs
+  });
+
   const effective = cloneValue(source);
   for (const [localName, declaration] of Object.entries(source.node_types)) {
     if (!declaration.connector) continue;
@@ -755,6 +838,10 @@ function materializeConfig({ sourceConfig, remoteConfigs = {}, status = 500 } = 
   }
 
   const config = validateConfig(effective, status);
+  populateRouteTypeDefinitions(routes, {
+    localConfig: config,
+    remoteConfigs: validatedRemoteConfigs
+  });
   return {
     config,
     sourceConfig: collapseConfig(config, status),
@@ -786,6 +873,7 @@ function planConfigWrites({
     status
   );
   const routes = buildRoutes(nextSource, status);
+  populateRouteTypeDefinitions(routes, { localConfig: effectiveConfig });
   const nextRemoteConfigs = { ...remoteConfigs };
   const changedConnectors = [];
 

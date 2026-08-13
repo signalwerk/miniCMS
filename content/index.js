@@ -1,5 +1,8 @@
 import { inlineReferenceOccurrencesInMarkdown } from "../core/inline-reference.js";
-import { inlineLinkOccurrencesInMarkdown } from "../core/inline-link.js";
+import {
+  inlineLinkOccurrencesInMarkdown,
+  parseInlineLinkUrl
+} from "../core/inline-link.js";
 import { imageAsset } from "../core/media.js";
 
 function isMapping(value) {
@@ -408,6 +411,65 @@ function createContentAdapter({
     );
   }
 
+  async function resolvedContentLink(link, ancestors, recordOverlay) {
+    const targetCollection = collectionFor(link.collection);
+    const valueField = targetCollection.views?.reference?.value || "id";
+    const target = await referenceTarget(
+      link.collection,
+      link.ref,
+      valueField,
+      true
+    );
+    const targetKey = target.id
+      ? `${link.collection}:${target.id}`
+      : null;
+    const targetRecord =
+      targetKey && recordOverlay?.key === targetKey
+        ? recordOverlay.record
+        : target.record;
+    const hierarchy = targetRecord
+      ? await resolvedHierarchyAncestors(
+          link.collection,
+          targetRecord,
+          recordOverlay
+        )
+      : { valid: false, ancestors: [] };
+    let currentKey = null;
+    for (const ancestorKey of ancestors) currentKey = ancestorKey;
+    let record = null;
+    if (hierarchy.valid && targetRecord && targetKey) {
+      if (targetKey === currentKey) {
+        record = cloneValue(targetRecord);
+      } else if (!ancestors.has(targetKey)) {
+        record = await resolveRecord(
+          link.collection,
+          targetRecord,
+          ancestors,
+          recordOverlay
+        );
+      }
+    }
+    return {
+      collection: link.collection,
+      ref: link.ref,
+      record: hierarchy.valid ? record : null,
+      ancestors: hierarchy.valid ? hierarchy.ancestors : []
+    };
+  }
+
+  async function resolvedUrl(field, value, ancestors, recordOverlay) {
+    const url = typeof value === "string" ? value : String(value ?? "");
+    const link = parseInlineLinkUrl(url);
+    const allowedCollections = field.internal_links?.collections ?? [];
+    return {
+      url,
+      link:
+        link && allowedCollections.includes(link.collection)
+          ? await resolvedContentLink(link, ancestors, recordOverlay)
+          : null
+    };
+  }
+
   async function resolvedMarkdown(field, value, ancestors, recordOverlay) {
     const markdown = typeof value === "string" ? value : String(value ?? "");
     const inlineReference = field.blocknote.inline_reference;
@@ -447,54 +509,10 @@ function createContentAdapter({
       }).map(({ href, collection, ref }) => [href, { collection, ref }])
     );
     const resolvedLinkEntries = await Promise.all(
-      [...links].map(async ([href, link]) => {
-        const targetCollection = collectionFor(link.collection);
-        const valueField = targetCollection.views?.reference?.value || "id";
-        const target = await referenceTarget(
-          link.collection,
-          link.ref,
-          valueField,
-          true
-        );
-        const targetKey = target.id
-          ? `${link.collection}:${target.id}`
-          : null;
-        const targetRecord =
-          targetKey && recordOverlay?.key === targetKey
-            ? recordOverlay.record
-            : target.record;
-        const hierarchy = targetRecord
-          ? await resolvedHierarchyAncestors(
-              link.collection,
-              targetRecord,
-              recordOverlay
-            )
-          : { valid: false, ancestors: [] };
-        let currentKey = null;
-        for (const ancestorKey of ancestors) currentKey = ancestorKey;
-        let record = null;
-        if (hierarchy.valid && targetRecord && targetKey) {
-          if (targetKey === currentKey) {
-            record = cloneValue(targetRecord);
-          } else if (!ancestors.has(targetKey)) {
-            record = await resolveRecord(
-              link.collection,
-              targetRecord,
-              ancestors,
-              recordOverlay
-            );
-          }
-        }
-        return [
-          href,
-          {
-            collection: link.collection,
-            ref: link.ref,
-            record: hierarchy.valid ? record : null,
-            ancestors: hierarchy.valid ? hierarchy.ancestors : []
-          }
-        ];
-      })
+      [...links].map(async ([href, link]) => [
+        href,
+        await resolvedContentLink(link, ancestors, recordOverlay)
+      ])
     );
 
     return {
@@ -598,6 +616,16 @@ function createContentAdapter({
           : await resolvedReference(field, value, ancestors);
       } else if (field?.widget === "tags") {
         resolvedProperties[name] = await resolvedTags(field, value, ancestors);
+      } else if (
+        field?.widget === "url" &&
+        isMapping(field.internal_links)
+      ) {
+        resolvedProperties[name] = await resolvedUrl(
+          field,
+          value,
+          ancestors,
+          recordOverlay
+        );
       } else if (
         field?.widget === "markdown" &&
         (isMapping(field.blocknote?.inline_reference) ||

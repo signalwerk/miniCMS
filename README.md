@@ -663,8 +663,31 @@ slug:
   required: true
 ```
 
-The `url` widget stores an empty string or an absolute HTTP(S) URL and renders a
-semantic browser URL input; shared validation enforces the same rule. The
+The `url` widget normally stores an empty string or an absolute HTTP(S) URL and
+renders a semantic browser URL input; shared validation enforces the same rule.
+It can additionally allow stable links to explicitly configured collections:
+
+```yaml
+destination:
+  label: Destination
+  widget: url
+  internal_links:
+    collections:
+      - pages
+```
+
+The Inspector then offers **Web link** and **Content link** modes. Content link
+uses the same searchable, select-only chooser as Markdown content links, with
+all matches searched and at most 100 rendered at once. Storage remains one raw
+string: either HTTP(S) or the canonical
+`minicms://link/<collection>/<encoded-value>` destination. A configured URL
+field always resolves for consumers to `{url, link}`. `url` is the untouched
+stored string; `link` is the resolved `{collection, ref, record, ancestors}`
+envelope for a valid configured content link and otherwise `null`. Unconfigured
+URL fields remain strings. Consumer renderers derive a public path from the
+target and ancestors and must leave missing targets non-navigable.
+
+The
 `tags` widget is a multi-relation to a collection. Its YAML value is
 an ordered array of stable generated IDs; the target collection publishes the
 ID and visible label once through its normal reference view:

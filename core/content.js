@@ -14,6 +14,7 @@ import {
   isSlugWidgetTemplate,
   slugWidgetTemplateFieldNames
 } from "./slug.js";
+import { parseInlineLinkUrl } from "./inline-link.js";
 
 const YAML_OPTIONS = {
   schema: yaml.JSON_SCHEMA
@@ -167,6 +168,21 @@ function isWebUrl(value) {
   }
 }
 
+function isConfiguredUrlValue(field, value) {
+  if (typeof value !== "string") return false;
+  if (value === "" || isWebUrl(value)) return true;
+  const link = parseInlineLinkUrl(value);
+  return Boolean(
+    link && field?.internal_links?.collections?.includes(link.collection)
+  );
+}
+
+function urlValueContract(field) {
+  return field?.internal_links
+    ? "an absolute HTTP or HTTPS URL or an allowed internal content link"
+    : "an absolute HTTP or HTTPS URL";
+}
+
 function selectOptionValue(option) {
   return isMapping(option) ? option.value : option;
 }
@@ -209,7 +225,7 @@ function validateSlotDefaultPropertyValue(field, value) {
     return typeof value === "string";
   }
   if (field.widget === "url") {
-    return typeof value === "string" && (value === "" || isWebUrl(value));
+    return isConfiguredUrlValue(field, value);
   }
   if (field.widget === "boolean") return typeof value === "boolean";
   if (field.widget === "number") {
@@ -821,6 +837,31 @@ function validateConfig(config, status = 500, { source = false } = {}) {
       fail(`${context} must use letters, numbers, underscores, or hyphens.`);
     }
   };
+  const validateInternalLinks = (internalLinks, context) => {
+    if (!isMapping(internalLinks)) {
+      fail(`${context} internal_links must be a mapping.`);
+    }
+    if (
+      !Array.isArray(internalLinks.collections) ||
+      !internalLinks.collections.length
+    ) {
+      fail(`${context} internal links must define at least one collection.`);
+    }
+    const seenCollections = new Set();
+    for (const collectionName of internalLinks.collections ?? []) {
+      if (typeof collectionName !== "string" || !collectionName.trim()) {
+        fail(
+          `${context} internal link collections must contain non-empty collection names.`
+        );
+      }
+      if (seenCollections.has(collectionName)) {
+        fail(
+          `${context} internal links repeat collection "${collectionName}".`
+        );
+      }
+      seenCollections.add(collectionName);
+    }
+  };
 
   validateConfigRoot(config, status, { allowHydratedRemote: !source });
 
@@ -1007,6 +1048,17 @@ function validateConfig(config, status = 500, { source = false } = {}) {
           `Field "${typeName}.${fieldName}" may configure BlockNote only for a markdown widget.`
         );
       }
+      if (field.internal_links !== undefined && field.widget !== "url") {
+        fail(
+          `Field "${typeName}.${fieldName}" may configure internal_links only for a URL widget.`
+        );
+      }
+      if (field.internal_links !== undefined) {
+        validateInternalLinks(
+          field.internal_links,
+          `URL field "${typeName}.${fieldName}"`
+        );
+      }
       if (field.blocknote !== undefined) {
         if (!isMapping(field.blocknote)) {
           fail(
@@ -1049,33 +1101,10 @@ function validateConfig(config, status = 500, { source = false } = {}) {
         }
         const internalLinks = field.blocknote.internal_links;
         if (internalLinks !== undefined) {
-          if (!isMapping(internalLinks)) {
-            fail(
-              `Markdown field "${typeName}.${fieldName}" blocknote.internal_links must be a mapping.`
-            );
-          }
-          if (
-            !Array.isArray(internalLinks.collections) ||
-            !internalLinks.collections.length
-          ) {
-            fail(
-              `Markdown field "${typeName}.${fieldName}" internal links must define at least one collection.`
-            );
-          }
-          const seenInternalLinkCollections = new Set();
-          for (const collectionName of internalLinks.collections ?? []) {
-            if (typeof collectionName !== "string" || !collectionName.trim()) {
-              fail(
-                `Markdown field "${typeName}.${fieldName}" internal link collections must contain non-empty collection names.`
-              );
-            }
-            if (seenInternalLinkCollections.has(collectionName)) {
-              fail(
-                `Markdown field "${typeName}.${fieldName}" internal links repeat collection "${collectionName}".`
-              );
-            }
-            seenInternalLinkCollections.add(collectionName);
-          }
+          validateInternalLinks(
+            internalLinks,
+            `Markdown field "${typeName}.${fieldName}" blocknote`
+          );
         }
       }
       if (field.widget !== "reference" && field.selections !== undefined) {
@@ -1096,11 +1125,10 @@ function validateConfig(config, status = 500, { source = false } = {}) {
       if (
         field.widget === "url" &&
         field.default !== undefined &&
-        field.default !== "" &&
-        !isWebUrl(field.default)
+        !isConfiguredUrlValue(field, field.default)
       ) {
         fail(
-          `URL field "${typeName}.${fieldName}" default must be an absolute HTTP or HTTPS URL.`
+          `URL field "${typeName}.${fieldName}" default must be ${urlValueContract(field)}.`
         );
       }
       if (
@@ -1661,13 +1689,23 @@ function validateConfig(config, status = 500, { source = false } = {}) {
           }
         }
       }
-      const internalLinks = field.blocknote?.internal_links;
-      if (internalLinks) {
+      const configuredInternalLinks = [
+        {
+          value: field.blocknote?.internal_links,
+          context: `Node type "${typeName}" markdown field "${fieldName}" internal link`
+        },
+        {
+          value: field.internal_links,
+          context: `Node type "${typeName}" URL field "${fieldName}" internal link`
+        }
+      ];
+      for (const { value: internalLinks, context } of configuredInternalLinks) {
+        if (!internalLinks) continue;
         for (const collectionName of internalLinks.collections) {
           const targetCollection = config.collections[collectionName];
           if (!targetCollection) {
             fail(
-              `Node type "${typeName}" markdown field "${fieldName}" internal links use unknown collection "${collectionName}".`
+              `${context}s use unknown collection "${collectionName}".`
             );
           }
           if (source && Object.hasOwn(targetCollection, "remote_collection")) {
@@ -1679,7 +1717,7 @@ function validateConfig(config, status = 500, { source = false } = {}) {
           );
           if (compatibilityError) {
             fail(
-              `Node type "${typeName}" markdown field "${fieldName}" internal link ${compatibilityError}.`
+              `${context} ${compatibilityError}.`
             );
           }
         }
@@ -1935,12 +1973,11 @@ function validateRecord(record, collection, config, status = 400) {
       }
       if (
         field.widget === "url" &&
-        value !== "" &&
-        !isWebUrl(value)
+        !isConfiguredUrlValue(field, value)
       ) {
         throw contentError(
           status,
-          `URL field "${node.type}.${fieldName}" must be empty or contain an absolute HTTP or HTTPS URL.`
+          `URL field "${node.type}.${fieldName}" must be empty or contain ${urlValueContract(field)}.`
         );
       }
       if (

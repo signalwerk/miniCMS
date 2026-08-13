@@ -67,8 +67,8 @@ function inlineReferenceOptions(items, collection, previewField) {
   });
 }
 
-function configuredInlineLinkCollections(blocknote, collections) {
-  const configured = blocknote?.internal_links?.collections;
+function configuredContentLinkCollections(internalLinks, collections) {
+  const configured = internalLinks?.collections;
   if (!Array.isArray(configured)) return [];
 
   const collectionsByName = new Map(
@@ -87,8 +87,8 @@ function configuredInlineLinkCollections(blocknote, collections) {
   });
 }
 
-function configuredInlineLinkCollectionNames(blocknote) {
-  const configured = blocknote?.internal_links?.collections;
+function configuredContentLinkCollectionNames(internalLinks) {
+  const configured = internalLinks?.collections;
   if (!Array.isArray(configured)) return [];
   return [...new Set(
     configured.filter(
@@ -96,6 +96,14 @@ function configuredInlineLinkCollectionNames(blocknote) {
         typeof collectionName === "string" && collectionName.length > 0
     )
   )];
+}
+
+function configuredInlineLinkCollections(blocknote, collections) {
+  return configuredContentLinkCollections(blocknote?.internal_links, collections);
+}
+
+function configuredInlineLinkCollectionNames(blocknote) {
+  return configuredContentLinkCollectionNames(blocknote?.internal_links);
 }
 
 function inlineLinkOption(item, collection) {
@@ -228,6 +236,8 @@ function blocksToMarkdownWithSafeReferences(editor, blocks) {
 
 export {
   blocksToMarkdownWithSafeReferences,
+  configuredContentLinkCollectionNames,
+  configuredContentLinkCollections,
   configuredInlineLinkCollectionNames,
   configuredInlineLinkCollections,
   createInlineReferenceRecord,

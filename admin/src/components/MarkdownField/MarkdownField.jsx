@@ -66,7 +66,6 @@ import {
   blocksToMarkdownWithSafeReferences,
   configuredInlineLinkCollectionNames,
   configuredInlineLinkCollections,
-  filteredInlineLinkOptions,
   inlineLinkOptions,
   inlineReferenceCreationConfig,
   inlineReferenceOption,
@@ -79,6 +78,10 @@ import {
 } from "../../model/reference.js";
 import { updateCreationProperties } from "../../model/nodeFactory.js";
 import { fieldIsVisible } from "../../model/views.js";
+import {
+  ContentLinkPicker,
+  LinkTypeTabs
+} from "../ContentLinkPicker/ContentLinkPicker.jsx";
 import "./MarkdownField.scss";
 
 function parsedInlineReference(url) {
@@ -131,35 +134,6 @@ function ReplaceInlineReferenceButton({ onClick }) {
       icon={<Link2 size={14} />}
       onClick={onClick}
     />
-  );
-}
-
-function LinkTypeTabs({ mode, contentEnabled, onChange }) {
-  return (
-    <div
-      className="markdown-link-editor__types"
-      role="group"
-      aria-label="Link type"
-    >
-      <button
-        type="button"
-        aria-pressed={mode === "web"}
-        className={cx(mode === "web" && "is-active")}
-        onClick={() => onChange("web")}
-      >
-        <Link2 size={14} /> Web link
-      </button>
-      {contentEnabled && (
-        <button
-          type="button"
-          aria-pressed={mode === "content"}
-          className={cx(mode === "content" && "is-active")}
-          onClick={() => onChange("content")}
-        >
-          <FileSymlink size={14} /> Content link
-        </button>
-      )}
-    </div>
   );
 }
 
@@ -260,6 +234,7 @@ function UnifiedCreateLinkButton({ contentEnabled, onContentLink }) {
         variant="form-popover"
       >
         <LinkTypeTabs
+          className="markdown-link-editor__types"
           mode={mode}
           contentEnabled={contentEnabled}
           onChange={setMode}
@@ -332,6 +307,7 @@ function UnifiedEditLinkButton({
         variant="form-popover"
       >
         <LinkTypeTabs
+          className="markdown-link-editor__types"
           mode={mode}
           contentEnabled={contentEnabled}
           onChange={setMode}
@@ -650,183 +626,6 @@ function InlineReferenceDialog({
             </footer>
           </div>
         )}
-      </section>
-    </div>,
-    document.body
-  );
-}
-
-function InlineLinkDialog({
-  collections,
-  selectedCollectionName,
-  items,
-  loading,
-  listError,
-  onSelectCollection,
-  onCancel,
-  onChoose
-}) {
-  const [search, setSearch] = useState("");
-  const backdropRef = useRef(null);
-  const dialogRef = useRef(null);
-  const searchRef = useRef(null);
-  const titleId = useId();
-  const collectionId = useId();
-  const selectedCollection = collections.find(
-    (collection) => collection.name === selectedCollectionName
-  );
-  const results = filteredInlineLinkOptions(items, search);
-  const visibleItems = results.items;
-  const singularLabel = selectedCollection?.label_singular || "item";
-
-  useEffect(() => isolateFocusSurface(dialogRef.current), []);
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => searchRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
-  }, [selectedCollectionName]);
-
-  useEffect(() => {
-    function handleKeyDown(event) {
-      const backdrops = document.querySelectorAll(".dialog-backdrop");
-      if (backdrops[backdrops.length - 1] !== backdropRef.current) return;
-      if (!dialogRef.current?.contains(event.target)) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        onCancel();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const focusable = focusableElements(dialogRef.current);
-      if (!focusable.length) {
-        event.preventDefault();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (!dialogRef.current?.contains(document.activeElement)) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-      } else if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [onCancel]);
-
-  return createPortal(
-    <div
-      ref={backdropRef}
-      className="dialog-backdrop markdown-reference-dialog-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
-      }}
-    >
-      <section
-        ref={dialogRef}
-        className="markdown-reference-dialog markdown-link-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-busy={loading}
-      >
-        <header className="markdown-reference-dialog__header">
-          <span className="markdown-reference-dialog__icon" aria-hidden="true">
-            <FileSymlink size={17} />
-          </span>
-          <div>
-            <h2 id={titleId}>Insert content link</h2>
-            <p>Choose an item. The stored link remains stable when it moves.</p>
-          </div>
-          <button
-            type="button"
-            aria-label="Close content link picker"
-            onClick={onCancel}
-          >
-            <X size={17} />
-          </button>
-        </header>
-
-        <div className="markdown-link-dialog__controls">
-          {collections.length > 1 && (
-            <div className="markdown-link-dialog__collection">
-              <label htmlFor={collectionId}>Collection</label>
-              <select
-                id={collectionId}
-                value={selectedCollectionName}
-                onChange={(event) => {
-                  setSearch("");
-                  onSelectCollection(event.target.value);
-                }}
-              >
-                {collections.map((collection) => (
-                  <option key={collection.name} value={collection.name}>
-                    {collection.label || collection.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          <div className="markdown-reference-dialog__search">
-            <Search size={15} aria-hidden="true" />
-            <label className="visually-hidden" htmlFor={`${titleId}-search`}>
-              Search {selectedCollection?.label || "content"}
-            </label>
-            <input
-              ref={searchRef}
-              id={`${titleId}-search`}
-              type="search"
-              value={search}
-              placeholder={`Search ${String(selectedCollection?.label || "items").toLocaleLowerCase()}…`}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="markdown-reference-dialog__results">
-          {listError ? (
-            <p className="markdown-reference-dialog__message" role="alert">
-              {listError}
-            </p>
-          ) : loading ? (
-            <p className="markdown-reference-dialog__message" role="status">
-              Loading…
-            </p>
-          ) : visibleItems.length ? (
-            <>
-              <ul aria-label={selectedCollection?.label || "Content"}>
-                {visibleItems.map((item) => (
-                  <li key={`${item.recordId}-${item.value}`}>
-                    <button type="button" onClick={() => onChoose(item)}>
-                      <strong>{item.label}</strong>
-                      {item.label !== item.recordId && (
-                        <span>{item.recordId}</span>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {results.limited && (
-                <p className="markdown-link-dialog__limit" role="status">
-                  Showing the first 100 of {results.total} matches. Refine your
-                  search to narrow the list.
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="markdown-reference-dialog__message" role="status">
-              No matching {singularLabel.toLocaleLowerCase()}.
-            </p>
-          )}
-        </div>
       </section>
     </div>,
     document.body
@@ -1473,7 +1272,7 @@ function MarkdownField({
         />
       )}
       {linkPicker && (
-        <InlineLinkDialog
+        <ContentLinkPicker
           collections={internalLinkCollections}
           selectedCollectionName={linkCollectionName}
           items={linkOptions}

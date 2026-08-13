@@ -19,6 +19,10 @@ test("normalizes only absolute HTTP(S) values for external URL actions", () => {
     externalHttpUrl("http://localhost:4321"),
     "http://localhost:4321/"
   );
+  assert.equal(
+    externalHttpUrl({ url: "https://example.com/resolved", link: null }),
+    "https://example.com/resolved"
+  );
 
   for (const value of [
     "",

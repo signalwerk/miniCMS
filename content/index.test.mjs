@@ -1195,6 +1195,129 @@ test("refreshes a cached Markdown reference index after inline creation", async 
   assert.equal(counters.list.get("sources"), 2);
 });
 
+test("resolves configured URL fields as external or stable content links", async () => {
+  const selfHref = buildInlineLinkUrl("pages", "ccccccccccccccc");
+  const missingHref = buildInlineLinkUrl("pages", "missing-page");
+  const disallowedHref = buildInlineLinkUrl("articles", "article");
+  const urlField = {
+    widget: "url",
+    internal_links: { collections: ["pages"] }
+  };
+  const linkConfig = {
+    node_types: {
+      page: {
+        fields: {
+          content_id: { widget: "id" },
+          parent_id: { widget: "string" },
+          slug: { widget: "string" },
+          title: { widget: "string" },
+          self: structuredClone(urlField),
+          missing: structuredClone(urlField),
+          external: structuredClone(urlField),
+          empty: structuredClone(urlField),
+          malformed: structuredClone(urlField),
+          disallowed: structuredClone(urlField),
+          legacy: { widget: "url" }
+        }
+      },
+      article: { fields: { title: { widget: "string" } } }
+    },
+    collections: {
+      pages: {
+        folder: "content/pages",
+        node_type: "page",
+        hierarchy: {
+          enabled: true,
+          id_field: "content_id",
+          parent_field: "parent_id"
+        },
+        views: { reference: { value: "content_id", title: "title" } }
+      },
+      articles: { folder: "content/articles", node_type: "article" }
+    }
+  };
+  const records = {
+    pages: [
+      {
+        id: "old-parent",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "aaaaaaaaaaaaaaa",
+          parent_id: "",
+          slug: "old-parent",
+          title: "Old parent"
+        },
+        slots: {}
+      },
+      {
+        id: "new-parent",
+        type: "page",
+        order: 1,
+        properties: {
+          content_id: "bbbbbbbbbbbbbbb",
+          parent_id: "",
+          slug: "new-parent",
+          title: "New parent"
+        },
+        slots: {}
+      },
+      {
+        id: "moving-page",
+        type: "page",
+        order: 0,
+        properties: {
+          content_id: "ccccccccccccccc",
+          parent_id: "aaaaaaaaaaaaaaa",
+          slug: "saved-slug",
+          title: "Moving page",
+          self: selfHref,
+          missing: missingHref,
+          external: "https://example.com/research",
+          empty: "",
+          malformed: "minicms://link/pages/not%2fcanonical",
+          disallowed: disallowedHref,
+          legacy: "https://example.com/legacy"
+        },
+        slots: {}
+      }
+    ],
+    articles: []
+  };
+  const draft = structuredClone(records.pages[2]);
+  draft.properties.parent_id = "bbbbbbbbbbbbbbb";
+  draft.properties.slug = "draft-slug";
+  const { adapter } = sourceAdapter(records, { config: linkConfig });
+  const properties = (await adapter.get("pages", draft)).item.properties;
+
+  assert.equal(properties.self.url, selfHref);
+  assert.equal(properties.self.link.record.properties.slug, "draft-slug");
+  assert.deepEqual(
+    properties.self.link.ancestors.map((record) => record.properties.title),
+    ["New parent"]
+  );
+  assert.deepEqual(properties.missing, {
+    url: missingHref,
+    link: {
+      collection: "pages",
+      ref: "missing-page",
+      record: null,
+      ancestors: []
+    }
+  });
+  assert.deepEqual(properties.external, {
+    url: "https://example.com/research",
+    link: null
+  });
+  assert.deepEqual(properties.empty, { url: "", link: null });
+  assert.deepEqual(properties.malformed, {
+    url: "minicms://link/pages/not%2fcanonical",
+    link: null
+  });
+  assert.deepEqual(properties.disallowed, { url: disallowedHref, link: null });
+  assert.equal(properties.legacy, "https://example.com/legacy");
+});
+
 test("accepts a storage source object and preserves its method receiver", async () => {
   const records = new Map([[home.id, home]]);
   const source = {

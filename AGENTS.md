@@ -62,9 +62,12 @@ Preserve useful guidance and remove stale information.
   definitions into concrete owner configs, preserves unrelated remote schema,
   and returns the exact default aliases plus changed connector list.
   `translateRecord` uses one connector route to clone and recursively translate
-  node types and canonical Markdown inline references. Service, browser, and
-  static adapters must share these helpers instead of duplicating remote-stub
-  tests or name translation.
+  node types. Materialized routes also carry the source and destination field
+  schemas so only declared Markdown destinations and internal-link URL values
+  are translated; identical custom-URI text in ordinary string fields remains
+  literal. Schema-key record migrations seed the same field context directly.
+  Service, browser, and static adapters must share these helpers instead of
+  duplicating remote-stub tests or name translation.
 - Consumer renderers may prepend a validated source-space crop to an existing
   canonical raster derivative with `prependImageServiceOperations`. Crop
   coordinates may be decimal or negative, dimensions are decimal values of at
@@ -308,12 +311,23 @@ input-action layout as URL fields; configured defaults, self references,
 unknown fields, relation/media fields, and slug-to-slug template fields are
 invalid. The obsolete `sources` array is rejected; do not introduce a second
 slug configuration grammar beside the established double-brace templates.
-URL fields store empty strings or absolute HTTP(S) URLs and use the browser's
-semantic URL input; shared record validation enforces the same contract. Valid
-URL values expose a compact external-link action beside Inspector controls and
+URL fields normally store empty strings or absolute HTTP(S) URLs. A URL field
+may independently configure `internal_links.collections`; it then also accepts
+one strict canonical `minicms://link/<collection>/<encoded-value>` value from
+that allowlist. The resolved content value is always `{url, link}` for an
+opted-in field: external and empty URLs have `link: null`, while canonical
+internal values use the same `{collection, ref, record, ancestors}` target
+contract as Markdown. Missing targets retain their identity with a null record
+and empty ancestors. Unconfigured URL fields remain strings. Shared config,
+slot-default, and record validation enforce the same storage contract. URL
+fields use the browser's semantic URL input for web values. Valid external URL
+values expose a compact external-link action beside Inspector controls and
 inside read or edit table cells without increasing their height. The native
 anchor opens a new tab and stops table-row click and keyboard propagation;
-empty, malformed, relative, and non-HTTP(S) values expose no action. A `tags`
+empty, malformed, relative, and non-HTTP(S) values expose no action. Connector
+translation and collection-key migration rewrite exact canonical URL-field
+values as well as actual Markdown link destinations, without rewriting custom
+schemes embedded in arbitrary plain text. A `tags`
 field names one target collection and persists an ordered, unique array of its
 opaque generated IDs. The target publishes its generated-ID and string-label
 fields through `views.reference.value` and `views.reference.title`; the shared
@@ -443,6 +457,17 @@ current URL after moves. Content links do not enter reference sets, cannot
 create targets, and expose Replace/Delete rather than opening the custom URI.
 Collection translation and schema-key migrations rewrite only actual canonical
 Markdown destinations for both custom schemes.
+
+URL fields may likewise configure `internal_links.collections`. Their
+Inspector control switches between a normal HTTP(S) URL and the same searchable
+select-only Content link picker, persisting either the web URL or
+`minicms://link/<collection>/<encoded-value>`. Configured URL properties always
+resolve to `{url, link}`; external URLs have `link: null`, while internal links
+use the same exact `{collection, ref, record, ancestors}` metadata as Markdown
+content links. The maintained starter uses this contract for the optional
+content-image `link`; consumer renderers derive current base-aware page paths,
+wrap only the image frame rather than its caption, and fail closed without ever
+publishing the custom scheme.
 
 `site.reference_sets` is a keyed document-level presentation contract for
 collecting configured Markdown inline references. Each set requires unique

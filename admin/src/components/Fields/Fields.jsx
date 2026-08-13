@@ -2,6 +2,7 @@ import {
   Check,
   ChevronDown,
   CircleAlert,
+  FileSymlink,
   Files as FilesIcon,
   Plus,
   RefreshCw,
@@ -20,6 +21,7 @@ import {
 import { createPortal } from "react-dom";
 import "./Fields.scss";
 import { isGeneratedIdWidget } from "../../../../core/id.js";
+import { buildInlineLinkUrl } from "../../../../core/inline-link.js";
 import {
   renderSlugWidgetTemplate,
   sanitizeSlug
@@ -58,10 +60,24 @@ import {
 } from "../../model/reference.js";
 import { fieldIsVisible } from "../../model/views.js";
 import {
+  configuredContentLinkCollections,
+  inlineLinkOption,
+  inlineLinkOptions
+} from "../../model/markdown.js";
+import {
+  parsedContentUrl,
+  rawUrlValue,
+  resolvedUrlLabel
+} from "../../model/url.js";
+import {
   EmptyState,
   ExternalUrlLink,
   Spinner
 } from "../Common/Common.jsx";
+import {
+  ContentLinkPicker,
+  LinkTypeTabs
+} from "../ContentLinkPicker/ContentLinkPicker.jsx";
 import { AnnotatedImageField } from "./AnnotatedImageField.jsx";
 import { FileUploadField } from "./FileUploadField.jsx";
 import { ReferenceSelectionsDialog } from "./ReferenceSelectionsDialog.jsx";
@@ -70,6 +86,238 @@ import { TagsField } from "./TagsField.jsx";
 const MarkdownField = lazy(() =>
   import("../MarkdownField/MarkdownField.jsx")
 );
+
+function UrlField({ id, field, value, collections, onChange }) {
+  const adapter = useAdapter();
+  const rawValue = rawUrlValue(value);
+  const parsedLink = parsedContentUrl(rawValue);
+  const linkCollections = configuredContentLinkCollections(
+    field.internal_links,
+    collections
+  );
+  const [mode, setMode] = useState(parsedLink ? "content" : "web");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerCollectionName, setPickerCollectionName] = useState("");
+  const [pickerItems, setPickerItems] = useState([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerError, setPickerError] = useState("");
+  const pickerLoadVersion = useRef(0);
+  const labelLoadVersion = useRef(0);
+  const returnFocusRef = useRef(null);
+  const [contentLabel, setContentLabel] = useState("");
+  const pickerCollection = linkCollections.find(
+    (collection) => collection.name === pickerCollectionName
+  );
+  const selectedCollection = collections.find(
+    (collection) => collection.name === parsedLink?.collection
+  );
+  const pickerOptions = inlineLinkOptions(pickerItems, pickerCollection);
+
+  useEffect(() => {
+    if (!parsedLink || !selectedCollection) {
+      labelLoadVersion.current += 1;
+      setContentLabel("");
+      return undefined;
+    }
+    const loadVersion = labelLoadVersion.current + 1;
+    labelLoadVersion.current = loadVersion;
+    let cancelled = false;
+    adapter.list(selectedCollection.name).then((result) => {
+      if (cancelled || labelLoadVersion.current !== loadVersion) return;
+      const option = (Array.isArray(result?.items) ? result.items : [])
+        .map((item) => inlineLinkOption(item, selectedCollection))
+        .find((item) => item?.value === parsedLink.ref);
+      setContentLabel(option?.label || "");
+    }).catch(() => {
+      if (!cancelled && labelLoadVersion.current === loadVersion) {
+        setContentLabel("");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [adapter, parsedLink?.collection, parsedLink?.ref, selectedCollection]);
+
+  useEffect(() => {
+    if (parsedLink) setMode("content");
+    else if (rawValue) setMode("web");
+  }, [parsedLink?.collection, parsedLink?.ref, rawValue]);
+
+  useEffect(() => {
+    if (!pickerOpen || !pickerCollection) return undefined;
+    const loadVersion = pickerLoadVersion.current + 1;
+    pickerLoadVersion.current = loadVersion;
+    let cancelled = false;
+    setPickerItems([]);
+    setPickerError("");
+    setPickerLoading(true);
+    adapter
+      .list(pickerCollection.name)
+      .then((result) => {
+        if (!cancelled && pickerLoadVersion.current === loadVersion) {
+          setPickerItems(Array.isArray(result?.items) ? result.items : []);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled && pickerLoadVersion.current === loadVersion) {
+          setPickerError(
+            error?.message || "The linked collection could not be loaded."
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled && pickerLoadVersion.current === loadVersion) {
+          setPickerLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [adapter, pickerCollection?.name, pickerOpen]);
+
+  function changeMode(nextMode) {
+    if (field.readonly === true || nextMode === mode) return;
+    if (nextMode === "content" && !linkCollections.length) return;
+    setMode(nextMode);
+  }
+
+  function openPicker() {
+    if (field.readonly === true || !linkCollections.length) return;
+    const selectedName = linkCollections.some(
+      (collection) => collection.name === parsedLink?.collection
+    )
+      ? parsedLink.collection
+      : linkCollections[0].name;
+    returnFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    setPickerCollectionName(selectedName);
+    setPickerError("");
+    setPickerOpen(true);
+  }
+
+  function closePicker() {
+    pickerLoadVersion.current += 1;
+    setPickerOpen(false);
+    setPickerItems([]);
+    setPickerLoading(false);
+    requestAnimationFrame(() => {
+      if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
+    });
+  }
+
+  function chooseLink(option) {
+    if (!pickerCollection) return;
+    onChange(buildInlineLinkUrl(pickerCollection.name, option.value));
+    setContentLabel(option.label);
+    setMode("content");
+    closePicker();
+  }
+
+  const webValue = parsedLink || rawValue.startsWith("minicms://")
+    ? ""
+    : rawValue;
+
+  return (
+    <div className="configured-url-field">
+      <LinkTypeTabs
+        mode={mode}
+        contentEnabled={linkCollections.length > 0}
+        onChange={changeMode}
+      />
+      {mode === "web" ? (
+        <div className="url-field">
+          <input
+            id={id}
+            type="url"
+            inputMode="url"
+            value={webValue}
+            readOnly={field.readonly === true}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck="false"
+            placeholder={field.hint || "https://"}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <ExternalUrlLink
+            value={webValue}
+            label={field.label || field.name || "URL"}
+            className="url-field__action"
+          />
+          {parsedLink && (
+            <button
+              type="button"
+              className="url-field__action configured-url-field__clear"
+              disabled={field.readonly === true}
+              aria-label="Clear stored content link"
+              title="Clear stored content link"
+              onClick={() => onChange("")}
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      ) : (
+        <div id={id} className="configured-url-field__content" tabIndex={-1}>
+          <span className="configured-url-field__selection">
+            <FileSymlink size={16} aria-hidden="true" />
+            <span>
+              <strong>
+                {parsedLink
+                  ? contentLabel || resolvedUrlLabel(value, selectedCollection)
+                  : "No content selected"}
+              </strong>
+              <small>
+                {parsedLink
+                  ? selectedCollection?.label || "Unavailable collection"
+                  : rawValue
+                    ? "Web link retained until content is selected"
+                  : "Choose an item from an allowed collection"}
+              </small>
+            </span>
+          </span>
+          <span className="configured-url-field__actions">
+            <button
+              type="button"
+              disabled={field.readonly === true}
+              onClick={openPicker}
+            >
+              {parsedLink ? "Change" : "Choose content"}
+            </button>
+            {rawValue && (
+              <button
+                type="button"
+                disabled={field.readonly === true}
+                onClick={() => onChange("")}
+              >
+                Clear
+              </button>
+            )}
+          </span>
+        </div>
+      )}
+      {pickerOpen && (
+        <ContentLinkPicker
+          collections={linkCollections}
+          selectedCollectionName={pickerCollectionName}
+          items={pickerOptions}
+          loading={pickerLoading}
+          listError={pickerError}
+          onSelectCollection={(collectionName) => {
+            pickerLoadVersion.current += 1;
+            setPickerItems([]);
+            setPickerError("");
+            setPickerLoading(true);
+            setPickerCollectionName(collectionName);
+          }}
+          onCancel={closePicker}
+          onChoose={chooseLink}
+        />
+      )}
+    </div>
+  );
+}
 
 function ReferenceCard({ item, view, collection, compact = false }) {
   const adapter = useAdapter();
@@ -959,6 +1207,16 @@ function Field({
         onChange={onChange}
         collections={collections}
         nodeTypes={nodeTypes}
+      />
+    );
+  } else if (field.widget === "url" && field.internal_links) {
+    control = (
+      <UrlField
+        id={id}
+        field={field}
+        value={resolvedValue}
+        collections={collections}
+        onChange={onChange}
       />
     );
   } else {

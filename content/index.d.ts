@@ -96,6 +96,13 @@ export interface ResolvedMarkdownLink<
   ancestors: T[];
 }
 
+export interface ResolvedUrl<T extends ContentRecord = ContentRecord> {
+  /** The exact persisted external or canonical internal URL. */
+  url: string;
+  /** Resolved only for a configured canonical internal content link. */
+  link: ResolvedMarkdownLink<T> | null;
+}
+
 export type ResolvedTags<T extends ContentRecord = ContentRecord> =
   ResolvedReference<T>[];
 

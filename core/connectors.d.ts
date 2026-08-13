@@ -47,6 +47,14 @@ export interface NameRoutes {
 export interface ConnectorRoutes {
   collections: NameRoutes;
   node_types: NameRoutes;
+  /**
+   * Field schemas carried by materialized routes. Callers may omit this when
+   * they need type-name translation only; property values then stay unchanged.
+   */
+  node_type_definitions?: {
+    local_to_remote: Record<string, Record<string, unknown>>;
+    remote_to_local: Record<string, Record<string, unknown>>;
+  };
 }
 
 export interface MaterializedRoutes {
