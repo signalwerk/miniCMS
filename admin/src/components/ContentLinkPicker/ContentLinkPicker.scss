@@ -186,37 +186,6 @@
   text-align: center;
 }
 
-.content-link-types:not(.markdown-link-editor__types) {
-  display: inline-flex;
-  gap: 3px;
-  padding: 3px;
-  background: #e6e7e1;
-  border-radius: 4px;
-}
-
-.content-link-types:not(.markdown-link-editor__types) button {
-  @extend %type-consulting;
-  display: inline-flex;
-  min-height: 28px;
-  gap: 5px;
-  align-items: center;
-  padding: 0 9px;
-  color: #74776e;
-  background: transparent;
-  border-radius: 3px;
-}
-
-.content-link-types:not(.markdown-link-editor__types) button.is-active {
-  color: #292b27;
-  background: #fff;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
-}
-
-.content-link-types:not(.markdown-link-editor__types) button:focus-visible {
-  outline: 2px solid #7c856d;
-  outline-offset: 1px;
-}
-
 @media (max-width: 720px) {
   .content-link-picker-backdrop {
     padding: 8px;

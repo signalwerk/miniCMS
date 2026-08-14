@@ -28,7 +28,7 @@ import {
   slugTemplateFieldNames,
   uniqueFilenameStem
 } from "../../../../core/slug.js";
-import { EmptyState, Spinner } from "../Common/Common.jsx";
+import { ChoiceTabs, EmptyState, Spinner } from "../Common/Common.jsx";
 import { Field } from "../Fields/Fields.jsx";
 import {
   focusableElements,
@@ -166,27 +166,25 @@ function InsertionDialog({
           </button>
         </div>
 
-        <div className="insertion-dialog__modes" aria-label="Insertion position">
-          {modes.map((mode) => (
-            <button
-              type="button"
-              key={mode.id}
-              className={cx(mode.id === activeMode?.id && "is-active")}
-              disabled={!mode.choices.length}
-              onClick={() => chooseMode(mode)}
-            >
-              {mode.id === "before" ? (
-                <ArrowUp size={14} />
-              ) : mode.id === "after" ? (
-                <ArrowDown size={14} />
-              ) : (
-                <Plus size={14} />
-              )}
-              <span>{mode.label}</span>
-              <small>{mode.choices.length}</small>
-            </button>
-          ))}
-        </div>
+        <ChoiceTabs
+          items={modes.map((mode) => ({
+            value: mode.id,
+            label: mode.label,
+            icon: mode.id === "before"
+              ? <ArrowUp size={14} />
+              : mode.id === "after"
+                ? <ArrowDown size={14} />
+                : <Plus size={14} />,
+            meta: mode.choices.length,
+            disabled: !mode.choices.length
+          }))}
+          value={activeMode?.id}
+          label="Insertion position"
+          onChange={(nextModeId) => {
+            const nextMode = modes.find((mode) => mode.id === nextModeId);
+            if (nextMode) chooseMode(nextMode);
+          }}
+        />
 
         <div className="insertion-dialog__body">
           <div className="insertion-dialog__search">

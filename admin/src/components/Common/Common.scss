@@ -103,6 +103,65 @@
   outline-offset: 1px;
 }
 
+.choice-tabs {
+  display: grid;
+  grid-template-columns: repeat(var(--choice-tabs-count), minmax(0, 1fr));
+  gap: 1px;
+  padding: 7px;
+  background: #191a17;
+  border: 1px solid #353630;
+  border-radius: 4px;
+}
+
+.choice-tabs > button {
+  @extend %type-consulting;
+  display: inline-flex;
+  min-width: 0;
+  min-height: 32px;
+  gap: 7px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+  color: #85877f;
+  background: #252622;
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+
+.choice-tabs > button:hover:not(:disabled) {
+  color: #e2e3dc;
+  background: #30312c;
+}
+
+.choice-tabs > button.is-active {
+  color: #f0f1ea;
+  background: #343630;
+  border-color: #4a4c44;
+  box-shadow: inset 0 -2px var(--lime-strong);
+}
+
+.choice-tabs > button:focus-visible {
+  outline: 2px solid #778444;
+  outline-offset: -2px;
+}
+
+.choice-tabs > button:disabled {
+  color: #55574f;
+  background: #20211e;
+  cursor: default;
+}
+
+.choice-tabs__meta {
+  @extend %type-consulting;
+  display: inline-flex;
+  min-width: 16px;
+  height: 15px;
+  align-items: center;
+  justify-content: center;
+  color: #8d8f87;
+  background: #3a3c36;
+  border-radius: 8px;
+}
 
 .layout-resizer {
   position: relative;
