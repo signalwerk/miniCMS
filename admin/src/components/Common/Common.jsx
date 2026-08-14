@@ -18,6 +18,70 @@ function Spinner({ small = false }) {
   return <LoaderCircle className={cx("spinner", small && "spinner--small")} />;
 }
 
+function ChoiceTabs({ items, value, onChange, label, className }) {
+  const buttonRefs = useRef([]);
+
+  function moveSelection(event, currentIndex) {
+    const enabledIndexes = items
+      .map((item, index) => (item.disabled ? -1 : index))
+      .filter((index) => index >= 0);
+    if (!enabledIndexes.length) return;
+
+    let nextIndex = -1;
+    if (event.key === "Home") nextIndex = enabledIndexes[0];
+    if (event.key === "End") nextIndex = enabledIndexes.at(-1);
+    if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      const currentPosition = enabledIndexes.indexOf(currentIndex);
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      nextIndex = enabledIndexes[
+        (currentPosition + direction + enabledIndexes.length) %
+          enabledIndexes.length
+      ];
+    }
+    if (nextIndex < 0) return;
+
+    event.preventDefault();
+    onChange(items[nextIndex].value);
+    requestAnimationFrame(() => buttonRefs.current[nextIndex]?.focus());
+  }
+
+  return (
+    <div
+      className={cx("choice-tabs", className)}
+      role="tablist"
+      aria-label={label}
+      style={{ "--choice-tabs-count": items.length }}
+    >
+      {items.map((item, index) => {
+        const selected = item.value === value;
+        return (
+          <button
+            ref={(element) => {
+              buttonRefs.current[index] = element;
+            }}
+            key={item.value}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            tabIndex={selected ? 0 : -1}
+            className={cx(selected && "is-active")}
+            disabled={item.disabled}
+            title={item.title}
+            onClick={() => onChange(item.value)}
+            onKeyDown={(event) => moveSelection(event, index)}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+            {item.meta !== undefined && item.meta !== null && (
+              <small className="choice-tabs__meta">{item.meta}</small>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ExternalUrlLink({ value, label = "URL", className }) {
   const href = externalHttpUrl(value);
   if (!href) return null;
@@ -135,6 +199,7 @@ function MultiSelectionNotice({ count, label, icon: Icon }) {
 
 export {
   BrandMark,
+  ChoiceTabs,
   EmptyState,
   ExternalUrlLink,
   MultiSelectionNotice,

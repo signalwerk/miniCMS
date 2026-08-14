@@ -62,15 +62,6 @@
   min-width: min(310px, calc(100vw - 24px));
 }
 
-.markdown-link-editor__types {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px;
-  padding: 4px;
-  border-bottom: 1px solid #3a3c36;
-}
-
-.markdown-link-editor__types button,
 .markdown-link-editor__content button {
   @extend %type-consulting;
   display: inline-flex;
@@ -84,19 +75,9 @@
   border-radius: 3px;
 }
 
-.markdown-link-editor__types button:hover,
-.markdown-link-editor__types button:focus-visible,
-.markdown-link-editor__types button.is-active {
-  color: #e2e3dd;
-  background: #30322c;
-}
-
-.markdown-link-editor__types button.is-active {
-  box-shadow: inset 0 -2px var(--lime-strong);
-}
-
-.markdown-link-editor__types button:only-child {
-  grid-column: 1 / -1;
+.markdown-link-editor > .choice-tabs {
+  border-width: 0 0 1px;
+  border-radius: 0;
 }
 
 .markdown-link-editor__content {

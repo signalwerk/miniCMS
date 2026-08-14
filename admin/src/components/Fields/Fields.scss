@@ -114,8 +114,10 @@
   gap: 7px;
 }
 
-.configured-url-field > .content-link-types {
-  justify-self: start;
+.configured-url-field > .choice-tabs {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
 }
 
 .configured-url-field__content {

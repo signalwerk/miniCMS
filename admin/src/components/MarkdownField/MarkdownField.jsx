@@ -234,7 +234,6 @@ function UnifiedCreateLinkButton({ contentEnabled, onContentLink }) {
         variant="form-popover"
       >
         <LinkTypeTabs
-          className="markdown-link-editor__types"
           mode={mode}
           contentEnabled={contentEnabled}
           onChange={setMode}
@@ -307,7 +306,6 @@ function UnifiedEditLinkButton({
         variant="form-popover"
       >
         <LinkTypeTabs
-          className="markdown-link-editor__types"
           mode={mode}
           contentEnabled={contentEnabled}
           onChange={setMode}

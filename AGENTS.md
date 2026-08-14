@@ -595,6 +595,11 @@ grip, and delete action visible while collapsed.
   crossed badge on the type icon. Do not add a trailing visibility icon or an
   accent/active state to the toolbar visibility action.
 - Both tree add actions use the searchable insertion overlay.
+- Insertion-position choices and the Web link / Content link switches in URL
+  and Markdown fields use the shared `ChoiceTabs` component and one visual and
+  keyboard interaction contract; do not add feature-specific tab skins. Tabs
+  have square bottom corners, and the URL-field placement omits the surrounding
+  group border because the field already provides its own context.
 - Expanded content nodes with multiple slots show every declared slot label,
   including empty destinations, so editors can distinguish where new children
   will be inserted. Those labels are keyboard-selectable, mutually exclusive

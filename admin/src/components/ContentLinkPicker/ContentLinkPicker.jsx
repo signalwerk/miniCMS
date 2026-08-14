@@ -1,40 +1,32 @@
 import { FileSymlink, Link2, Search, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { cx } from "../../model/editor.js";
 import {
   focusableElements,
   isolateFocusSurface
 } from "../../model/focus.js";
 import { filteredInlineLinkOptions } from "../../model/markdown.js";
+import { ChoiceTabs } from "../Common/Common.jsx";
 import "./ContentLinkPicker.scss";
 
-function LinkTypeTabs({ mode, contentEnabled, onChange, className }) {
+function LinkTypeTabs({ mode, contentEnabled, onChange }) {
+  const items = [
+    { value: "web", label: "Web link", icon: <Link2 size={14} /> }
+  ];
+  if (contentEnabled) {
+    items.push({
+      value: "content",
+      label: "Content link",
+      icon: <FileSymlink size={14} />
+    });
+  }
   return (
-    <div
-      className={cx("content-link-types", className)}
-      role="group"
-      aria-label="Link type"
-    >
-      <button
-        type="button"
-        aria-pressed={mode === "web"}
-        className={cx(mode === "web" && "is-active")}
-        onClick={() => onChange("web")}
-      >
-        <Link2 size={14} /> Web link
-      </button>
-      {contentEnabled && (
-        <button
-          type="button"
-          aria-pressed={mode === "content"}
-          className={cx(mode === "content" && "is-active")}
-          onClick={() => onChange("content")}
-        >
-          <FileSymlink size={14} /> Content link
-        </button>
-      )}
-    </div>
+    <ChoiceTabs
+      items={items}
+      value={mode}
+      label="Link type"
+      onChange={onChange}
+    />
   );
 }
 
