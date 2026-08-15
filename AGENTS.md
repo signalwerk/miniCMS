@@ -599,7 +599,7 @@ grip, and delete action visible while collapsed.
   and Markdown fields use the shared `ChoiceTabs` component and one visual and
   keyboard interaction contract; do not add feature-specific tab skins. Tabs
   have square bottom corners, and the URL-field placement omits the surrounding
-  group border because the field already provides its own context.
+  group border and padding so its tabs use the field's full available width.
 - Expanded content nodes with multiple slots show every declared slot label,
   including empty destinations, so editors can distinguish where new children
   will be inserted. Those labels are keyboard-selectable, mutually exclusive
