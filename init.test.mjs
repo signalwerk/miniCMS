@@ -180,13 +180,15 @@ test("initializer refuses a symlinked target without touching its destination", 
   await assert.rejects(fs.access(path.join(root, "admin", "index.html")));
 });
 
-test("initializer fails before writes when repository identity is unavailable", async (t) => {
+test("initializer keeps a deployment placeholder when repository identity is unavailable", async (t) => {
   const root = await repositoryFixture(t, { origin: null });
   const result = initialize(root);
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /MINICMS_REPOSITORY/);
-  await assert.rejects(fs.access(path.join(root, "cms.config.yml")));
-  await assert.rejects(fs.access(path.join(root, "admin", "index.html")));
+  assert.equal(result.status, 0, result.stderr);
+  const config = validateSourceConfig(
+    parseYaml(await fs.readFile(path.join(root, "cms.config.yml"), "utf8"))
+  );
+  assert.equal(config.connectors.default.repo, "owner/repository");
+  assert.equal(config.connectors.default.branch, "main");
 });
 
 test("initializer fails closed when the README extraction contract is malformed", async (t) => {

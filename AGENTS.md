@@ -5,6 +5,10 @@ and current. Every agent must update `AGENTS.md` whenever meaningful changes
 are made, assumptions are clarified, or new project context is discovered.
 Preserve useful guidance and remove stale information.
 
+- Keep `README.md` limited to setup, essential commands, and the minimal admin
+  host. Put the detailed configuration/content-model and integration contract
+  in `SPEC.md`; keep README links and initializer markers intact.
+
 ## Architecture
 
 - `admin/src/`: React 19 editor. `App.jsx` is the state/UI orchestrator and
@@ -110,16 +114,14 @@ Preserve useful guidance and remove stale information.
 - Consumer websites own `/admin/index.html`, config/media copying, deployment,
   and runtime preview registration. Never resolve or bundle consumer preview
   source while building miniCMS.
-- `init.sh` is the safe, idempotent new-repository bootstrap. It must be run
-  from the consumer's `admin/` directory, extracts the one explicitly marked
-  HTML fence from the live README, writes that directory's `index.html`, and
-  specializes the reusable root `cms.config.yml` template into the consumer
-  repository root. The GitHub adapter owns only that root configuration path;
-  never generate a second admin-local config copy. The initializer derives a
-  safe GitHub repository and branch, fails before writes on malformed input or
-  target conflicts, never follows/overwrites symlinks, and treats an identical
-  rerun as a no-op. `init.test.mjs` exercises the shell boundary without the
-  network.
+- `init.sh` bootstraps an empty project directory or an existing Git checkout.
+  It extracts the marked HTML host and starter config, installs the editor/API
+  submodules, installs dependencies, and starts both local processes. The host
+  uses the published browser bundle; `minicms dev` is the loopback editor used
+  for local work. The GitHub adapter owns only the root configuration path;
+  never generate a second admin-local config copy. Existing different
+  config/admin files and symlinks must be rejected rather than overwritten.
+  `init.test.mjs` exercises the shell boundary without the network.
 - A project registers one optional React preview component before
   `miniCMS.init()`. miniCMS owns the preview root and passes only
   `{data, focus}`. Project preview bundles reuse `miniCMS.React` and

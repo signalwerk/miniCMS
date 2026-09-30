@@ -11,30 +11,37 @@ fail() {
   exit 1
 }
 
-for command_name in awk cmp cp curl git mktemp; do
+for command_name in awk cmp cp curl git mktemp mkdir npm; do
   command -v "$command_name" >/dev/null 2>&1 ||
     fail "required command not found: $command_name"
 done
 
-worktree="$(git rev-parse --show-toplevel 2>/dev/null)" ||
-  fail "run this command from the admin/ directory of a Git repository."
+invocation_directory="$(pwd -P)"
+worktree="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$worktree" ]; then
+  worktree="$invocation_directory"
+  git -C "$worktree" init -b main >/dev/null || fail "could not initialize a Git repository."
+fi
 worktree="$(cd "$worktree" && pwd -P)"
 admin_directory="$worktree/admin"
-[ "$(pwd -P)" = "$admin_directory" ] ||
-  fail "run this command from $admin_directory."
+if [ "$invocation_directory" != "$worktree" ] && [ "$invocation_directory" != "$admin_directory" ]; then
+  fail "run this command from the repository root or its admin/ directory."
+fi
+mkdir -p "$admin_directory" "$worktree/content/media"
 
 repository="${MINICMS_REPOSITORY:-}"
 if [ -z "$repository" ]; then
-  remote="$(git remote get-url origin 2>/dev/null)" ||
-    fail "Git remote origin is missing; set MINICMS_REPOSITORY=owner/repository."
-  case "$remote" in
-    git@github.com:*) repository="${remote#git@github.com:}" ;;
-    ssh://git@github.com/*) repository="${remote#ssh://git@github.com/}" ;;
-    https://github.com/*) repository="${remote#https://github.com/}" ;;
-    *)
-      fail "origin must be a GitHub SSH or HTTPS URL; set MINICMS_REPOSITORY=owner/repository."
-      ;;
-  esac
+  remote="$(git -C "$worktree" remote get-url origin 2>/dev/null || true)"
+  if [ -z "$remote" ]; then
+    repository="owner/repository"
+  else
+    case "$remote" in
+      git@github.com:*) repository="${remote#git@github.com:}" ;;
+      ssh://git@github.com/*) repository="${remote#ssh://git@github.com/}" ;;
+      https://github.com/*) repository="${remote#https://github.com/}" ;;
+      *) fail "origin must be a GitHub SSH or HTTPS URL; set MINICMS_REPOSITORY=owner/repository." ;;
+    esac
+  fi
   repository="${repository%/}"
   repository="${repository%.git}"
 fi
@@ -45,10 +52,9 @@ fi
 
 branch="${MINICMS_BRANCH:-}"
 if [ -z "$branch" ]; then
-  branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  branch="$(git -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 fi
-[ -n "$branch" ] ||
-  fail "the current branch is unavailable; set MINICMS_BRANCH=branch."
+[ -n "$branch" ] || branch="main"
 if [[ ! "$branch" =~ ^[A-Za-z0-9._/-]+$ ]] ||
   ! git check-ref-format --branch "$branch" >/dev/null 2>&1; then
   fail "branch contains characters that are unsafe in the generated YAML."
@@ -208,3 +214,49 @@ if [ "$created_config" -eq 0 ] && [ "$created_index" -eq 0 ]; then
 else
   printf 'miniCMS initialization complete.\n'
 fi
+
+if [ "$fetch_protocol" = "https" ]; then
+  if [ ! -e "$worktree/miniCMS" ]; then
+    git -C "$worktree" submodule add https://github.com/signalwerk/miniCMS.git miniCMS
+  fi
+  if [ ! -e "$worktree/miniCMS.server" ]; then
+    git -C "$worktree" submodule add https://github.com/signalwerk/miniCMS.server.git miniCMS.server
+  fi
+fi
+
+if [ ! -f "$worktree/package.json" ] && [ "$fetch_protocol" = "https" ]; then
+  cat > "$worktree/package.json" <<'PACKAGE'
+{
+  "name": "minicms-project",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "postinstall": "npm install --prefix miniCMS && npm install --prefix miniCMS.server",
+    "dev": "PORT=${PORT:-8788} concurrently --kill-others --names editor,api \"node ./miniCMS/bin/minicms.mjs dev\" \"node ./miniCMS.server/bin/minicms-api.mjs dev --project-root .\"",
+    "dev:cms": "node ./miniCMS/bin/minicms.mjs dev",
+    "dev:api": "node ./miniCMS.server/bin/minicms-api.mjs dev --project-root ."
+  },
+  "devDependencies": {
+    "@signalwerk/minicms": "file:./miniCMS",
+    "@signalwerk/minicms-api": "file:./miniCMS.server",
+    "concurrently": "^10.0.4"
+  }
+}
+PACKAGE
+fi
+if [ ! -f "$worktree/.gitignore" ] && [ "$fetch_protocol" = "https" ]; then
+  cat > "$worktree/.gitignore" <<'IGNORE'
+node_modules/
+miniCMS/node_modules/
+miniCMS.server/node_modules/
+IGNORE
+fi
+(if [ "$fetch_protocol" = "https" ]; then
+  cd "$worktree" && npm install
+fi) || fail "dependency installation failed."
+if [ "$fetch_protocol" = "file" ]; then
+  exit 0
+fi
+printf 'Starting the local editor at http://127.0.0.1:5173\n'
+cd "$worktree"
+exec npm run dev
