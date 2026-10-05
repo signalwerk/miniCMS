@@ -89,7 +89,8 @@ Preserve useful guidance and remove stale information.
   HTTPS origin; other connector kinds require an explicit source. A default
   API connector gets shared service-media defaults, while default GitHub
   storage retains public static URLs unless the website supplies
-  `imageServiceBaseUrl`. Supplied resolvers take precedence. Both return the
+  `imageServiceBaseUrl`; then images and file values below a configured field
+  `media_folder` resolve through that service's raw/derivative routes. Supplied resolvers take precedence. Both return the
   same `{config, collection, item}` or `{config, collection, items}` envelopes.
 - The editor recreates its browser content adapter after collection summaries
   change so reference-target caches cannot outlive an editor-owned write.

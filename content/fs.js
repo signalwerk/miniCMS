@@ -19,7 +19,10 @@ import {
   buildImageServiceUrl,
   normalizeHttpOrigin
 } from "../core/image-service.js";
-import { imageAssetMediaPath } from "../core/media.js";
+import {
+  configuredMediaFolders,
+  imageAssetMediaPath
+} from "../core/media.js";
 import { createContentAdapter } from "./index.js";
 
 function rootPath(value) {
@@ -439,7 +442,19 @@ async function createFilesystemContentAdapter({
           baseUrl: apiUrl,
           config
         })
-    : (value) => publicUrl(value, publicBase);
+    : imageServiceBaseUrl !== undefined
+      ? (value) =>
+          // A media service serving this GitHub checkout exposes repository
+          // media folders through its raw /media/<sha256>/<filename> route.
+          configuredMediaFolders(config).some((folder) =>
+            String(value).startsWith(`${folder}/`)
+          )
+            ? buildImageServiceMediaUrl(value, {
+                baseUrl: imageServiceBaseUrl,
+                config
+              })
+            : publicUrl(value, publicBase)
+      : (value) => publicUrl(value, publicBase);
   const defaultImageResolver = apiBackend
     ? (value, context) =>
         buildImageServiceUrl(value, {

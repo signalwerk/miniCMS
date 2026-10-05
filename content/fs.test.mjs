@@ -364,7 +364,10 @@ test("can use the image service independently from content persistence", async (
       collection: "images"
     })
   );
-  assert.equal(imageRecord.properties.download, `/${FILE_SOURCE}`);
+  assert.equal(
+    imageRecord.properties.download,
+    `https://images.example.test/media/${FILE_SHA}/research.pdf`
+  );
 });
 
 test("keeps GitHub-backed images and files on public media URLs", async (t) => {
