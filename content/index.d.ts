@@ -58,8 +58,6 @@ export interface ContentNode {
 }
 
 export interface ContentRecord extends ContentNode {
-  /** Readable YAML filename stem; `id` is the opaque stable identity. */
-  filename: string;
   order: number;
 }
 
