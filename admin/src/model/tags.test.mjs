@@ -90,13 +90,13 @@ test("builds a complete collision-safe tag record", () => {
     collection,
     nodeTypes,
     items: [
-      { id: "researchtag0001", filename: "research-2026-08", order: 2 },
-      { id: "anothertag00001", filename: "another", order: 7 }
+      { id: "researchtag0001", order: 2 },
+      { id: "anothertag00001", order: 7 }
     ],
     date: new Date(2026, 7, 3)
   });
 
-  assert.equal(record.filename, "research-2026-08-2");
+  assert.equal(Object.hasOwn(record, "filename"), false);
   assert.match(record.id, ID_PATTERN);
   assert.ok(!["researchtag0001", "anothertag00001"].includes(record.id));
   assert.equal(record.type, "tag");
@@ -158,14 +158,13 @@ test("reuses a concurrently created tag after a conflict", async () => {
 test("retries an unrelated concurrent filename collision once", async () => {
   const collision = {
     id: "collisiontag001",
-    filename: "research-2026-08",
     order: 0,
     properties: { content_id: "aaaaaaaaaaaaaaa", name: "Elsewhere" }
   };
   const attemptedIds = [];
   const adapter = {
     async create(_collectionName, record) {
-      attemptedIds.push(record.filename);
+      attemptedIds.push(record.id);
       if (attemptedIds.length === 1) {
         throw Object.assign(new Error("conflict"), { status: 409 });
       }
@@ -184,10 +183,8 @@ test("retries an unrelated concurrent filename collision once", async () => {
     date: new Date(2026, 7, 3)
   });
 
-  assert.deepEqual(attemptedIds, [
-    "research-2026-08",
-    "research-2026-08-2"
-  ]);
-  assert.equal(result.item.filename, "research-2026-08-2");
+  assert.equal(attemptedIds.length, 2);
+  assert.ok(attemptedIds.every((id) => /^[a-z0-9]{15}$/.test(id)));
+  assert.equal(Object.hasOwn(result.item, "filename"), false);
   assert.equal(result.created, true);
 });

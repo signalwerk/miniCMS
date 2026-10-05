@@ -27,6 +27,7 @@ import {
   normalizeSchemaRenames
 } from "../../../core/connectors.js";
 import { createGitHubAuth } from "./github-auth.js";
+import { recordFileStem, recordIdFromFileStem } from "../../../core/slug.js";
 
 const API_VERSION = "2026-03-10";
 const CI_SKIP_MARKER = "[ci skip]";
@@ -624,16 +625,7 @@ function createGitHubAdapter({
                 `Collection "${sourceName}" record "${entry.path}" cannot be migrated: ${error.message || error}`
               );
             }
-            const expectedSourcePath = recordPath(
-              sourceCollection,
-              record.filename
-            );
-            if (entry.path !== expectedSourcePath) {
-              throw contentError(
-                409,
-                `Collection "${sourceName}" record "${entry.path}" does not match its filename "${record.filename}".`
-              );
-            }
+            assertRecordFileId(entry.path, record);
             const migrated = migrateRecordSchemaKeys(
               record,
               current,
@@ -645,7 +637,7 @@ function createGitHubAdapter({
             return {
               sourceName,
               sourcePath: entry.path,
-              targetPath: recordPath(targetCollection, migrated.filename),
+              targetPath: recordPath(targetCollection, recordStem(entry.path)),
               record,
               migrated
             };
@@ -930,82 +922,82 @@ function createGitHubAdapter({
     };
   }
 
-  function recordPath(collection, filename) {
-    assertSafeName(filename, "record filename");
+  function recordPath(collection, stem) {
+    assertSafeName(stem, "record filename");
     const extension = collectionExtension(collection);
-    return `${collection.folder}/${filename}.${extension}`;
+    return `${collection.folder}/${stem}.${extension}`;
   }
 
-  function cachedRecordPath(collection, id) {
-    const prefix = `${collection.folder}/`;
-    for (const [path, entry] of recordCache) {
-      if (
-        path.startsWith(prefix) &&
-        !path.slice(prefix.length).includes("/") &&
-        entry.record?.id === id
-      ) {
-        return path;
-      }
-    }
-    return null;
+  function recordStem(path) {
+    return path.split("/").pop().replace(/\.(?:ya?ml)$/i, "");
   }
 
-  async function readRecordAt(collection, id, path) {
-    let source;
-    try {
-      source = await readRepositoryFile(path);
-    } catch (error) {
-      if (error.status === 404) return null;
-      throw error;
-    }
-    const record = parseYaml(source.text);
-    if (record?.id !== id) return null;
-    assertRecordFilename(collection, path, record);
-    recordCache.set(path, {
-      ...(recordCache.get(path) ?? {}),
-      record,
-      sha: source.sha
-    });
-    return record;
-  }
-
-  async function readRecord(collection, id) {
-    assertSafeName(id, "record id");
-    const cachedPath = cachedRecordPath(collection, id);
-    const cached = cachedPath
-      ? await readRecordAt(collection, id, cachedPath)
-      : null;
-    if (cached) return cached;
-    await list(collection.name);
-    const listedPath = cachedRecordPath(collection, id);
-    const record = listedPath
-      ? await readRecordAt(collection, id, listedPath)
-      : null;
-    if (!record) throw contentError(404, `Record "${id}" does not exist.`);
-    return record;
-  }
-
-  function assertRecordFilename(collection, path, record) {
-    let expectedPath = null;
-    try {
-      expectedPath = recordPath(collection, record?.filename);
-    } catch {
-      expectedPath = null;
-    }
-    if (path !== expectedPath) {
+  function assertRecordFileId(path, record) {
+    if (recordIdFromFileStem(recordStem(path)) !== record?.id) {
       throw contentError(
         409,
-        `Record file "${path}" contains filename "${record?.filename ?? ""}".`
+        `Record file "${path}" does not end with its id "${record?.id ?? ""}".`
       );
     }
   }
 
+  async function recordFiles(collection) {
+    return (await listDirectory(collection.folder)).filter(
+      (entry) => entry.type === "file" && /\.(?:ya?ml)$/i.test(entry.name)
+    );
+  }
+
+  // Record files are named `<slug>-<id>` (or `<id>`), so a record is found by
+  // listing file names once and reading only the matching file.
+  async function locateRecordPath(collection, id) {
+    assertSafeName(id, "record id");
+    const prefix = `${collection.folder}/`;
+    for (const path of recordCache.keys()) {
+      if (
+        path.startsWith(prefix) &&
+        !path.slice(prefix.length).includes("/") &&
+        recordIdFromFileStem(recordStem(path)) === id
+      ) {
+        return path;
+      }
+    }
+    const matches = (await recordFiles(collection)).filter(
+      (entry) => recordIdFromFileStem(recordStem(entry.path)) === id
+    );
+    if (matches.length > 1) {
+      throw contentError(409, `Record id "${id}" is used by more than one file.`);
+    }
+    return matches[0]?.path ?? null;
+  }
+
+  async function readRecord(collection, id) {
+    let path = await locateRecordPath(collection, id);
+    let source = null;
+    if (path) {
+      try {
+        source = await readRepositoryFile(path);
+      } catch (error) {
+        if (error.status !== 404) throw error;
+        recordCache.delete(path);
+        path = await locateRecordPath(collection, id);
+        source = path ? await readRepositoryFile(path) : null;
+      }
+    }
+    if (!source) throw contentError(404, `Record "${id}" does not exist.`);
+    const record = parseYaml(source.text);
+    assertRecordFileId(path, record);
+    recordCache.set(path, {
+      ...(recordCache.get(path) ?? {}),
+      record,
+      sha: source.sha,
+      filename: recordStem(path)
+    });
+    return { record, path };
+  }
+
   async function list(collectionName) {
     const { collection } = await collectionConfiguration(collectionName);
-    const entries = (await listDirectory(collection.folder)).filter(
-      (entry) =>
-        entry.type === "file" && /\.(?:ya?ml)$/i.test(entry.name)
-    );
+    const entries = await recordFiles(collection);
     const items = await Promise.all(
       entries.map(async (entry) => {
         const [source, commit] = await Promise.all([
@@ -1013,11 +1005,11 @@ function createGitHubAdapter({
           lastCommitForPath(entry.path)
         ]);
         const record = parseYaml(source.text);
-        assertRecordFilename(collection, entry.path, record);
-        const updatedAt = recordTimestamp(commit);
+        assertRecordFileId(entry.path, record);
         const metadata = {
           created_at: null,
-          updated_at: updatedAt
+          updated_at: recordTimestamp(commit),
+          filename: recordStem(entry.path)
         };
         recordCache.set(entry.path, {
           record,
@@ -1027,6 +1019,13 @@ function createGitHubAdapter({
         return summarizeRecord(record, metadata, collection);
       })
     );
+    const ids = new Set();
+    for (const item of items) {
+      if (ids.has(item.id)) {
+        throw contentError(409, `Record id "${item.id}" is used by more than one file.`);
+      }
+      ids.add(item.id);
+    }
     items.sort((left, right) =>
       left.order - right.order || left.title.localeCompare(right.title)
     );
@@ -1038,15 +1037,17 @@ function createGitHubAdapter({
     const { config, collection } =
       await collectionConfiguration(collectionName);
     validateRecord(record, collection, config);
-    const path = recordPath(collection, record.filename);
+    const path = await locateRecordPath(collection, record.id);
+    if (!path) throw contentError(404, `Record "${record.id}" does not exist.`);
     const cached = recordCache.get(path);
     const commit = await commitChanges(
       [{ path, text: dumpYaml(record) }],
-      `Update ${collection.label_singular || collection.name} ${record.filename}`
+      `Update ${collection.label_singular || collection.name} ${recordStem(path)}`
     );
     const metadata = {
       created_at: cached ? cached.created_at : commit.updatedAt,
-      updated_at: commit.updatedAt
+      updated_at: commit.updatedAt,
+      filename: recordStem(path)
     };
     recordCache.set(path, { record, ...metadata });
     return {
@@ -1060,20 +1061,21 @@ function createGitHubAdapter({
     const { config, collection } =
       await collectionConfiguration(collectionName);
     validateRecord(record, collection, config);
-    const path = recordPath(collection, record.filename);
-    try {
-      await readRepositoryFile(path);
-      throw contentError(409, `Record filename "${record.filename}" already exists.`);
-    } catch (error) {
-      if (error.status !== 404) throw error;
+    if (await locateRecordPath(collection, record.id)) {
+      throw contentError(409, `Record "${record.id}" already exists.`);
     }
+    const stem = recordFileStem(record.id, collection, {
+      fields: record.properties
+    });
+    const path = recordPath(collection, stem);
     const commit = await commitChanges(
       [{ path, text: dumpYaml(record) }],
-      `Create ${collection.label_singular || collection.name} ${record.filename}`
+      `Create ${collection.label_singular || collection.name} ${stem}`
     );
     const metadata = {
       created_at: commit.updatedAt,
-      updated_at: commit.updatedAt
+      updated_at: commit.updatedAt,
+      filename: stem
     };
     recordCache.set(path, { record, ...metadata });
     return {
@@ -1082,43 +1084,41 @@ function createGitHubAdapter({
     };
   }
 
-  async function rename(collectionName, id, filename) {
+  // Re-render the slug part of a record's filename from its current fields.
+  async function rename(collectionName, id) {
     await ensureAuthenticated();
-    assertSafeName(filename, "record filename");
-    const { config, collection } = await collectionConfiguration(collectionName);
-    const record = await readRecord(collection, id);
-    if (record.filename === filename) {
-      throw contentError(400, "The new filename must be different.");
+    const { collection } = await collectionConfiguration(collectionName);
+    const { record, path: oldPath } = await readRecord(collection, id);
+    const stem = recordFileStem(record.id, collection, {
+      fields: record.properties
+    });
+    const nextPath = recordPath(collection, stem);
+    const oldMetadata = recordCache.get(oldPath);
+    if (nextPath === oldPath) {
+      return {
+        saved: false,
+        record,
+        item: summarizeRecord(record, oldMetadata, collection)
+      };
     }
-    const oldPath = recordPath(collection, record.filename);
-    const nextPath = recordPath(collection, filename);
-    try {
-      await readRepositoryFile(nextPath);
-      throw contentError(409, `Record filename "${filename}" already exists.`);
-    } catch (error) {
-      if (error.status !== 404) throw error;
-    }
-
-    const renamedRecord = { ...record, filename };
-    validateRecord(renamedRecord, collection, config);
     const commit = await commitChanges(
       [
-        { path: nextPath, text: dumpYaml(renamedRecord) },
+        { path: nextPath, text: dumpYaml(record) },
         { path: oldPath, delete: true }
       ],
-      `Rename ${collection.label_singular || collection.name} ${record.filename} to ${filename}`
+      `Rename ${collection.label_singular || collection.name} ${recordStem(oldPath)} to ${stem}`
     );
-    const oldMetadata = recordCache.get(oldPath);
     const metadata = {
       created_at: oldMetadata ? oldMetadata.created_at : commit.updatedAt,
-      updated_at: commit.updatedAt
+      updated_at: commit.updatedAt,
+      filename: stem
     };
     recordCache.delete(oldPath);
-    recordCache.set(nextPath, { record: renamedRecord, ...metadata });
+    recordCache.set(nextPath, { record, ...metadata });
     return {
       saved: true,
-      record: renamedRecord,
-      item: summarizeRecord(renamedRecord, metadata, collection)
+      record,
+      item: summarizeRecord(record, metadata, collection)
     };
   }
 
@@ -1138,7 +1138,7 @@ function createGitHubAdapter({
         if (name === deletingCollection && item.id === deletingId) continue;
         const path = recordPath(definition, item.filename);
         const record = recordCache.get(path)?.record ??
-          await readRecord(definition, item.id);
+          (await readRecord(definition, item.id)).record;
         for (const mediaPath of recordMediaStoragePaths(record, config, {
           storage: "github",
           collection: name
@@ -1153,8 +1153,7 @@ function createGitHubAdapter({
   async function remove(collectionName, id) {
     await ensureAuthenticated();
     const { config, collection } = await collectionConfiguration(collectionName);
-    const record = await readRecord(collection, id);
-    const path = recordPath(collection, record.filename);
+    const { record, path } = await readRecord(collection, id);
     const deletingHierarchyId = hierarchyValue(
       record,
       collection,
@@ -1205,7 +1204,7 @@ function createGitHubAdapter({
           delete: true
         }))
       ],
-      `Delete ${collection.label_singular || collection.name} ${record.filename}`
+      `Delete ${collection.label_singular || collection.name} ${recordStem(path)}`
     );
     recordCache.delete(path);
   }
@@ -1475,7 +1474,7 @@ function createGitHubAdapter({
     list,
     record: async (collectionName, id) => {
       const { collection } = await collectionConfiguration(collectionName);
-      return readRecord(collection, id);
+      return (await readRecord(collection, id)).record;
     },
     save: (...args) => enqueueWrite(() => save(...args)),
     create: (...args) => enqueueWrite(() => create(...args)),

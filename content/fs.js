@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { recordIdFromFileStem } from "../core/slug.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -331,9 +332,9 @@ async function createFilesystemContentAdapter({
       collection,
       config
     );
-    if (record.filename !== filename) {
+    if (recordIdFromFileStem(filename) !== record.id) {
       throw new Error(
-        `Record file "${collectionName}/${filename}" contains filename "${record.filename}".`
+        `Record file "${collectionName}/${filename}" does not end with its id "${record.id}".`
       );
     }
     return record;
@@ -385,8 +386,8 @@ async function createFilesystemContentAdapter({
       (left, right) =>
         (Number.isFinite(left.order) ? left.order : 0) -
           (Number.isFinite(right.order) ? right.order : 0) ||
-        String(left.properties?.title || left.filename).localeCompare(
-          String(right.properties?.title || right.filename)
+        String(left.properties?.title || left.id).localeCompare(
+          String(right.properties?.title || right.id)
         )
     );
   }

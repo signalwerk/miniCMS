@@ -9,7 +9,8 @@ import {
   sanitizeSlug,
   slugWidgetTemplateFieldNames,
   slugTemplateFieldNames,
-  uniqueFilenameStem
+  recordFileStem,
+  recordIdFromFileStem
 } from "./slug.js";
 
 test("sanitizes strict URL slugs and renders field-widget templates", () => {
@@ -72,8 +73,28 @@ test("distinguishes the slug token from a field named slug", () => {
   );
 });
 
-test("sanitizes filenames and assigns case-insensitive collision suffixes", () => {
-  const usedIds = new Set(["CREME-BRULEE", "creme-brulee-2"]);
+test("sanitizes filename stems", () => {
   assert.equal(sanitizeFilenameStem(" Crème brûlée / "), "creme-brulee");
-  assert.equal(uniqueFilenameStem("Crème brûlée", usedIds), "creme-brulee-3");
+  assert.equal(sanitizeFilenameStem("", ""), "");
+});
+
+test("names record files <slug>-<id> or <id> and reads the id back", () => {
+  const id = "ynjggj2sfwol415";
+  const collection = { slug: "{{title}}-{{year}}-{{month}}" };
+  const stem = recordFileStem(id, collection, {
+    fields: { title: "Crème brûlée" },
+    date: new Date(2026, 8, 1)
+  });
+  assert.equal(stem, `creme-brulee-2026-09-${id}`);
+  assert.equal(recordFileStem(id, {}), id);
+  assert.equal(recordFileStem(id, { slug: "{{title}}" }, { fields: {} }), id);
+  assert.equal(
+    recordFileStem(id, { slug: "{{title}}" }, { fields: { title: "x".repeat(300) } })
+      .length,
+    120 + 1 + id.length
+  );
+  assert.equal(recordIdFromFileStem(stem), id);
+  assert.equal(recordIdFromFileStem(id), id);
+  assert.equal(recordIdFromFileStem("home"), null);
+  assert.equal(recordIdFromFileStem(`x${id}`), null);
 });

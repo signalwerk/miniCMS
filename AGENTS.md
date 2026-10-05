@@ -224,15 +224,18 @@ changing shared core modules it has imported.
 - Fields are optional by default. Omit `required` for optional fields and
   persist only `required: true`; legacy `required: false` input normalizes away
   when configuration is validated or saved.
-- Records contain `id`, `filename`, `type`, `order`, `properties`, and typed
-  `slots`. `id` is an opaque generated `[a-z0-9]{15}` identity used by every
-  reference, tag, hierarchy parent, inline reference/link, API route, and URL
-  hash; it never changes. `filename` is the readable YAML filename stem rendered
-  from the collection `slug` template; it must match the stored path, and a
-  rename changes only it. Adapters locate records by `id` (the API and
-  filesystem reader scan the folder; GitHub resolves paths from its listed
-  record cache) and reject duplicate IDs or mismatched filenames. Generated
-  root IDs avoid existing record and generated-field IDs.
+- Records contain `id`, `type`, `order`, `properties`, and typed `slots`.
+  `id` is an opaque generated `[a-z0-9]{15}` identity used by every reference,
+  tag, hierarchy parent, inline reference/link, API route, and URL hash; it
+  never changes. Files are named `<slug>-<id>.<ext>` from the collection `slug`
+  template, or `<id>.<ext>` without one (`recordFileStem` /
+  `recordIdFromFileStem` in `core/slug.js`). Adapters compute the name on
+  create and rename (the client never sends one), locate records by listing
+  file names and matching the trailing id (GitHub reads only that one file),
+  and reject files whose name does not end with their id or duplicate ids.
+  Records never store `filename`; summaries expose it as metadata for
+  `$filename`/`$storage_path`. Generated root IDs avoid existing record and
+  generated-field IDs.
 - A slot may configure an ordered `default` array of flat templates containing
   exactly `{type, properties?}`. Template types must be allowed by that slot;
   optional properties may override only known scalar fields (`string`, `text`,
@@ -309,8 +312,8 @@ changing shared core modules it has imported.
 - Deletion must not orphan hierarchy children.
 - Generated-ID fields, descendant content-node IDs, and image annotation IDs
   regenerate across duplicated subtrees.
-- Slug templates support field tokens plus date/time tokens and use
-  collision-safe filename suffixes.
+- Slug templates support field tokens plus date/time tokens; the record id
+  suffix keeps filenames unique.
 - A `slug` widget stores a URL path segment. It requires a non-empty `template`
   string such as `"{{title}}-{{field2}}"`, derives its initial value from those
   sibling field tokens when a record is created, and exposes an explicit
@@ -409,7 +412,7 @@ Inspector panel omits that field.
 Its stable full-record draft carries defaults, collision-aware generated IDs,
 root hierarchy/order, and empty slots. A `slug` widget derives from its template;
 for backward compatibility only, an empty plain field named `slug` receives the
-final collision-safe filename. Visible required fields validate before the
+rendered collection slug (or the sanitized title without a template). Visible required fields validate before the
 active adapter writes it. A successful adapter result is selected
 automatically, while a failed write leaves the complete draft mounted. One
 filename conflict refresh rebuilds storage identity without reusing an

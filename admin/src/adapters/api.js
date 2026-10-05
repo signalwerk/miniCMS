@@ -412,14 +412,10 @@ async function createApiAdapter({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(record)
       }),
-    rename: (collection, id, filename) =>
+    rename: (collection, id) =>
       request(
         `/api/collections/${encodeURIComponent(collection)}/${encodeURIComponent(id)}/rename`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ filename })
-        }
+        { method: "POST" }
       ),
     uploadMedia,
     remove: (collection, id) =>

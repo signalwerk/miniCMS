@@ -1935,7 +1935,12 @@ function validateRecord(record, collection, config, status = 400) {
   if (typeof record.id !== "string" || !ID_PATTERN.test(record.id)) {
     throw contentError(status, "Record id must be an opaque generated ID.");
   }
-  assertSafeName(record.filename, "record filename", status);
+  if (Object.hasOwn(record, "filename")) {
+    throw contentError(
+      status,
+      "Records do not store a filename; it is derived from the slug and id."
+    );
+  }
 
   const allowedRootTypes = collection.allowed_types ?? [collection.node_type];
   if (!allowedRootTypes.includes(record.type)) {
@@ -2102,7 +2107,7 @@ function summarizeRecord(record, metadata, collection) {
   const titleField = collection.views?.reference?.title || "title";
   return {
     id: record.id,
-    filename: record.filename,
+    filename: metadata?.filename ?? record.id,
     hierarchy_id: hierarchyId,
     type: record.type,
     parent,

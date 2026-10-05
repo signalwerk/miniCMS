@@ -57,7 +57,7 @@ const collection = {
 
 const item = {
   id: "exampleimage001",
-  filename: "example",
+  filename: "example-exampleimage001",
   properties: {
     uuid: "image-uuid",
     file: {
@@ -138,7 +138,7 @@ test("resolves reference presentation and target-published selections", () => {
   assert.equal(referenceItemValue(item, "uuid", collection), "image-uuid");
   assert.equal(
     referenceItemValue(item, "$storage_path", collection),
-    "content/images/example.yml"
+    "content/images/example-exampleimage001.yml"
   );
 
   const definitions = referenceSelectionDefinitions(
@@ -233,7 +233,6 @@ test("builds and immediately selects a complete referenced record", async () => 
   const field = { widget: "reference", collection: "images" };
   const existing = {
     id: "existingimage01",
-    filename: "new-image-2026-08",
     type: "media_image",
     order: 4,
     properties: {
@@ -255,7 +254,7 @@ test("builds and immediately selects a complete referenced record", async () => 
     optionForItem
   });
 
-  assert.equal(record.filename, "new-image-2026-08-2");
+  assert.equal(Object.hasOwn(record, "filename"), false);
   assert.match(record.id, /^[a-z0-9]{15}$/);
   assert.notEqual(record.id, existing.id);
   assert.equal(record.order, 5);
@@ -397,7 +396,6 @@ test("persists every edited reference field and exposes the saved item for immed
   };
   const existing = {
     id: "existingsource1",
-    filename: "complete-source-2026-08",
     type: "source",
     order: 3,
     properties: {
@@ -458,7 +456,7 @@ test("persists every edited reference field and exposes the saved item for immed
   });
 
   const finalized = result.record;
-  assert.equal(finalized.filename, "complete-source-2026-08-2");
+  assert.equal(Object.hasOwn(finalized, "filename"), false);
   assert.equal(finalized.id, draft.id);
   assert.match(finalized.id, /^[a-z0-9]{15}$/);
   assert.equal(finalized.order, 4);
@@ -470,7 +468,7 @@ test("persists every edited reference field and exposes the saved item for immed
   assert.deepEqual(finalized.properties, {
     content_id: finalized.properties.content_id,
     title: "Complete source",
-    slug: "complete-source-2026-08-2",
+    slug: "complete-source-2026-08",
     summary: "Full inspector value",
     body: "A **rich** description.",
     archive: "https://example.com/source",
@@ -534,7 +532,6 @@ test("re-finalizes a full reference draft after a concurrent filename conflict",
   const writes = [];
   const concurrent = {
     ...edited,
-    filename: "concurrent-source-2026-08",
     properties: {
       ...edited.properties,
       content_id: edited.properties.content_id,
@@ -570,8 +567,8 @@ test("re-finalizes a full reference draft after a concurrent filename conflict",
   });
 
   assert.equal(writes.length, 2);
-  assert.equal(writes[0].filename, "concurrent-source-2026-08");
-  assert.equal(writes[1].filename, "concurrent-source-2026-08-2");
+  assert.equal(Object.hasOwn(writes[0], "filename"), false);
+  assert.equal(Object.hasOwn(writes[1], "filename"), false);
   assert.equal(writes[0].id, concurrent.id);
   assert.notEqual(writes[1].id, concurrent.id);
   assert.match(writes[1].id, /^[a-z0-9]{15}$/);
@@ -585,7 +582,7 @@ test("re-finalizes a full reference draft after a concurrent filename conflict",
   );
   assert.match(writes[1].properties.content_id, /^[a-z0-9]{15}$/);
   assert.equal(result.created, true);
-  assert.equal(result.item.filename, "concurrent-source-2026-08-2");
+  assert.equal(Object.hasOwn(result.item, "filename"), false);
   assert.equal(result.option.value, writes[1].properties.content_id);
 });
 
@@ -815,7 +812,7 @@ test("synthesizes an undeclared title only for a title-based slug", async () => 
       { name: "surname", widget: "string", required: true },
       { name: "name", widget: "string" }
     ],
-    items: [{ id: "lovelaceauthor1", filename: "lovelace-2026-08", order: 2 }],
+    items: [{ id: "lovelaceauthor1", order: 2 }],
     date: new Date(2026, 7, 3),
     optionForItem: (candidate) =>
       referencePickerOption(
@@ -825,7 +822,7 @@ test("synthesizes an undeclared title only for a title-based slug", async () => 
       )
   });
 
-  assert.equal(writes[0].filename, "lovelace-2026-08-2");
+  assert.equal(Object.hasOwn(writes[0], "filename"), false);
   assert.equal(writes[0].properties.title, "Lovelace");
   assert.equal(writes[0].properties.surname, "Lovelace");
   assert.equal(writes[0].properties.name, "Ada");

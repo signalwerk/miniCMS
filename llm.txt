@@ -243,8 +243,9 @@ Do not put secrets or access tokens in this public config.
 
 Create a small valid record so the first static deployment has `/`. Generate
 every opaque ID with `createId()` from `miniCMS/core/id.js`; opaque IDs match
-`^[a-z0-9]{15}$`. The record's top-level `id` is such an opaque ID too, while
-`filename` is the readable YAML filename stem such as `home`.
+`^[a-z0-9]{15}$`. The record's top-level `id` is such an opaque ID too. Name
+the file `<slug>-<id>.yml` (for example `home-<id>.yml`) or `<id>.yml` for a
+collection without a slug template; records never store a `filename` key.
 
 Prefer a one-time Node script that imports these shared helpers:
 
@@ -260,7 +261,6 @@ const config = validateSourceConfig(
 const usedIds = new Set();
 const record = {
   id: createId(usedIds),
-  filename: "home",
   type: "page",
   order: 0,
   properties: {
@@ -305,10 +305,10 @@ await mkdir("content/pages", { recursive: true });
 await mkdir("content/images", { recursive: true });
 await mkdir("content/files", { recursive: true });
 await mkdir("content/media", { recursive: true });
-await writeFile("content/pages/home.yml", dumpYaml(record), "utf8");
+await writeFile(`content/pages/home-${record.id}.yml`, dumpYaml(record), "utf8");
 ```
 
-A complete record is always `{id, filename, type, order, properties, slots}`. Every
+A complete record is always `{id, type, order, properties, slots}`. Every
 nested child is `{id, type, properties, slots}` with optional `order`. Do not
 invent partial-node storage or persist resolved URLs.
 

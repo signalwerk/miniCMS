@@ -217,7 +217,6 @@ test("enforces configured slot minimums for missing and short record slots", () 
   });
   const record = {
     id: "homepage0000001",
-    filename: "home",
     type: "page",
     order: 0,
     properties: { title: "Home" }
@@ -240,6 +239,10 @@ test("enforces configured slot minimums for missing and short record slots", () 
     slots: { content: [section("first"), section("second")] }
   };
   assert.equal(validateRecord(valid, collection, config), valid);
+  assert.throws(
+    () => validateRecord({ ...valid, filename: "home" }, collection, config),
+    /Records do not store a filename/
+  );
 });
 
 test("rejects overlapping collection and media storage folders", () => {
@@ -1393,7 +1396,6 @@ test("requires persisted URL values to be empty or use HTTP(S)", () => {
   const collection = { name: "pages", ...config.collections.pages };
   const record = {
     id: "homepage0000001",
-    filename: "home",
     type: "page",
     order: 0,
     properties: { title: "Home", website: "https://example.com/research" },
@@ -1443,7 +1445,6 @@ test("allows only configured canonical internal values in URL fields", () => {
   const collection = { name: "pages", ...config.collections.pages };
   const record = {
     id: "homepage0000001",
-    filename: "home",
     type: "page",
     order: 0,
     properties: {
@@ -1481,7 +1482,6 @@ test("requires persisted slug values to use lowercase URL slug characters", () =
   const collection = { name: "pages", ...config.collections.pages };
   const record = {
     id: "homepage0000001",
-    filename: "home",
     type: "page",
     order: 0,
     properties: { title: "Home", slug: "research-2026" },
@@ -1520,7 +1520,6 @@ test("requires canonical persisted image assets and rejects legacy source keys",
   const collection = { name: "pages", ...config.collections.pages };
   const record = {
     id: "homepage0000001",
-    filename: "home",
     type: "page",
     order: 0,
     properties: {
@@ -1588,7 +1587,6 @@ test("requires persisted tag values to be unique generated-ID arrays", () => {
   const collection = { name: "pages", ...config.collections.pages };
   const record = {
     id: "homepage0000001",
-    filename: "home",
     type: "page",
     order: 0,
     properties: { tags: ["aaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbb"] },
@@ -1624,7 +1622,6 @@ test("requires persisted multiple references to be unique scalar arrays", () => 
   const collection = { name: "pages", ...config.collections.pages };
   const record = {
     id: "homepage0000001",
-    filename: "home",
     type: "page",
     order: 0,
     properties: {
@@ -1802,7 +1799,6 @@ test("summarizes records consistently across storage adapters", () => {
   const summary = summarizeRecord(
     {
       id: "homepage0000001",
-      filename: "home",
       type: "page",
       order: 2,
       properties: {

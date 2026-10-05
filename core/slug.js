@@ -75,7 +75,8 @@ export function renderSlugTemplate(
   {
     fields = {},
     identifierField = "title",
-    date = new Date()
+    date = new Date(),
+    fallback = "item"
   } = {}
 ) {
   const creationDate = date instanceof Date ? date : new Date(date);
@@ -98,7 +99,30 @@ export function renderSlugTemplate(
       return stringValue(fieldValue(fields, tag));
     }
   );
-  return sanitizeFilenameStem(rendered);
+  return sanitizeFilenameStem(rendered, fallback);
+}
+
+const RECORD_FILE_ID_PATTERN = /(?:^|-)([a-z0-9]{15})$/;
+const MAX_RECORD_FILE_SLUG_LENGTH = 120;
+
+// Record files are named `<slug>-<id>` from the collection's slug template,
+// or just `<id>` without a template or when the template renders empty. The
+// trailing opaque id is the record's identity; the slug is cosmetic.
+export function recordFileStem(id, collection, { fields = {}, date = new Date() } = {}) {
+  if (!collection?.slug) return id;
+  const slug = renderSlugTemplate(collection.slug, {
+    fields,
+    identifierField: collection.identifier_field || "title",
+    date,
+    fallback: ""
+  })
+    .slice(0, MAX_RECORD_FILE_SLUG_LENGTH)
+    .replace(/[._-]+$/, "");
+  return slug ? `${slug}-${id}` : id;
+}
+
+export function recordIdFromFileStem(stem) {
+  return RECORD_FILE_ID_PATTERN.exec(String(stem ?? ""))?.[1] ?? null;
 }
 
 export function slugTemplateFieldNames(template, identifierField = "title") {
@@ -116,19 +140,4 @@ export function slugTemplateFieldNames(template, identifierField = "title") {
     if (name && !names.includes(name)) names.push(name);
   }
   return names;
-}
-
-export function uniqueFilenameStem(value, usedIds) {
-  const base = sanitizeFilenameStem(value);
-  const normalizedIds = new Set(
-    [...usedIds].map((id) => String(id).toLowerCase())
-  );
-  let candidate = base;
-  let counter = 2;
-  while (normalizedIds.has(candidate.toLowerCase())) {
-    candidate = `${base}-${counter}`;
-    counter += 1;
-  }
-  usedIds.add(candidate);
-  return candidate;
 }

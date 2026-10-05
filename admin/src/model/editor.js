@@ -549,15 +549,15 @@ function collectionHierarchyValue(record, collection, fieldName, fallback) {
   return record.properties?.[configuredField] ?? record[configuredField] ?? fallback;
 }
 
-function uniqueCopyFilename(sourceFilename, usedFilenames, suffix = "copy") {
-  const baseId = `${sourceFilename}-${suffix}`;
+function uniqueCopyName(sourceName, usedNames, suffix = "copy") {
+  const baseId = `${sourceName}-${suffix}`;
   let candidate = baseId;
   let counter = 2;
-  while (usedFilenames.has(candidate)) {
+  while (usedNames.has(candidate)) {
     candidate = `${baseId}-${counter}`;
     counter += 1;
   }
-  usedFilenames.add(candidate);
+  usedNames.add(candidate);
   return candidate;
 }
 
@@ -918,6 +918,6 @@ export {
   slugifyId,
   typeField,
   typeFields,
-  uniqueCopyFilename,
+  uniqueCopyName,
   updateNode
 };

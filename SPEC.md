@@ -25,12 +25,11 @@ package.json
 ```
 
 Collections point to folders inside `content/`. Each YAML record is read and
-saved as a complete object with `id`, `filename`, `type`, `order`,
-`properties`, and typed `slots`:
+saved as a complete object with `id`, `type`, `order`, `properties`, and
+typed `slots`, for example `content/pages/about-2026-09-ynjggj2sfwol415.yml`:
 
 ```yaml
 id: ynjggj2sfwol415
-filename: about-2026-09
 type: page
 order: 0
 properties:
@@ -41,10 +40,14 @@ slots: {}
 Record IDs, the `id` widget, descendant slot nodes, and image annotations all
 use opaque generated IDs matching `^[a-z0-9]{15}$`. The record `id` is the
 stable identity used by references, tags, hierarchy parents, inline references,
-content links, API routes, and editor URLs; it never changes. `filename` is the
-readable YAML filename stem (`<folder>/<filename>.<extension>`), generated from
-the collection's `slug` template, and it must match the stored file. Renaming a
-record changes only its filename, so references survive it. Legacy
+content links, API routes, and editor URLs; it never changes. Record files are
+named `<slug>-<id>.<extension>`, where the slug part is rendered from the
+collection's `slug` template when the record is created; without a template
+(or when it renders empty) the file is just `<id>.<extension>`. Adapters derive
+the name themselves and find a record by listing file names and matching the
+trailing id, so a file must end with its record's id. Regenerating the filename
+re-renders only the slug part; references survive it. Records never store a
+`filename` key. Legacy
 configurations using the `uuid` widget are accepted and normalized to `id`
 without rewriting stored values.
 
@@ -1057,7 +1060,7 @@ contains only the browser adapter for this contract:
 - `GET /api/collections/:collection/:id`
 - `POST /api/collections/:collection`
 - `PUT /api/collections/:collection/:id`
-- `POST /api/collections/:collection/:id/rename` with `{filename}`
+- `POST /api/collections/:collection/:id/rename` (re-renders the slug part of the filename)
 - `DELETE /api/collections/:collection/:id`
 - `POST /api/media/:collection?filename=<name>&widget=<image|file>&media_folder=<field folder>&duplicate=<reuse|copy>`
 - `GET|HEAD /media/:collection/:sha256/:filename`

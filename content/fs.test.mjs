@@ -79,9 +79,8 @@ async function fixture(t) {
   await mkdir(path.join(root, "content", "images"), { recursive: true });
   await writeFile(path.join(root, "cms.config.yml"), configuration, "utf8");
   await writeFile(
-    path.join(root, "content", "pages", "second.yml"),
+    path.join(root, "content", "pages", `second-${SECOND_ID}.yml`),
     `id: ${SECOND_ID}
-filename: second
 type: page
 order: 2
 properties:
@@ -91,9 +90,8 @@ slots: {}
     "utf8"
   );
   await writeFile(
-    path.join(root, "content", "pages", "home.yml"),
+    path.join(root, "content", "pages", `home-${HOME_ID}.yml`),
     `id: ${HOME_ID}
-filename: home
 type: page
 order: 0
 properties:
@@ -109,9 +107,8 @@ slots:
     "utf8"
   );
   await writeFile(
-    path.join(root, "content", "images", "picture.yaml"),
+    path.join(root, "content", "images", `picture-${PICTURE_ID}.yaml`),
     `id: ${PICTURE_ID}
-filename: picture
 type: media_image
 order: 0
 properties:
@@ -147,10 +144,6 @@ test("loads every configured collection and resolves references from YAML", asyn
   assert.equal(pages.config, adapter.config());
   assert.equal(pages.collection.name, "pages");
   assert.deepEqual(pages.items.map((item) => item.id), [HOME_ID, SECOND_ID]);
-  assert.deepEqual(
-    pages.items.map((item) => item.filename),
-    ["home", "second"]
-  );
   assert.equal(
     pages.items[0].slots.content[0].properties.asset.record.properties.file.src,
     `/research/${GITHUB_IMAGE_SOURCE}`
@@ -214,9 +207,8 @@ collections:
     "utf8"
   );
   await writeFile(
-    path.join(root, "content", "pages", "home.yml"),
+    path.join(root, "content", "pages", `home-${HOME_ID}.yml`),
     `id: ${HOME_ID}
-filename: home
 type: page
 order: 0
 properties:
@@ -254,7 +246,6 @@ slots: {}
   };
   const remoteImage = {
     id: "aaaaaaaaaaaaaaa",
-    filename: "hero",
     type: "media_image",
     order: 0,
     properties: {
@@ -445,9 +436,8 @@ test("supports an absolute public base without changing external media URLs", as
 test("validates YAML records instead of silently returning malformed content", async (t) => {
   const root = await fixture(t);
   await writeFile(
-    path.join(root, "content", "pages", "broken.yml"),
+    path.join(root, "content", "pages", "broken-brokenpage00001.yml"),
     `id: brokenpage00001
-filename: broken
 type: unknown
 properties: {}
 slots: {}
@@ -468,9 +458,8 @@ test("rejects traversal, mismatched record IDs, and symlinked records", async (t
   );
 
   await writeFile(
-    path.join(root, "content", "pages", "wrong.yml"),
+    path.join(root, "content", "pages", "another-name.yml"),
     `id: wrongpage000001
-filename: another-name
 type: page
 order: 0
 properties:
@@ -481,14 +470,13 @@ slots: {}
   );
   await assert.rejects(
     adapter.get("pages", "wrongpage000001"),
-    /contains filename "another-name"/
+    /does not end with its id "wrongpage000001"/
   );
 
   const outside = path.join(root, "outside.yml");
   await writeFile(
     outside,
     `id: linkedpage00001
-filename: linked
 type: page
 order: 0
 properties:
@@ -497,7 +485,7 @@ slots: {}
 `,
     "utf8"
   );
-  await symlink(outside, path.join(root, "content", "pages", "linked.yml"));
+  await symlink(outside, path.join(root, "content", "pages", "linked-linkedpage00001.yml"));
   await assert.rejects(
     adapter.get("pages", "linkedpage00001"),
     /must be a regular file/

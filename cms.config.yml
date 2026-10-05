@@ -578,7 +578,6 @@ collections:
     icon: image
     folder: content/images
     extension: yml
-    slug: "{{title}}-{{year}}-{{month}}"
     node_type: media_image
     allowed_types:
       - media_image

@@ -185,7 +185,6 @@ test("builds a complete reference record from the configured preview field", () 
   };
   const items = [{
     id: "existingsource1",
-    filename: "new-source-2026-08",
     order: 3,
     properties: {
       content_id: "abc123def456ghi",
@@ -202,7 +201,7 @@ test("builds a complete reference record from the configured preview field", () 
     date: new Date(2026, 7, 3)
   });
 
-  assert.equal(record.filename, "new-source-2026-08-2");
+  assert.equal(Object.hasOwn(record, "filename"), false);
   assert.match(record.id, /^[a-z0-9]{15}$/);
   assert.equal(record.type, "source");
   assert.equal(record.order, 4);

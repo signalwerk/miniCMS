@@ -1,8 +1,4 @@
 import {
-  renderSlugTemplate,
-  uniqueFilenameStem
-} from "../../../core/slug.js";
-import {
   ID_PATTERN,
   isGeneratedIdWidget
 } from "../../../core/id.js";
@@ -108,14 +104,6 @@ function createTagRecord({
   });
   const properties = record.properties;
 
-  const filename = uniqueFilenameStem(
-    renderSlugTemplate(collection.slug, {
-      fields: properties,
-      identifierField: collection.identifier_field || titleField,
-      date
-    }),
-    new Set(items.map((item) => item.filename))
-  );
   const order =
     Math.max(
       -1,
@@ -126,7 +114,6 @@ function createTagRecord({
 
   return {
     id: record.id,
-    filename,
     type: record.type,
     order,
     properties: record.properties,

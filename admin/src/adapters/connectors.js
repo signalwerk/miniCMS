@@ -768,13 +768,9 @@ async function createConnectorAdapter({
         collectionName
       );
     },
-    async rename(collectionName, id, filename) {
+    async rename(collectionName, id) {
       const route = connectorRoute(collectionName);
-      const result = await route.adapter.rename(
-        route.remoteCollection,
-        id,
-        filename
-      );
+      const result = await route.adapter.rename(route.remoteCollection, id);
       return mapAdapterResult(
         result,
         route.connectorRoutes,

@@ -18,15 +18,13 @@ import {
   defaultProperties,
   iconFor,
   isSaveShortcut,
-  slugifyId,
   typeField,
   typeFields
 } from "../../model/editor.js";
 import { populateInitialSlugFields } from "../../model/nodeFactory.js";
 import {
   renderSlugTemplate,
-  slugTemplateFieldNames,
-  uniqueFilenameStem
+  slugTemplateFieldNames
 } from "../../../../core/slug.js";
 import { ChoiceTabs, EmptyState, Spinner } from "../Common/Common.jsx";
 import { Field } from "../Fields/Fields.jsx";
@@ -41,7 +39,6 @@ function InsertionDialog({
   nodeTypes,
   collection,
   collections,
-  existingFilenames = [],
   onCancel,
   onInsert
 }) {
@@ -53,11 +50,9 @@ function InsertionDialog({
   const [selectedKey, setSelectedKey] = useState(initialMode?.choices[0]?.key || "");
   const [search, setSearch] = useState("");
   const [title, setTitle] = useState("");
-  const [filename, setFilename] = useState("");
   const [propertyOverridesByType, setPropertyOverridesByType] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const filenameWasEdited = useRef(false);
   const creationDate = useRef(new Date()).current;
 
   const activeMode = modes.find((mode) => mode.id === modeId) || initialMode;
@@ -93,26 +88,18 @@ function InsertionDialog({
         .map((name) => typeField(selectedType, name))
         .filter(Boolean)
     : [];
-  const effectiveFilename =
-    kind === "collection" && collection?.slug
-      ? uniqueFilenameStem(
-          renderSlugTemplate(collection.slug, {
-            fields: previewProperties,
-            identifierField,
-            date: creationDate
-          }),
-          new Set(existingFilenames)
-        )
-      : filename;
-  const duplicateFilename =
-    kind === "collection" &&
-    !collection?.slug &&
-    existingFilenames.includes(effectiveFilename);
+  const filenameSlug = collection?.slug
+    ? renderSlugTemplate(collection.slug, {
+        fields: previewProperties,
+        identifierField,
+        date: creationDate,
+        fallback: ""
+      })
+    : "";
   const canInsert =
     selectedChoice &&
     !busy &&
-    (kind !== "collection" ||
-      (title.trim() && effectiveFilename && !duplicateFilename));
+    (kind !== "collection" || title.trim());
 
   useEffect(() => {
     function handleEscape(event) {
@@ -141,7 +128,6 @@ function InsertionDialog({
         mode: activeMode.id,
         choice: selectedChoice,
         title: title.trim(),
-        filename: effectiveFilename,
         properties: previewProperties
       });
     } catch (insertError) {
@@ -244,45 +230,24 @@ function InsertionDialog({
                 <input
                   id="insert-title"
                   value={title}
-                  onChange={(event) => {
-                    setTitle(event.target.value);
-                    if (!collection?.slug && !filenameWasEdited.current) {
-                      setFilename(slugifyId(event.target.value));
-                    }
-                  }}
+                  onChange={(event) => setTitle(event.target.value)}
                   placeholder={`Untitled ${nodeTypes[selectedChoice.typeName]?.label || "item"}`}
                 />
               </div>
               <div className="field">
                 <div className="field__heading">
-                  <label htmlFor={collection?.slug ? undefined : "insert-filename"}>
-                    Filename
-                  </label>
+                  <label>Filename</label>
                 </div>
-                {collection?.slug ? (
-                  <div className="generated-filename">
-                    <code>{`${effectiveFilename}.${String(
-                      collection.extension || "yml"
-                    ).replace(/^\./, "")}`}</code>
+                <div className="generated-filename">
+                  <code>{`${filenameSlug ? `${filenameSlug}-` : ""}<id>.${String(
+                    collection?.extension || "yml"
+                  ).replace(/^\./, "")}`}</code>
+                  {collection?.slug && (
                     <small title={collection.slug}>
                       Generated from {collection.slug}
                     </small>
-                  </div>
-                ) : (
-                  <input
-                    id="insert-filename"
-                    value={filename}
-                    onChange={(event) => {
-                      filenameWasEdited.current = true;
-                      setFilename(slugifyId(event.target.value));
-                    }}
-                    placeholder="filename"
-                    aria-invalid={duplicateFilename}
-                  />
-                )}
-                {duplicateFilename && (
-                  <small className="field-error">This filename already exists.</small>
-                )}
+                  )}
+                </div>
               </div>
               {templateFields.map((field) => (
                 <Field

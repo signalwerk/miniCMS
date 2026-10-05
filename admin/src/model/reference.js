@@ -5,7 +5,7 @@ import {
 } from "../../../core/id.js";
 import {
   renderSlugTemplate,
-  uniqueFilenameStem
+  sanitizeFilenameStem
 } from "../../../core/slug.js";
 import { hasImageValue, imageAssetValue } from "./image.js";
 import {
@@ -105,9 +105,9 @@ function compactReferenceValue(value) {
 function referenceItemValue(item, name, collection) {
   if (!name || name === "id" || name === "$id") return item?.id ?? "";
   const extension = String(collection?.extension || "yml").replace(/^\./, "");
-  if (name === "$filename") return `${item?.filename ?? ""}.${extension}`;
+  if (name === "$filename") return `${item?.filename ?? item?.id ?? ""}.${extension}`;
   if (name === "$storage_path") {
-    return `${String(collection?.folder || "").replace(/\/$/, "")}/${item?.filename ?? ""}.${extension}`;
+    return `${String(collection?.folder || "").replace(/\/$/, "")}/${item?.filename ?? item?.id ?? ""}.${extension}`;
   }
   if (name === "$created_at") return item?.created_at;
   if (name === "$updated_at") return item?.updated_at;
@@ -396,27 +396,21 @@ function finalizeReferencedRecordDraft({
   const fallbackName = fallbackFields
     .map((fieldName) => referenceText(properties[fieldName]).trim())
     .find(Boolean);
-  const renderedFilename = collection?.slug
-    ? renderSlugTemplate(collection.slug, {
-        fields: properties,
-        identifierField: collection.identifier_field || "title",
-        date
-      })
-    : fallbackName || "item";
-  const filename = uniqueFilenameStem(
-    renderedFilename,
-    new Set((Array.isArray(items) ? items : []).map((item) => item.filename))
-  );
   if (
     Object.hasOwn(properties, "slug") &&
     !properties.slug &&
     creation.type.fields?.slug?.widget !== "slug"
   ) {
-    properties.slug = filename;
+    properties.slug = collection?.slug
+      ? renderSlugTemplate(collection.slug, {
+          fields: properties,
+          identifierField: collection.identifier_field || "title",
+          date
+        })
+      : sanitizeFilenameStem(fallbackName);
   }
   return {
     id,
-    filename,
     type: creation.typeName,
     order: nextRootOrder(items),
     properties,
@@ -569,18 +563,6 @@ function createReferencedRecord({
   const parentField = collection?.hierarchy?.parent_field;
   if (parentField) properties[parentField] = null;
 
-  const filename = uniqueFilenameStem(
-    collection?.slug
-      ? renderSlugTemplate(collection.slug, {
-          fields: properties,
-          identifierField:
-            collection.identifier_field || creation.fieldName,
-          date
-        })
-      : name,
-    new Set(items.map((item) => item.filename))
-  );
-  record.filename = filename;
   if (optionForItem && !optionForItem(record)) {
     throw new Error("The new item would not provide a usable reference value.");
   }

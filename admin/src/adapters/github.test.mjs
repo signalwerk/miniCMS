@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { dumpYaml } from "../../../core/content.js";
+import { recordFileStem } from "../../../core/slug.js";
 import { buildInlineReferenceUrl } from "../../../core/inline-reference.js";
 import {
   createGitHubAdapter,
@@ -16,6 +17,9 @@ const RECORD_HASH = "a".repeat(64);
 const BINARY_HASH =
   "054edec1d0211f624fed0cbca9d4f9400b0e491c43742af2c5b0abebf0c990d8";
 const HOME_ID = "pagehome0000001";
+const HOME_STEM = `home-${HOME_ID}`;
+const recordStem = (record) =>
+  recordFileStem(record.id, { slug: "{{title}}" }, { fields: record.properties });
 const SVG_HASH =
   "d4dc56669143034f31aa309635d4113d9ad76a02b1739da22c965ed2049be9e6";
 
@@ -54,6 +58,7 @@ function fixtureConfig() {
         label_singular: "Page",
         folder: "content/pages",
         extension: "yml",
+        slug: "{{title}}",
         node_type: "page",
         allowed_types: ["page"],
         delete_files_with_record: true
@@ -92,7 +97,6 @@ function makeGitHubFixture({
   configureConfig?.(config);
   const record = suppliedRecord ?? {
     id: HOME_ID,
-    filename: "home",
     type: "page",
     order: 0,
     properties: {
@@ -109,7 +113,7 @@ function makeGitHubFixture({
     { path: "cms.config.yml", mode: "100644", type: "blob", sha: "config-sha" },
     { path: "content", mode: "040000", type: "tree", sha: "content-tree" },
     { path: "content/pages", mode: "040000", type: "tree", sha: "pages-tree" },
-    { path: "content/pages/home.yml", mode: "100644", type: "blob", sha: "home-sha" },
+    { path: `content/pages/${HOME_STEM}.yml`, mode: "100644", type: "blob", sha: `${HOME_STEM}-sha` },
     { path: "content/pages/archive", mode: "040000", type: "tree", sha: "archive-tree" },
     { path: "content/pages/archive/note.txt", mode: "100644", type: "blob", sha: "note-sha" }
   ];
@@ -137,9 +141,9 @@ function makeGitHubFixture({
     if (method === "GET" && url.pathname.endsWith("/contents/content/pages")) {
       return json(records.map((entry) => ({
           type: "file",
-          name: `${entry.filename}.yml`,
-          path: `content/pages/${entry.filename}.yml`,
-          sha: `${entry.filename}-sha`
+          name: `${recordStem(entry)}.yml`,
+          path: `content/pages/${recordStem(entry)}.yml`,
+          sha: `${recordStem(entry)}-sha`
         })));
     }
     if (
@@ -148,7 +152,7 @@ function makeGitHubFixture({
     ) {
       const filename = decodeURIComponent(url.pathname.split("/").at(-1))
         .replace(/\.yml$/, "");
-      const found = records.find((entry) => entry.filename === filename);
+      const found = records.find((entry) => recordStem(entry) === filename);
       return found
         ? json(repositoryFile(
             `content/pages/${filename}.yml`,
@@ -202,7 +206,7 @@ function makeGitHubFixture({
           )
         });
       }
-      const recordEntry = records.find((candidate) => `${candidate.filename}-sha` === sha);
+      const recordEntry = records.find((candidate) => `${recordStem(candidate)}-sha` === sha);
       if (recordEntry) {
         return json({
           encoding: "base64",
@@ -291,7 +295,7 @@ test("reads repository configuration and collection records", async () => {
 
   assert.equal(config.connectors.default.repo, "signalwerk/example");
   assert.equal(list.items[0].id, HOME_ID);
-  assert.equal(list.items[0].filename, "home");
+  assert.equal(list.items[0].filename, HOME_STEM);
   assert.equal(list.items[0].title, "Home");
   assert.equal(list.items[0].updated_at, "2026-07-31T10:00:00.000Z");
   assert.match(
@@ -331,7 +335,7 @@ test("writes YAML through one atomic Git commit transaction", async () => {
   const saved = await adapter.save("pages", record);
   assert.equal(saved.item.title, "Changed");
   assert.equal(trees.length, 1);
-  assert.equal(trees[0][0].path, "content/pages/home.yml");
+  assert.equal(trees[0][0].path, `content/pages/${HOME_STEM}.yml`);
   assert.match(trees[0][0].content, /title: Changed/);
   assert.ok(
     calls.some(
@@ -341,6 +345,36 @@ test("writes YAML through one atomic Git commit transaction", async () => {
         call.headers.authorization === "Bearer github-token"
     )
   );
+});
+
+test("names created files <slug>-<id> and renames only when the slug changes", async () => {
+  const { adapter, trees } = makeGitHubFixture();
+  await adapter.config();
+  const created = await adapter.create("pages", {
+    id: "pagefresh000001",
+    type: "page",
+    order: 1,
+    properties: { title: "Fresh Page", copy: "" },
+    slots: {}
+  });
+  assert.equal(trees.at(-1)[0].path, "content/pages/fresh-page-pagefresh000001.yml");
+  assert.equal(created.item.filename, "fresh-page-pagefresh000001");
+  await assert.rejects(
+    adapter.create("pages", {
+      id: HOME_ID,
+      type: "page",
+      order: 2,
+      properties: { title: "Other" },
+      slots: {}
+    }),
+    /already exists/
+  );
+
+  const commits = trees.length;
+  const unchanged = await adapter.rename("pages", HOME_ID);
+  assert.equal(unchanged.saved, false);
+  assert.equal(unchanged.item.filename, HOME_STEM);
+  assert.equal(trees.length, commits);
 });
 
 test("skips GitHub deployments and resumes them with the current tree", async () => {
@@ -361,9 +395,9 @@ test("skips GitHub deployments and resumes them with the current tree", async ()
         call.method === "POST" && call.path.endsWith("/git/commits")
     );
   assert.deepEqual(commits.map((call) => call.body.message), [
-    "Update Page home [ci skip]",
+    `Update Page ${HOME_STEM} [ci skip]`,
     "Resume deployments",
-    "Update Page home"
+    `Update Page ${HOME_STEM}`
   ]);
   assert.equal(commits[1].body.tree, commits[0].body.tree);
 });
@@ -384,7 +418,7 @@ test("synchronizes another tab without publishing a second resume commit", async
           call.method === "POST" && call.path.endsWith("/git/commits")
       )
       .map((call) => call.body.message),
-    ["Update Page home [ci skip]"]
+    [`Update Page ${HOME_STEM} [ci skip]`]
   );
 });
 
@@ -424,8 +458,8 @@ test("moves a collection folder with its config in one Git commit", async () => 
   assert.ok(
     trees[0].some(
       (entry) =>
-        entry.path === "content/documents/home.yml" &&
-        entry.sha === "home-sha" &&
+        entry.path === `content/documents/${HOME_STEM}.yml` &&
+        entry.sha === `${HOME_STEM}-sha` &&
         entry.mode === "100644"
     )
   );
@@ -439,7 +473,7 @@ test("moves a collection folder with its config in one Git commit", async () => 
   assert.ok(
     trees[0].some(
       (entry) =>
-        entry.path === "content/pages/home.yml" && entry.sha === null
+        entry.path === `content/pages/${HOME_STEM}.yml` && entry.sha === null
     )
   );
   assert.ok(
@@ -475,7 +509,6 @@ test("moves a collection folder with its config in one Git commit", async () => 
 test("atomically rekeys schema, moves its folder, and migrates every record", async () => {
   const record = {
     id: HOME_ID,
-    filename: "home",
     type: "page",
     order: 0,
     properties: {
@@ -507,10 +540,10 @@ test("atomically rekeys schema, moves its folder, and migrates every record", as
   assert.equal(saved.config.collections.articles.folder, "content/articles");
   assert.equal(trees.length, 1);
   const migratedEntry = trees[0].find(
-    ({ path }) => path === "content/articles/home.yml"
+    ({ path }) => path === `content/articles/${HOME_STEM}.yml`
   );
   assert.ok(migratedEntry);
-  assert.match(migratedEntry.content, /^id: pagehome0000001\nfilename: home\ntype: article/m);
+  assert.match(migratedEntry.content, /^id: pagehome0000001\ntype: article/m);
   assert.match(
     migratedEntry.content,
     /minicms:\/\/reference\/articles\/pagehome0000001/
@@ -518,7 +551,7 @@ test("atomically rekeys schema, moves its folder, and migrates every record", as
   assert.match(migratedEntry.content, /filename: hero\.png/);
   assert.ok(
     trees[0].some(
-      ({ path, sha }) => path === "content/pages/home.yml" && sha === null
+      ({ path, sha }) => path === `content/pages/${HOME_STEM}.yml` && sha === null
     )
   );
   assert.equal(
@@ -539,19 +572,19 @@ test("atomically moves a collection folder and retargets its record extension", 
 
   assert.equal(trees.length, 1);
   const migratedEntry = trees[0].find(
-    ({ path }) => path === "content/documents/home.yaml"
+    ({ path }) => path === `content/documents/${HOME_STEM}.yaml`
   );
   assert.ok(migratedEntry);
-  assert.match(migratedEntry.content, /^id: pagehome0000001\nfilename: home\ntype: page/m);
+  assert.match(migratedEntry.content, /^id: pagehome0000001\ntype: page/m);
   assert.ok(
     trees[0].some(
-      ({ path, sha }) => path === "content/pages/home.yml" && sha === null
+      ({ path, sha }) => path === `content/pages/${HOME_STEM}.yml` && sha === null
     )
   );
   assert.ok(
     trees[0].some(
       ({ path, sha }) =>
-        path === "content/documents/home.yml" && sha === null
+        path === `content/documents/${HOME_STEM}.yml` && sha === null
     )
   );
   assert.ok(
@@ -578,10 +611,10 @@ test("rejects records that a collection extension change would adopt", async () 
         sha: "config-sha"
       },
       {
-        path: "content/pages/home.yml",
+        path: `content/pages/${HOME_STEM}.yml`,
         mode: "100644",
         type: "blob",
-        sha: "home-sha"
+        sha: `${HOME_STEM}-sha`
       },
       {
         path: "content/pages/rogue.yaml",
@@ -608,7 +641,6 @@ test("rejects records that a collection extension change would adopt", async () 
 test("rewrites local remote-alias links without moving owner storage", async () => {
   const record = {
     id: HOME_ID,
-    filename: "home",
     type: "page",
     order: 0,
     properties: {
@@ -648,7 +680,7 @@ test("rewrites local remote-alias links without moving owner storage", async () 
   });
 
   const migratedEntry = trees[0].find(
-    ({ path }) => path === "content/pages/home.yml"
+    ({ path }) => path === `content/pages/${HOME_STEM}.yml`
   );
   assert.ok(migratedEntry);
   assert.match(
@@ -690,10 +722,10 @@ test("rejects a new collection that would adopt an unconfigured physical folder"
         sha: "config-sha"
       },
       {
-        path: "content/pages/home.yml",
+        path: `content/pages/${HOME_STEM}.yml`,
         mode: "100644",
         type: "blob",
-        sha: "home-sha"
+        sha: `${HOME_STEM}-sha`
       },
       {
         path: "content/pages-copy/orphan.yml",
@@ -725,7 +757,6 @@ test("validates migrated records against the next schema before Git writes", asy
   const { adapter, calls, trees } = makeGitHubFixture({
     suppliedRecord: {
       id: HOME_ID,
-      filename: "home",
       type: "page",
       order: 0,
       properties: {
@@ -765,7 +796,6 @@ test("validates migrated records against the next schema before Git writes", asy
 test("migrates the exact record blobs from the verified snapshot", async () => {
   const staleRecord = dumpYaml({
     id: HOME_ID,
-    filename: "home",
     type: "missing",
     order: 0,
     properties: {},
@@ -780,7 +810,7 @@ test("migrates the exact record blobs from the verified snapshot", async () => {
         sha: "config-sha"
       },
       {
-        path: "content/pages/home.yml",
+        path: `content/pages/${HOME_STEM}.yml`,
         mode: "100644",
         type: "blob",
         sha: "snapshot-home-sha"
@@ -829,19 +859,19 @@ test("rejects a Git tree at an exact migrated record destination", async () => {
         sha: "config-sha"
       },
       {
-        path: "content/pages/home.yml",
+        path: `content/pages/${HOME_STEM}.yml`,
         mode: "100644",
         type: "blob",
-        sha: "home-sha"
+        sha: `${HOME_STEM}-sha`
       },
       {
-        path: "content/pages/home.yaml",
+        path: `content/pages/${HOME_STEM}.yaml`,
         mode: "040000",
         type: "tree",
         sha: "collision-tree-sha"
       },
       {
-        path: "content/pages/home.yaml/kept.txt",
+        path: `content/pages/${HOME_STEM}.yaml/kept.txt`,
         mode: "100644",
         type: "blob",
         sha: "kept-sha"
@@ -853,7 +883,7 @@ test("rejects a Git tree at an exact migrated record destination", async () => {
 
   await assert.rejects(
     adapter.saveConfig(config),
-    /Schema migration destination conflicts with "content\/pages\/home\.yaml"/
+    /Schema migration destination conflicts with "content\/pages\/home-pagehome0000001\.yaml"/
   );
   assert.equal(trees.length, 0);
   assert.equal(
@@ -865,7 +895,7 @@ test("rejects a Git tree at an exact migrated record destination", async () => {
 test("rejects collection folder destination collisions before Git writes", async () => {
   const treeEntries = [
     { path: "cms.config.yml", mode: "100644", type: "blob", sha: "config-sha" },
-    { path: "content/pages/home.yml", mode: "100644", type: "blob", sha: "home-sha" },
+    { path: `content/pages/${HOME_STEM}.yml`, mode: "100644", type: "blob", sha: `${HOME_STEM}-sha` },
     { path: "content/documents/taken.yml", mode: "100644", type: "blob", sha: "taken-sha" }
   ];
   const { adapter, calls, trees } = makeGitHubFixture({ treeEntries });
@@ -929,10 +959,10 @@ test("rejects a stale collection folder move before creating Git objects", async
         sha: "newer-config-sha"
       },
       {
-        path: "content/pages/home.yml",
+        path: `content/pages/${HOME_STEM}.yml`,
         mode: "100644",
         type: "blob",
-        sha: "home-sha"
+        sha: `${HOME_STEM}-sha`
       }
     ]
   });
@@ -960,7 +990,7 @@ test("deletes a record and its configured upload in one Git commit", async () =>
   assert.deepEqual(
     trees[0].map(({ path, sha }) => ({ path, sha })),
     [
-      { path: "content/pages/home.yml", sha: null },
+      { path: `content/pages/${HOME_STEM}.yml`, sha: null },
       { path: `content/media/${RECORD_HASH}/hero.png`, sha: null }
     ]
   );
@@ -969,7 +999,6 @@ test("deletes a record and its configured upload in one Git commit", async () =>
 test("preserves an upload referenced only by nested content in another record", async () => {
   const nestedRecord = {
     id: "nesteduser00001",
-    filename: "nested-user",
     type: "page",
     order: 1,
     properties: { title: "Nested user", image: "" },
@@ -993,7 +1022,7 @@ test("preserves an upload referenced only by nested content in another record", 
 
   assert.deepEqual(
     trees[0].map(({ path, sha }) => ({ path, sha })),
-    [{ path: "content/pages/home.yml", sha: null }]
+    [{ path: `content/pages/${HOME_STEM}.yml`, sha: null }]
   );
 });
 
