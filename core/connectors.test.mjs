@@ -442,6 +442,92 @@ test("migrates explicit schema keys through records without mutating image asset
   );
 });
 
+test("migrates remote collection aliases in local Markdown and URL fields", () => {
+  const oldReference = buildInlineReferenceUrl("central_sources", "item-1");
+  const nextReference = buildInlineReferenceUrl("library_sources", "item-1");
+  const oldLink = buildInlineLinkUrl("central_sources", "item-1");
+  const nextLink = buildInlineLinkUrl("library_sources", "item-1");
+  const current = {
+    connectors: {
+      default: { name: "api" },
+      central: {
+        name: "api",
+        api_url: "https://media.example.test",
+        auth_url: "https://auth.example.test"
+      }
+    },
+    node_types: {
+      page: { fields: {} },
+      text: {
+        fields: {
+          text: {
+            widget: "markdown",
+            blocknote: {
+              inline_reference: { collection: "central_sources" }
+            }
+          },
+          destination: {
+            widget: "url",
+            internal_links: { collections: ["central_sources"] }
+          },
+          literal: { widget: "string" }
+        }
+      }
+    },
+    collections: {
+      pages: { folder: "content/pages", node_type: "page" },
+      central_sources: {
+        connector: "central",
+        remote_collection: "sources"
+      }
+    }
+  };
+  const next = structuredClone(current);
+  next.collections.library_sources = next.collections.central_sources;
+  delete next.collections.central_sources;
+  next.node_types.text.fields.text.blocknote.inline_reference.collection =
+    "library_sources";
+  next.node_types.text.fields.destination.internal_links.collections = [
+    "library_sources"
+  ];
+  const record = {
+    id: "home",
+    type: "page",
+    order: 0,
+    properties: {},
+    slots: {
+      content: [{
+        id: "abcdefghijklmno",
+        type: "text",
+        properties: {
+          text: `[Source](${oldReference})`,
+          destination: oldLink,
+          literal: oldLink
+        },
+        slots: {}
+      }]
+    }
+  };
+
+  const migrated = migrateRecordSchemaKeys(
+    record,
+    current,
+    next,
+    {
+      node_types: {},
+      collections: { central_sources: "library_sources" }
+    },
+    { storage: "api" }
+  );
+
+  assert.equal(
+    migrated.slots.content[0].properties.text,
+    `[Source](${nextReference})`
+  );
+  assert.equal(migrated.slots.content[0].properties.destination, nextLink);
+  assert.equal(migrated.slots.content[0].properties.literal, oldLink);
+});
+
 test("migrates API file URLs when their collection is renamed", () => {
   const hash = "b".repeat(64);
   const current = {
