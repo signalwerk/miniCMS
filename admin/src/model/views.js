@@ -106,7 +106,7 @@ function externalHttpUrl(value) {
 
 function systemFieldValue(name, record, collection, item) {
   const extension = String(collection.extension || "yml").replace(/^\./, "");
-  const fileName = `${record.id}.${extension}`;
+  const fileName = `${record.filename}.${extension}`;
   if (name === "$id") return record.id;
   if (name === "$filename") return fileName;
   if (name === "$storage_path") {

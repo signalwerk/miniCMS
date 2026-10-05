@@ -15,6 +15,7 @@ import { createAdapter } from "./index.js";
 const RECORD_HASH = "a".repeat(64);
 const BINARY_HASH =
   "054edec1d0211f624fed0cbca9d4f9400b0e491c43742af2c5b0abebf0c990d8";
+const HOME_ID = "pagehome0000001";
 const SVG_HASH =
   "d4dc56669143034f31aa309635d4113d9ad76a02b1739da22c965ed2049be9e6";
 
@@ -29,8 +30,6 @@ function fixtureConfig() {
       }
     },
     site: {
-      media_folder: "content/media",
-      public_folder: "/media"
     },
     node_types: {
       page: {
@@ -38,14 +37,14 @@ function fixtureConfig() {
         fields: {
           title: { widget: "string" },
           copy: { widget: "markdown" },
-          image: { widget: "image", accept: ["image/png", "image/svg+xml"] },
-          attachment: { widget: "file", accept: ["*/*"] }
+          image: { widget: "image", media_folder: "content/media", accept: ["image/png", "image/svg+xml"] },
+          attachment: { widget: "file", media_folder: "content/media", accept: ["*/*"] }
         },
         slots: { content: { allowed_types: ["image_block"] } }
       },
       image_block: {
         fields: {
-          image: { widget: "image", accept: ["image/png", "image/svg+xml"] }
+          image: { widget: "image", media_folder: "content/media", accept: ["image/png", "image/svg+xml"] }
         }
       }
     },
@@ -92,7 +91,8 @@ function makeGitHubFixture({
   const config = fixtureConfig();
   configureConfig?.(config);
   const record = suppliedRecord ?? {
-    id: "home",
+    id: HOME_ID,
+    filename: "home",
     type: "page",
     order: 0,
     properties: {
@@ -137,23 +137,23 @@ function makeGitHubFixture({
     if (method === "GET" && url.pathname.endsWith("/contents/content/pages")) {
       return json(records.map((entry) => ({
           type: "file",
-          name: `${entry.id}.yml`,
-          path: `content/pages/${entry.id}.yml`,
-          sha: `${entry.id}-sha`
+          name: `${entry.filename}.yml`,
+          path: `content/pages/${entry.filename}.yml`,
+          sha: `${entry.filename}-sha`
         })));
     }
     if (
       method === "GET" &&
       url.pathname.includes("/contents/content/pages/")
     ) {
-      const id = decodeURIComponent(url.pathname.split("/").at(-1))
+      const filename = decodeURIComponent(url.pathname.split("/").at(-1))
         .replace(/\.yml$/, "");
-      const found = records.find((entry) => entry.id === id);
+      const found = records.find((entry) => entry.filename === filename);
       return found
         ? json(repositoryFile(
-            `content/pages/${id}.yml`,
+            `content/pages/${filename}.yml`,
             dumpYaml(found),
-            `${id}-sha`
+            `${filename}-sha`
           ))
         : json({ message: "Not Found" }, 404);
     }
@@ -202,7 +202,7 @@ function makeGitHubFixture({
           )
         });
       }
-      const recordEntry = records.find((candidate) => `${candidate.id}-sha` === sha);
+      const recordEntry = records.find((candidate) => `${candidate.filename}-sha` === sha);
       if (recordEntry) {
         return json({
           encoding: "base64",
@@ -290,11 +290,12 @@ test("reads repository configuration and collection records", async () => {
   const list = await adapter.list("pages");
 
   assert.equal(config.connectors.default.repo, "signalwerk/example");
-  assert.equal(list.items[0].id, "home");
+  assert.equal(list.items[0].id, HOME_ID);
+  assert.equal(list.items[0].filename, "home");
   assert.equal(list.items[0].title, "Home");
   assert.equal(list.items[0].updated_at, "2026-07-31T10:00:00.000Z");
   assert.match(
-    adapter.resolveMediaUrl("/media/hero image.png"),
+    adapter.resolveMediaUrl("content/media/hero image.png"),
     /^https:\/\/raw\.githubusercontent\.com\/signalwerk\/example\/main\/content\/media\/hero%20image\.png/
   );
   assert.equal(
@@ -303,16 +304,28 @@ test("reads repository configuration and collection records", async () => {
       height: 320,
       fit: "inside",
       format: "webp",
-      quality: 70
+      quality: 70,
+      mediaFolder: "content/media"
     }),
     `https://raw.githubusercontent.com/signalwerk/example/main/content/media/${RECORD_HASH}/hero%20image.png`
+  );
+  assert.equal(
+    adapter.resolveImageUrl(
+      { hash: RECORD_HASH, filename: "hero.png" },
+      { collection: "pages" }
+    ),
+    `https://raw.githubusercontent.com/signalwerk/example/main/content/media/${RECORD_HASH}/hero.png`
+  );
+  assert.equal(
+    adapter.resolveImageUrl({ hash: RECORD_HASH, filename: "hero.png" }),
+    ""
   );
 });
 
 test("writes YAML through one atomic Git commit transaction", async () => {
   const { adapter, calls, trees } = makeGitHubFixture();
   await adapter.config();
-  const record = await adapter.record("pages", "home");
+  const record = await adapter.record("pages", HOME_ID);
   record.properties.title = "Changed";
 
   const saved = await adapter.save("pages", record);
@@ -333,7 +346,7 @@ test("writes YAML through one atomic Git commit transaction", async () => {
 test("skips GitHub deployments and resumes them with the current tree", async () => {
   const { adapter, calls } = makeGitHubFixture();
   await adapter.config();
-  const record = await adapter.record("pages", "home");
+  const record = await adapter.record("pages", HOME_ID);
 
   await adapter.setSkipDeployments(true);
   record.properties.title = "First change";
@@ -358,7 +371,7 @@ test("skips GitHub deployments and resumes them with the current tree", async ()
 test("synchronizes another tab without publishing a second resume commit", async () => {
   const { adapter, calls } = makeGitHubFixture();
   await adapter.config();
-  const record = await adapter.record("pages", "home");
+  const record = await adapter.record("pages", HOME_ID);
 
   await adapter.setSkipDeployments(true);
   await adapter.save("pages", record);
@@ -378,7 +391,7 @@ test("synchronizes another tab without publishing a second resume commit", async
 test("serializes overlapping writes from one editor", async () => {
   const { adapter, calls } = makeGitHubFixture();
   await adapter.config();
-  const record = await adapter.record("pages", "home");
+  const record = await adapter.record("pages", HOME_ID);
   const first = structuredClone(record);
   const second = structuredClone(record);
   first.properties.title = "First change";
@@ -461,12 +474,13 @@ test("moves a collection folder with its config in one Git commit", async () => 
 
 test("atomically rekeys schema, moves its folder, and migrates every record", async () => {
   const record = {
-    id: "home",
+    id: HOME_ID,
+    filename: "home",
     type: "page",
     order: 0,
     properties: {
       title: "Home",
-      copy: `[Home](${buildInlineReferenceUrl("pages", "home")})`,
+      copy: `[Home](${buildInlineReferenceUrl("pages", HOME_ID)})`,
       image: { hash: RECORD_HASH, filename: "hero.png" }
     },
     slots: {}
@@ -496,10 +510,10 @@ test("atomically rekeys schema, moves its folder, and migrates every record", as
     ({ path }) => path === "content/articles/home.yml"
   );
   assert.ok(migratedEntry);
-  assert.match(migratedEntry.content, /^id: home\ntype: article/m);
+  assert.match(migratedEntry.content, /^id: pagehome0000001\nfilename: home\ntype: article/m);
   assert.match(
     migratedEntry.content,
-    /minicms:\/\/reference\/articles\/home/
+    /minicms:\/\/reference\/articles\/pagehome0000001/
   );
   assert.match(migratedEntry.content, /filename: hero\.png/);
   assert.ok(
@@ -528,7 +542,7 @@ test("atomically moves a collection folder and retargets its record extension", 
     ({ path }) => path === "content/documents/home.yaml"
   );
   assert.ok(migratedEntry);
-  assert.match(migratedEntry.content, /^id: home\ntype: page/m);
+  assert.match(migratedEntry.content, /^id: pagehome0000001\nfilename: home\ntype: page/m);
   assert.ok(
     trees[0].some(
       ({ path, sha }) => path === "content/pages/home.yml" && sha === null
@@ -593,7 +607,8 @@ test("rejects records that a collection extension change would adopt", async () 
 
 test("rewrites local remote-alias links without moving owner storage", async () => {
   const record = {
-    id: "home",
+    id: HOME_ID,
+    filename: "home",
     type: "page",
     order: 0,
     properties: {
@@ -709,7 +724,8 @@ test("rejects a new collection that would adopt an unconfigured physical folder"
 test("validates migrated records against the next schema before Git writes", async () => {
   const { adapter, calls, trees } = makeGitHubFixture({
     suppliedRecord: {
-      id: "home",
+      id: HOME_ID,
+      filename: "home",
       type: "page",
       order: 0,
       properties: {
@@ -748,7 +764,8 @@ test("validates migrated records against the next schema before Git writes", asy
 
 test("migrates the exact record blobs from the verified snapshot", async () => {
   const staleRecord = dumpYaml({
-    id: "home",
+    id: HOME_ID,
+    filename: "home",
     type: "missing",
     order: 0,
     properties: {},
@@ -937,7 +954,7 @@ test("deletes a record and its configured upload in one Git commit", async () =>
   const { adapter, trees } = makeGitHubFixture();
   await adapter.config();
 
-  await adapter.remove("pages", "home");
+  await adapter.remove("pages", HOME_ID);
 
   assert.equal(trees.length, 1);
   assert.deepEqual(
@@ -951,7 +968,8 @@ test("deletes a record and its configured upload in one Git commit", async () =>
 
 test("preserves an upload referenced only by nested content in another record", async () => {
   const nestedRecord = {
-    id: "nested-user",
+    id: "nesteduser00001",
+    filename: "nested-user",
     type: "page",
     order: 1,
     properties: { title: "Nested user", image: "" },
@@ -971,7 +989,7 @@ test("preserves an upload referenced only by nested content in another record", 
   });
   await adapter.config();
 
-  await adapter.remove("pages", "home");
+  await adapter.remove("pages", HOME_ID);
 
   assert.deepEqual(
     trees[0].map(({ path, sha }) => ({ path, sha })),
@@ -991,11 +1009,11 @@ test("uploads binary media through a blob and commit", async () => {
     }
   };
 
-  const result = await adapter.uploadMedia(file, "pages", { widget: "image" });
+  const result = await adapter.uploadMedia(file, "pages", { widget: "image", mediaFolder: "content/media" });
   assert.deepEqual(result, {
     hash: BINARY_HASH,
     filename: "Hero Image.png",
-    path: `/media/${BINARY_HASH}/Hero%20Image.png`,
+    path: `content/media/${BINARY_HASH}/Hero%20Image.png`,
     storage_path: `content/media/${BINARY_HASH}/Hero Image.png`
   });
   assert.equal(
@@ -1019,8 +1037,8 @@ test("uses configured image types for GitHub media uploads", async () => {
   };
 
   assert.equal(
-    (await adapter.uploadMedia(svg, "pages", { widget: "image" })).path,
-    `/media/${SVG_HASH}/Diagram.svg`
+    (await adapter.uploadMedia(svg, "pages", { widget: "image", mediaFolder: "content/media" })).path,
+    `content/media/${SVG_HASH}/Diagram.svg`
   );
   assert.equal(trees[0][0].path, `content/media/${SVG_HASH}/Diagram.svg`);
 
@@ -1037,9 +1055,16 @@ test("uses configured image types for GitHub media uploads", async () => {
     () => adapter.uploadMedia(
       { ...svg, name: "Photo.jpg", type: "image/jpeg" },
       "pages",
-      { widget: "image" }
+      { widget: "image", mediaFolder: "content/media" }
     ),
     /configured accepted file type.*Received MIME type: image\/jpeg\./
+  );
+  await assert.rejects(
+    () => adapter.uploadMedia(svg, "pages", {
+      widget: "image",
+      mediaFolder: "content/other"
+    }),
+    /No image field in collection "pages" stores media in "content\/other"/
   );
 });
 
@@ -1063,18 +1088,18 @@ test("requires a duplicate-hash choice before reusing or copying GitHub media", 
     }
   };
 
-  assert.deepEqual(await adapter.uploadMedia(file, "pages", { widget: "image" }), {
+  assert.deepEqual(await adapter.uploadMedia(file, "pages", { widget: "image", mediaFolder: "content/media" }), {
     duplicate: true,
     existing: {
       hash: BINARY_HASH,
       filename: "Existing.png",
-      path: `/media/${BINARY_HASH}/Existing.png`,
+      path: `content/media/${BINARY_HASH}/Existing.png`,
       storage_path: `content/media/${BINARY_HASH}/Existing.png`
     },
     copy: {
       hash: BINARY_HASH,
       filename: "Existing-2.png",
-      path: `/media/${BINARY_HASH}/Existing-2.png`,
+      path: `content/media/${BINARY_HASH}/Existing-2.png`,
       storage_path: `content/media/${BINARY_HASH}/Existing-2.png`
     }
   });
@@ -1083,6 +1108,7 @@ test("requires a duplicate-hash choice before reusing or copying GitHub media", 
   assert.equal(
     (await adapter.uploadMedia(file, "pages", {
       widget: "image",
+      mediaFolder: "content/media",
       duplicate: "reuse"
     })).reused,
     true
@@ -1091,6 +1117,7 @@ test("requires a duplicate-hash choice before reusing or copying GitHub media", 
 
   const copied = await adapter.uploadMedia(file, "pages", {
     widget: "image",
+    mediaFolder: "content/media",
     duplicate: "copy"
   });
   assert.equal(copied.filename, "Existing-2.png");
@@ -1121,7 +1148,7 @@ test("rejects noncanonical or hash-mismatched existing GitHub media", async () =
   }).adapter;
   await decomposed.config();
   await assert.rejects(
-    () => decomposed.uploadMedia(file, "pages", { widget: "image" }),
+    () => decomposed.uploadMedia(file, "pages", { widget: "image", mediaFolder: "content/media" }),
     /not canonical NFC/
   );
 
@@ -1138,7 +1165,7 @@ test("rejects noncanonical or hash-mismatched existing GitHub media", async () =
   }).adapter;
   await mismatched.config();
   await assert.rejects(
-    () => mismatched.uploadMedia(file, "pages", { widget: "image" }),
+    () => mismatched.uploadMedia(file, "pages", { widget: "image", mediaFolder: "content/media" }),
     /does not match its content-addressed directory/
   );
 });

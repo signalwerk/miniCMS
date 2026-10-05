@@ -26,8 +26,6 @@ function sourceConfig() {
       }
     },
     site: {
-      media_folder: "content/media",
-      public_folder: "/media"
     },
     node_types: {
       page: {
@@ -73,8 +71,6 @@ function remoteConfig() {
       }
     },
     site: {
-      media_folder: "content/media",
-      public_folder: "/media"
     },
     node_types: {
       gallery: {
@@ -122,7 +118,7 @@ function remoteConfig() {
           content_id: { widget: "id", required: true },
           title: { widget: "string", required: true },
           caption: { widget: "markdown" },
-          image: { widget: "image" }
+          image: { widget: "image", media_folder: "content/media" }
         }
       }
     },
@@ -347,13 +343,13 @@ test("migrates explicit schema keys through records without mutating image asset
             internal_links: { collections: ["pages"] }
           },
           literal: { widget: "string" },
-          attachment: { widget: "file" },
-          image: { widget: "image" }
+          attachment: { widget: "file", media_folder: "content/media" },
+          image: { widget: "image", media_folder: "content/media" }
         }
       },
       card: {
         fields: {
-          attachment: { widget: "file" }
+          attachment: { widget: "file", media_folder: "content/media" }
         }
       }
     },
@@ -446,15 +442,15 @@ test("migrates explicit schema keys through records without mutating image asset
   );
 });
 
-test("migrates API file URLs between configured public folders", () => {
+test("migrates API file URLs when their collection is renamed", () => {
   const hash = "b".repeat(64);
   const current = {
-    site: { public_folder: "/assets" },
+    site: {},
     node_types: {
       page: {
         fields: {
-          attachment: { widget: "file" },
-          noncanonical: { widget: "file" }
+          attachment: { widget: "file", media_folder: "content/media" },
+          noncanonical: { widget: "file", media_folder: "content/media" }
         }
       }
     },
@@ -463,7 +459,7 @@ test("migrates API file URLs between configured public folders", () => {
     }
   };
   const next = {
-    site: { public_folder: "/downloads" },
+    site: {},
     node_types: structuredClone(current.node_types),
     collections: {
       library: { folder: "content/library", node_type: "page" }
@@ -473,8 +469,8 @@ test("migrates API file URLs between configured public folders", () => {
     id: "home",
     type: "page",
     properties: {
-      attachment: `/assets/files/${hash}/brief%20report.pdf`,
-      noncanonical: `/media/files/${hash}/brief%20report.pdf`
+      attachment: `/media/files/${hash}/brief%20report.pdf`,
+      noncanonical: `/media/files/${hash}/brief report.pdf`
     },
     slots: {}
   };
@@ -492,11 +488,11 @@ test("migrates API file URLs between configured public folders", () => {
 
   assert.equal(
     migrated.properties.attachment,
-    `/downloads/library/${hash}/brief%20report.pdf`
+    `/media/library/${hash}/brief%20report.pdf`
   );
   assert.equal(
     migrated.properties.noncanonical,
-    `/media/files/${hash}/brief%20report.pdf`
+    `/media/files/${hash}/brief report.pdf`
   );
 });
 

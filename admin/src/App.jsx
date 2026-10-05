@@ -32,6 +32,7 @@ import {
   slugTemplateFieldNames,
   uniqueFilenameStem
 } from "../../core/slug.js";
+import { createId } from "../../core/id.js";
 import { recordMediaFilenames } from "../../core/media.js";
 import {
   DEFAULT_LAYOUT_PREFERENCES,
@@ -75,7 +76,7 @@ import {
   slotMaximumViolationAfterDuplicating,
   slotMinimumViolationAfterRemoving,
   typeField,
-  uniqueRecordId,
+  uniqueCopyFilename,
   updateNode
 } from "./model/editor.js";
 import {
@@ -1205,29 +1206,28 @@ export default function App({ PreviewComponent = null }) {
       setError("Save the current changes before regenerating its YAML filename.");
       return;
     }
-    const existingIds = items
-      .map((item) => item.id)
-      .filter((id) => id !== record.id);
-    const nextId = uniqueFilenameStem(
+    const existingFilenames = items
+      .map((item) => item.filename)
+      .filter((filename) => filename !== record.filename);
+    const nextFilename = uniqueFilenameStem(
       renderSlugTemplate(collection.slug, {
         fields: record.properties,
         identifierField: collection.identifier_field || "title",
         date: new Date()
       }),
-      new Set(existingIds)
+      new Set(existingFilenames)
     );
-    const oldId = record.id;
-    if (nextId.toLowerCase() === oldId.toLowerCase()) {
+    if (nextFilename.toLowerCase() === record.filename.toLowerCase()) {
       showToast("Filename already matches the configured slug");
       return;
     }
     setSaving(true);
     setError("");
     try {
-      await api.rename(activeCollection, oldId, nextId);
+      await api.rename(activeCollection, record.id, nextFilename);
       setDirty(false);
-      await loadCollection(activeCollection, nextId);
-      showToast(`${oldId} renamed to ${nextId}`);
+      await loadCollection(activeCollection, record.id);
+      showToast(`${record.filename} renamed to ${nextFilename}`);
     } catch (renameError) {
       setError(renameError.message);
     } finally {
@@ -1235,20 +1235,26 @@ export default function App({ PreviewComponent = null }) {
     }
   }
 
-  async function insertCollectionItem({ choice, title, id, properties: initialProperties }) {
+  async function insertCollectionItem({
+    choice,
+    title,
+    filename,
+    properties: initialProperties
+  }) {
     setActiveTreeSelection("collection");
-    const newRecord = instantiateNode(choice.typeName, nodeTypes, {
-      id,
+    const node = instantiateNode(choice.typeName, nodeTypes, {
       order: choice.order,
-      properties: initialProperties
+      properties: initialProperties,
+      usedIds: new Set(items.map((item) => item.id))
     });
+    const newRecord = { id: node.id, filename, ...node };
     const properties = newRecord.properties;
     properties.title = title;
     if (
       newRecord.properties.slug === "" &&
       nodeTypes[choice.typeName]?.fields?.slug?.widget !== "slug"
     ) {
-      properties.slug = id;
+      properties.slug = filename;
     }
     const parentField = collection.hierarchy?.parent_field;
     if (parentField) properties[parentField] = choice.parent ?? null;
@@ -1299,7 +1305,7 @@ export default function App({ PreviewComponent = null }) {
     sourceRecords,
     copyContext,
     {
-      idSuffix = "copy",
+      filenameSuffix = "copy",
       titleSuffix = "",
       action = "pasted",
       focusCreated = true,
@@ -1309,6 +1315,7 @@ export default function App({ PreviewComponent = null }) {
     const createdItems = [];
     try {
       const usedIds = new Set(items.map((item) => item.id));
+      const usedFilenames = new Set(items.map((item) => item.filename));
       const copyDate = new Date();
       const prepared = sourceRecords.map((sourceRecord) => {
         const oldHierarchyId = collectionHierarchyValue(
@@ -1328,22 +1335,23 @@ export default function App({ PreviewComponent = null }) {
         if (titleSuffix && duplicate.properties?.title) {
           duplicate.properties.title = `${duplicate.properties.title} ${titleSuffix}`;
         }
-        duplicate.id = collection.slug
+        duplicate.filename = collection.slug
           ? uniqueFilenameStem(
               renderSlugTemplate(collection.slug, {
                 fields: duplicate.properties,
                 identifierField: collection.identifier_field || "title",
                 date: copyDate
               }),
-              usedIds
+              usedFilenames
             )
-          : uniqueRecordId(sourceRecord.id, usedIds, idSuffix);
+          : uniqueCopyFilename(sourceRecord.filename, usedFilenames, filenameSuffix);
+        duplicate.id = createId(usedIds);
         if ("slug" in (duplicate.properties ?? {})) {
           duplicate.properties.slug = String(
             sourceRecord.properties?.slug || ""
           ).startsWith("/")
-            ? `/${duplicate.id}`
-            : duplicate.id;
+            ? `/${duplicate.filename}`
+            : duplicate.filename;
         }
         return {
           duplicate,
@@ -1627,7 +1635,7 @@ export default function App({ PreviewComponent = null }) {
         records,
         { rootRecords, parent: null, focusedItem: null },
         {
-          idSuffix: "duplicate",
+          filenameSuffix: "duplicate",
           titleSuffix: "duplicate",
           action: "duplicated",
           focusCreated: !dirty,
@@ -2730,7 +2738,7 @@ export default function App({ PreviewComponent = null }) {
           nodeTypes={nodeTypes}
           collection={insertDialog === "collection" ? collection : undefined}
           collections={collections}
-          existingIds={items.map((item) => item.id)}
+          existingFilenames={items.map((item) => item.filename)}
           onCancel={() => setInsertDialog(null)}
           onInsert={
             insertDialog === "collection"

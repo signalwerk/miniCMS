@@ -41,7 +41,7 @@ function InsertionDialog({
   nodeTypes,
   collection,
   collections,
-  existingIds = [],
+  existingFilenames = [],
   onCancel,
   onInsert
 }) {
@@ -53,11 +53,11 @@ function InsertionDialog({
   const [selectedKey, setSelectedKey] = useState(initialMode?.choices[0]?.key || "");
   const [search, setSearch] = useState("");
   const [title, setTitle] = useState("");
-  const [recordId, setRecordId] = useState("");
+  const [filename, setFilename] = useState("");
   const [propertyOverridesByType, setPropertyOverridesByType] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const idWasEdited = useRef(false);
+  const filenameWasEdited = useRef(false);
   const creationDate = useRef(new Date()).current;
 
   const activeMode = modes.find((mode) => mode.id === modeId) || initialMode;
@@ -93,7 +93,7 @@ function InsertionDialog({
         .map((name) => typeField(selectedType, name))
         .filter(Boolean)
     : [];
-  const effectiveRecordId =
+  const effectiveFilename =
     kind === "collection" && collection?.slug
       ? uniqueFilenameStem(
           renderSlugTemplate(collection.slug, {
@@ -101,18 +101,18 @@ function InsertionDialog({
             identifierField,
             date: creationDate
           }),
-          new Set(existingIds)
+          new Set(existingFilenames)
         )
-      : recordId;
-  const duplicateId =
+      : filename;
+  const duplicateFilename =
     kind === "collection" &&
     !collection?.slug &&
-    existingIds.includes(effectiveRecordId);
+    existingFilenames.includes(effectiveFilename);
   const canInsert =
     selectedChoice &&
     !busy &&
     (kind !== "collection" ||
-      (title.trim() && effectiveRecordId && !duplicateId));
+      (title.trim() && effectiveFilename && !duplicateFilename));
 
   useEffect(() => {
     function handleEscape(event) {
@@ -141,7 +141,7 @@ function InsertionDialog({
         mode: activeMode.id,
         choice: selectedChoice,
         title: title.trim(),
-        id: effectiveRecordId,
+        filename: effectiveFilename,
         properties: previewProperties
       });
     } catch (insertError) {
@@ -246,8 +246,8 @@ function InsertionDialog({
                   value={title}
                   onChange={(event) => {
                     setTitle(event.target.value);
-                    if (!collection?.slug && !idWasEdited.current) {
-                      setRecordId(slugifyId(event.target.value));
+                    if (!collection?.slug && !filenameWasEdited.current) {
+                      setFilename(slugifyId(event.target.value));
                     }
                   }}
                   placeholder={`Untitled ${nodeTypes[selectedChoice.typeName]?.label || "item"}`}
@@ -255,13 +255,13 @@ function InsertionDialog({
               </div>
               <div className="field">
                 <div className="field__heading">
-                  <label htmlFor={collection?.slug ? undefined : "insert-id"}>
-                    {collection?.slug ? "Filename" : "Record ID"}
+                  <label htmlFor={collection?.slug ? undefined : "insert-filename"}>
+                    Filename
                   </label>
                 </div>
                 {collection?.slug ? (
                   <div className="generated-filename">
-                    <code>{`${effectiveRecordId}.${String(
+                    <code>{`${effectiveFilename}.${String(
                       collection.extension || "yml"
                     ).replace(/^\./, "")}`}</code>
                     <small title={collection.slug}>
@@ -270,17 +270,19 @@ function InsertionDialog({
                   </div>
                 ) : (
                   <input
-                    id="insert-id"
-                    value={recordId}
+                    id="insert-filename"
+                    value={filename}
                     onChange={(event) => {
-                      idWasEdited.current = true;
-                      setRecordId(slugifyId(event.target.value));
+                      filenameWasEdited.current = true;
+                      setFilename(slugifyId(event.target.value));
                     }}
-                    placeholder="record-id"
-                    aria-invalid={duplicateId}
+                    placeholder="filename"
+                    aria-invalid={duplicateFilename}
                   />
                 )}
-                {duplicateId && <small className="field-error">This ID already exists.</small>}
+                {duplicateFilename && (
+                  <small className="field-error">This filename already exists.</small>
+                )}
               </div>
               {templateFields.map((field) => (
                 <Field

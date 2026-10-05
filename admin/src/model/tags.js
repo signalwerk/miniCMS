@@ -4,7 +4,6 @@ import {
 } from "../../../core/slug.js";
 import {
   ID_PATTERN,
-  createId,
   isGeneratedIdWidget
 } from "../../../core/id.js";
 import { instantiateNode } from "./nodeFactory.js";
@@ -82,12 +81,12 @@ function createTagRecord({
 
   const typeName = collection?.node_type;
   const type = nodeTypes?.[typeName];
-  const valueField = collection?.views?.reference?.value;
+  const valueField = collection?.views?.reference?.value ?? "id";
   const titleField = collection?.views?.reference?.title;
   if (
     !type ||
-    !valueField ||
-    !isGeneratedIdWidget(type.fields?.[valueField]?.widget) ||
+    (!["id", "$id"].includes(valueField) &&
+      !isGeneratedIdWidget(type.fields?.[valueField]?.widget)) ||
     !titleField ||
     type.fields?.[titleField]?.widget !== "string"
   ) {
@@ -97,27 +96,25 @@ function createTagRecord({
   const generatedIdFields = Object.entries(type.fields ?? {})
     .filter(([, field]) => isGeneratedIdWidget(field.widget))
     .map(([fieldName]) => fieldName);
-  const usedGeneratedIds = new Set(
-    items.flatMap((item) =>
-      generatedIdFields
-        .map((fieldName) => item.properties?.[fieldName])
-        .filter((value) => typeof value === "string")
-    )
+  const usedIds = new Set(
+    items.flatMap((item) => [
+      item.id,
+      ...generatedIdFields.map((fieldName) => item.properties?.[fieldName])
+    ]).filter((value) => typeof value === "string")
   );
   const record = instantiateNode(typeName, nodeTypes, {
     properties: { [titleField]: name },
-    usedIds: usedGeneratedIds
+    usedIds
   });
   const properties = record.properties;
 
-  const usedIds = new Set(items.map((item) => item.id));
-  const id = uniqueFilenameStem(
+  const filename = uniqueFilenameStem(
     renderSlugTemplate(collection.slug, {
       fields: properties,
       identifierField: collection.identifier_field || titleField,
       date
     }),
-    usedIds
+    new Set(items.map((item) => item.filename))
   );
   const order =
     Math.max(
@@ -127,9 +124,14 @@ function createTagRecord({
       )
     ) + 1;
 
-  record.id = id;
-  record.order = order;
-  return record;
+  return {
+    id: record.id,
+    filename,
+    type: record.type,
+    order,
+    properties: record.properties,
+    slots: record.slots
+  };
 }
 
 async function createOrReuseTag({

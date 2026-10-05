@@ -584,12 +584,12 @@ function createContentAdapter({
     return { valid: true, ancestors: chain.reverse() };
   }
 
-  async function resolvedMedia(value, widget, collectionName) {
+  async function resolvedMedia(value, widget, collectionName, mediaFolder) {
     const resolveUrl =
       widget === "image"
         ? sourceApi.resolveImageUrl
         : sourceApi.resolveMediaUrl;
-    const context = { collection: collectionName };
+    const context = { collection: collectionName, mediaFolder };
     if (widget === "file" && typeof value === "string") {
       return value ? await resolveUrl(value, context) : value;
     }
@@ -641,7 +641,8 @@ function createContentAdapter({
         resolvedProperties[name] = await resolvedMedia(
           value,
           field.widget,
-          collectionName
+          collectionName,
+          field.media_folder
         );
       } else {
         resolvedProperties[name] = cloneValue(value);

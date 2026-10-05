@@ -21,14 +21,12 @@ function fixtureConfig() {
         branch: "main"
       }
     },
-    site: {
-      media_folder: "content/media",
-      public_folder: "/media"
-    },
+    site: {},
     node_types: {
       page: {
         fields: {
-          title: { widget: "string" }
+          title: { widget: "string" },
+          image: { widget: "image", media_folder: "content/media" }
         }
       }
     },
@@ -105,8 +103,8 @@ function slotDefaultConfig() {
       published_at: { widget: "datetime" },
       website: { widget: "url" },
       content_id: { widget: "id" },
-      image: { widget: "image" },
-      file: { widget: "file" },
+      image: { widget: "image", media_folder: "content/media" },
+      file: { widget: "file", media_folder: "content/media" },
       related: { widget: "reference", collection: "pages" }
     }
   };
@@ -218,7 +216,8 @@ test("enforces configured slot minimums for missing and short record slots", () 
     slots: {}
   });
   const record = {
-    id: "home",
+    id: "homepage0000001",
+    filename: "home",
     type: "page",
     order: 0,
     properties: { title: "Home" }
@@ -262,8 +261,30 @@ test("rejects overlapping collection and media storage folders", () => {
   assert.throws(() => validateConfig(nested), /folder overlaps collection/);
 
   const media = fixtureConfig();
-  media.site.media_folder = `${media.collections.pages.folder}/media`;
+  media.node_types.page.fields.image.media_folder =
+    `${media.collections.pages.folder}/media`;
   assert.throws(() => validateConfig(media), /media_folder overlaps/);
+
+  const siteMedia = fixtureConfig();
+  siteMedia.site.media_folder = "content/media";
+  assert.throws(
+    () => validateConfig(siteMedia),
+    /configure media_folder on each image or file field/
+  );
+
+  const missingMedia = fixtureConfig();
+  delete missingMedia.node_types.page.fields.image.media_folder;
+  assert.throws(
+    () => validateConfig(missingMedia),
+    /must define media_folder below content/
+  );
+
+  const textMedia = fixtureConfig();
+  textMedia.node_types.page.fields.title.media_folder = "content/media";
+  assert.throws(
+    () => validateConfig(textMedia),
+    /media_folder only for an image or file widget/
+  );
 
   const root = fixtureConfig();
   root.collections.pages.folder = "content";
@@ -715,6 +736,7 @@ test("normalizes legacy image accept strings to the array config shape", () => {
   const config = fixtureConfig();
   config.node_types.page.fields.image = {
     widget: "image",
+    media_folder: "content/media",
     accept: "image/png,image/svg+xml"
   };
 
@@ -729,6 +751,7 @@ test("requires canonical image defaults without persisted source keys", () => {
   const config = fixtureConfig();
   config.node_types.page.fields.image = {
     widget: "image",
+    media_folder: "content/media",
     default: { hash, filename: "Grüße.png" }
   };
   assert.deepEqual(validateConfig(config).node_types.page.fields.image.default, {
@@ -747,6 +770,7 @@ test("requires canonical image defaults without persisted source keys", () => {
     const invalid = fixtureConfig();
     invalid.node_types.page.fields.image = {
       widget: "image",
+      media_folder: "content/media",
       default: defaultValue
     };
     assert.throws(() => validateConfig(invalid, 400), /canonical hash/);
@@ -929,7 +953,7 @@ test("validates markdown BlockNote inline reference configuration", () => {
   );
 
   const structuredPreviewField = structuredClone(config);
-  structuredPreviewField.node_types.page.fields.poster = { widget: "image" };
+  structuredPreviewField.node_types.page.fields.poster = { widget: "image", media_folder: "content/media" };
   structuredPreviewField.node_types.page.fields.body.blocknote.inline_reference
     .preview_field = "poster";
   assert.throws(
@@ -1262,15 +1286,15 @@ test("validates URL fields and tag collection relations", () => {
   invalidIdentity.node_types.tag.fields.content_id.widget = "string";
   assert.throws(
     () => validateConfig(invalidIdentity, 400),
-    /tags value field "content_id" must use the id widget/
+    /tags value field "content_id" must be the record ID or use the id widget/
   );
 
   const recordIdentity = structuredClone(config);
-  recordIdentity.node_types.tag.fields.id = { widget: "id" };
-  recordIdentity.collections.tags.views.reference.value = "id";
-  assert.throws(
-    () => validateConfig(recordIdentity, 400),
-    /not its record ID/
+  delete recordIdentity.node_types.tag.fields.content_id;
+  delete recordIdentity.collections.tags.views.reference.value;
+  assert.equal(
+    validateConfig(recordIdentity, 400).collections.tags.views.reference.value,
+    undefined
   );
 
   const referenceOnlyOption = structuredClone(config);
@@ -1368,7 +1392,8 @@ test("requires persisted URL values to be empty or use HTTP(S)", () => {
   validateConfig(config);
   const collection = { name: "pages", ...config.collections.pages };
   const record = {
-    id: "home",
+    id: "homepage0000001",
+    filename: "home",
     type: "page",
     order: 0,
     properties: { title: "Home", website: "https://example.com/research" },
@@ -1417,7 +1442,8 @@ test("allows only configured canonical internal values in URL fields", () => {
   validateConfig(config);
   const collection = { name: "pages", ...config.collections.pages };
   const record = {
-    id: "home",
+    id: "homepage0000001",
+    filename: "home",
     type: "page",
     order: 0,
     properties: {
@@ -1454,7 +1480,8 @@ test("requires persisted slug values to use lowercase URL slug characters", () =
   validateConfig(config);
   const collection = { name: "pages", ...config.collections.pages };
   const record = {
-    id: "home",
+    id: "homepage0000001",
+    filename: "home",
     type: "page",
     order: 0,
     properties: { title: "Home", slug: "research-2026" },
@@ -1488,11 +1515,12 @@ test("requires persisted slug values to use lowercase URL slug characters", () =
 test("requires canonical persisted image assets and rejects legacy source keys", () => {
   const hash = "a".repeat(64);
   const config = fixtureConfig();
-  config.node_types.page.fields.image = { widget: "image" };
+  config.node_types.page.fields.image = { widget: "image", media_folder: "content/media" };
   validateConfig(config);
   const collection = { name: "pages", ...config.collections.pages };
   const record = {
-    id: "home",
+    id: "homepage0000001",
+    filename: "home",
     type: "page",
     order: 0,
     properties: {
@@ -1559,7 +1587,8 @@ test("requires persisted tag values to be unique generated-ID arrays", () => {
   validateConfig(config);
   const collection = { name: "pages", ...config.collections.pages };
   const record = {
-    id: "home",
+    id: "homepage0000001",
+    filename: "home",
     type: "page",
     order: 0,
     properties: { tags: ["aaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbb"] },
@@ -1594,7 +1623,8 @@ test("requires persisted multiple references to be unique scalar arrays", () => 
   validateConfig(config);
   const collection = { name: "pages", ...config.collections.pages };
   const record = {
-    id: "home",
+    id: "homepage0000001",
+    filename: "home",
     type: "page",
     order: 0,
     properties: {
@@ -1680,7 +1710,7 @@ test("validates target-published reference selections", () => {
   config.node_types.image = {
     fields: {
       uuid: { widget: "uuid" },
-      file: { widget: "image" }
+      file: { widget: "image", media_folder: "content/media" }
     }
   };
   config.collections.images = {
@@ -1759,7 +1789,7 @@ test("validates target-published reference selections", () => {
   );
 
   const mixedSources = structuredClone(config);
-  mixedSources.node_types.image.fields.alternate = { widget: "image" };
+  mixedSources.node_types.image.fields.alternate = { widget: "image", media_folder: "content/media" };
   mixedSources.collections.images.views.reference.selections.focus.options.field =
     "alternate";
   assert.throws(
@@ -1771,7 +1801,8 @@ test("validates target-published reference selections", () => {
 test("summarizes records consistently across storage adapters", () => {
   const summary = summarizeRecord(
     {
-      id: "home",
+      id: "homepage0000001",
+      filename: "home",
       type: "page",
       order: 2,
       properties: {

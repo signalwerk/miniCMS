@@ -187,12 +187,6 @@ function createContentTypeDefinition({
     kind: "content",
     icon: "file-text",
     fields: {
-      content_id: {
-        label: "ID",
-        widget: "id",
-        readonly: true,
-        required: true
-      },
       title: {
         label: "Title",
         widget: "string",
@@ -253,14 +247,16 @@ function collectionFolderConflict(config, currentKey, folder, connector) {
       return `The folder “${candidate}” conflicts with collection “${key}”.`;
     }
   }
-  const mediaFolder = normalizedFolder(config.site?.media_folder);
-  if (
-    connector === "default" &&
-    candidate &&
-    mediaFolder &&
-    pathsOverlap(candidate, mediaFolder)
-  ) {
-    return `The folder “${candidate}” conflicts with the project media folder.`;
+  if (connector === "default" && candidate) {
+    for (const [typeName, type] of Object.entries(config.node_types ?? {})) {
+      if (type.connector) continue;
+      for (const [fieldName, field] of Object.entries(type.fields ?? {})) {
+        const mediaFolder = normalizedFolder(field.media_folder);
+        if (mediaFolder && pathsOverlap(candidate, mediaFolder)) {
+          return `The folder “${candidate}” conflicts with the media folder of “${typeName}.${fieldName}”.`;
+        }
+      }
+    }
   }
   return "";
 }

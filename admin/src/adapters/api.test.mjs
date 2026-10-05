@@ -301,12 +301,18 @@ test("uses the active API capability and its latest config for images and info",
   assert.equal(calls.length, 3);
 });
 
-test("maps a configured public media folder to the fixed service namespace", async () => {
+test("maps configured field media folders to the fixed service namespace", async () => {
   const browser = browserFixture("http://127.0.0.1:4321");
   const config = {
-    site: { public_folder: "/assets/library/" },
+    site: {},
     collections: {},
-    node_types: {}
+    node_types: {
+      document: {
+        fields: {
+          attachment: { widget: "file", media_folder: "content/library" }
+        }
+      }
+    }
   };
   const adapter = await createApiAdapter({
     windowObject: browser.windowObject,
@@ -324,15 +330,9 @@ test("maps a configured public media folder to the fixed service namespace", asy
   await adapter.config();
   assert.equal(
     adapter.resolveMediaUrl(
-      `/assets/library/files/${TEST_SHA}/research-draft.pdf?download=1#page=2`
+      `content/library/${TEST_SHA}/research-draft.pdf?download=1#page=2`
     ),
-    `http://127.0.0.1:4321/media/files/${TEST_SHA}/research-draft.pdf?download=1#page=2`
-  );
-  assert.equal(
-    adapter.resolveMediaUrl(
-      `assets/library/files/${TEST_SHA}/report.pdf`
-    ),
-    `http://127.0.0.1:4321/media/files/${TEST_SHA}/report.pdf`
+    `http://127.0.0.1:4321/media/${TEST_SHA}/research-draft.pdf?download=1#page=2`
   );
   assert.equal(
     adapter.resolveMediaUrl(
@@ -565,14 +565,19 @@ test("returns duplicate upload choices and forwards the explicit resolution", as
   });
   const file = { name: "hero.png", type: "image/png" };
   assert.deepEqual(
-    await adapter.uploadMedia(file, "images", { widget: "image" }),
+    await adapter.uploadMedia(file, "images", { widget: "image", mediaFolder: "content/media" }),
     duplicate
   );
   assert.equal(uploads[0].url.searchParams.get("widget"), "image");
+  assert.equal(
+    uploads[0].url.searchParams.get("media_folder"),
+    "content/media"
+  );
   assert.equal(uploads[0].url.searchParams.has("duplicate"), false);
   assert.deepEqual(
     await adapter.uploadMedia(file, "images", {
       widget: "image",
+      mediaFolder: "content/media",
       duplicate: "copy"
     }),
     { hash: TEST_SHA, filename: "hero-2.png" }

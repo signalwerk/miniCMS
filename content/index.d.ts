@@ -58,6 +58,8 @@ export interface ContentNode {
 }
 
 export interface ContentRecord extends ContentNode {
+  /** Readable YAML filename stem; `id` is the opaque stable identity. */
+  filename: string;
   order: number;
 }
 
@@ -133,8 +135,6 @@ export interface CmsConfig extends UnknownMapping {
   site?: {
     name?: string;
     locale?: string;
-    media_folder?: string;
-    public_folder?: string;
     image_processing?: ImageProcessingConfig;
     reference_sets?: Record<string, ReferenceSetConfig>;
     [key: string]: unknown;

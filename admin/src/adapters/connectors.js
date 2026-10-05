@@ -768,12 +768,12 @@ async function createConnectorAdapter({
         collectionName
       );
     },
-    async rename(collectionName, id, nextId) {
+    async rename(collectionName, id, filename) {
       const route = connectorRoute(collectionName);
       const result = await route.adapter.rename(
         route.remoteCollection,
         id,
-        nextId
+        filename
       );
       return mapAdapterResult(
         result,

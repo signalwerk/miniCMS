@@ -18,7 +18,6 @@ import {
 function fixture() {
   return {
     site: {
-      media_folder: "content/media",
       reference_sets: {
         notes: {
           collections: ["sources", "people"],
@@ -46,7 +45,8 @@ function fixture() {
           destination: {
             widget: "url",
             internal_links: { collections: ["pages", "sources"] }
-          }
+          },
+          hero: { widget: "image", media_folder: "content/media" }
         },
         slots: {
           content: { allowed_types: ["quote", "source"] }
@@ -64,7 +64,7 @@ function fixture() {
         connector: "central",
         remote_type: "image",
         label: "Image",
-        fields: { file: { label: "File", widget: "image" } }
+        fields: { file: { label: "File", widget: "image", media_folder: "content/media" } }
       }
     },
     collections: {
@@ -102,12 +102,12 @@ function fixture() {
   };
 }
 
-test("creates local content types with ID and Title fields", () => {
+test("creates local content types with a Title field", () => {
   const definition = createContentTypeDefinition({
     key: "article",
     label: "Article"
   });
-  assert.deepEqual(Object.keys(definition.fields), ["content_id", "title"]);
+  assert.deepEqual(Object.keys(definition.fields), ["title"]);
   assert.deepEqual(
     definition,
     {
@@ -115,12 +115,6 @@ test("creates local content types with ID and Title fields", () => {
       kind: "content",
       icon: "file-text",
       fields: {
-        content_id: {
-          label: "ID",
-          widget: "id",
-          readonly: true,
-          required: true
-        },
         title: {
           label: "Title",
           widget: "string",
@@ -145,12 +139,6 @@ test("creates connector-owned content types with the same default fields", () =>
       kind: "content",
       icon: "file-text",
       fields: {
-        content_id: {
-          label: "ID",
-          widget: "id",
-          readonly: true,
-          required: true
-        },
         title: {
           label: "Title",
           widget: "string",
@@ -629,7 +617,7 @@ test("offers internal links only for text-backed published identities", () => {
     fields: { sequence: { widget: "number" } }
   };
   config.node_types.structured = {
-    fields: { asset: { widget: "image" } }
+    fields: { asset: { widget: "image", media_folder: "content/media" } }
   };
   config.node_types.string_select = {
     fields: {

@@ -19,8 +19,11 @@ import { createFilesystemContentAdapter } from "./fs.js";
 const IMAGE_SHA = "a".repeat(64);
 const FILE_SHA = "b".repeat(64);
 const IMAGE_ASSET = Object.freeze({ hash: IMAGE_SHA, filename: "picture.jpg" });
-const GITHUB_IMAGE_SOURCE = `/media/${IMAGE_SHA}/picture.jpg`;
-const FILE_SOURCE = `/media/files/${FILE_SHA}/research.pdf`;
+const GITHUB_IMAGE_SOURCE = `content/media/${IMAGE_SHA}/picture.jpg`;
+const FILE_SOURCE = `content/media/${FILE_SHA}/research.pdf`;
+const HOME_ID = "pagehome0000001";
+const SECOND_ID = "pagesecond00001";
+const PICTURE_ID = "imagepicture001";
 
 const configuration = `connectors:
   default:
@@ -47,10 +50,9 @@ node_types:
   media_image:
     kind: document
     fields:
-      uuid: {widget: uuid}
       title: {widget: string}
-      file: {widget: image}
-      download: {widget: file}
+      file: {widget: image, media_folder: content/media}
+      download: {widget: file, media_folder: content/media}
   note:
     kind: document
     fields:
@@ -64,9 +66,6 @@ collections:
     folder: content/images
     extension: yaml
     node_type: media_image
-    views:
-      reference:
-        value: uuid
   notes:
     folder: content/notes
     extension: yml
@@ -81,7 +80,8 @@ async function fixture(t) {
   await writeFile(path.join(root, "cms.config.yml"), configuration, "utf8");
   await writeFile(
     path.join(root, "content", "pages", "second.yml"),
-    `id: second
+    `id: ${SECOND_ID}
+filename: second
 type: page
 order: 2
 properties:
@@ -92,7 +92,8 @@ slots: {}
   );
   await writeFile(
     path.join(root, "content", "pages", "home.yml"),
-    `id: home
+    `id: ${HOME_ID}
+filename: home
 type: page
 order: 0
 properties:
@@ -102,18 +103,18 @@ slots:
     - id: hero
       type: image
       properties:
-        asset: image-uuid
+        asset: ${PICTURE_ID}
       slots: {}
 `,
     "utf8"
   );
   await writeFile(
     path.join(root, "content", "images", "picture.yaml"),
-    `id: picture
+    `id: ${PICTURE_ID}
+filename: picture
 type: media_image
 order: 0
 properties:
-  uuid: image-uuid
   title: Picture
   file:
     hash: ${IMAGE_SHA}
@@ -138,23 +139,27 @@ test("loads every configured collection and resolves references from YAML", asyn
   const root = await fixture(t);
   const adapter = await createFilesystemContentAdapter({
     projectRoot: pathToFileURL(`${root}/`),
-    resolveMediaUrl: (value) => `/research${value}`
+    resolveMediaUrl: (value) => `/research/${value}`
   });
 
   assert.equal(adapter.config().site.name, "Filesystem fixture");
   const pages = await adapter.list("pages");
   assert.equal(pages.config, adapter.config());
   assert.equal(pages.collection.name, "pages");
-  assert.deepEqual(pages.items.map((item) => item.id), ["home", "second"]);
+  assert.deepEqual(pages.items.map((item) => item.id), [HOME_ID, SECOND_ID]);
+  assert.deepEqual(
+    pages.items.map((item) => item.filename),
+    ["home", "second"]
+  );
   assert.equal(
     pages.items[0].slots.content[0].properties.asset.record.properties.file.src,
-    `/research${GITHUB_IMAGE_SOURCE}`
+    `/research/${GITHUB_IMAGE_SOURCE}`
   );
   assert.deepEqual((await adapter.list("notes")).items, []);
   assert.equal((await adapter.list("images")).items.length, 1);
   assert.equal((await adapter.get("pages", "missing")), null);
   assert.deepEqual(
-    (await adapter.get("pages", "home")).item,
+    (await adapter.get("pages", HOME_ID)).item,
     pages.items[0]
   );
 });
@@ -163,11 +168,11 @@ test("accepts a dedicated image resolver without changing file resolution", asyn
   const root = await fixture(t);
   const adapter = await createFilesystemContentAdapter({
     projectRoot: root,
-    resolveMediaUrl: (value) => `/raw${value}`,
+    resolveMediaUrl: (value) => `/raw/${value}`,
     resolveImageUrl: (value) => `/image-service/${value.filename}`
   });
 
-  const page = await adapter.get("pages", "home");
+  const page = await adapter.get("pages", HOME_ID);
   assert.equal(
     page.item.slots.content[0].properties.asset.record.properties.file.src,
     "/image-service/picture.jpg"
@@ -210,7 +215,8 @@ collections:
   );
   await writeFile(
     path.join(root, "content", "pages", "home.yml"),
-    `id: home
+    `id: ${HOME_ID}
+filename: home
 type: page
 order: 0
 properties:
@@ -231,9 +237,8 @@ slots: {}
     node_types: {
       media_image: {
         fields: {
-          content_id: { widget: "id" },
           title: { widget: "string" },
-          file: { widget: "image" }
+          file: { widget: "image", media_folder: "content/media" }
         }
       }
     },
@@ -242,17 +247,17 @@ slots: {}
         folder: "content/images",
         node_type: "media_image",
         views: {
-          reference: { value: "content_id", title: "title", image: "file" }
+          reference: { title: "title", image: "file" }
         }
       }
     }
   };
   const remoteImage = {
-    id: "hero",
+    id: "aaaaaaaaaaaaaaa",
+    filename: "hero",
     type: "media_image",
     order: 0,
     properties: {
-      content_id: "aaaaaaaaaaaaaaa",
       title: "Central hero",
       file: { hash: IMAGE_SHA, filename: "hero.jpg" }
     },
@@ -283,7 +288,7 @@ slots: {}
     }
   });
 
-  const page = await adapter.get("pages", "home");
+  const page = await adapter.get("pages", HOME_ID);
   const resolved = page.item.properties.hero.record;
   assert.equal(adapter.config().collections.shared_images.node_type, "shared_image");
   assert.equal(resolved.type, "shared_image");
@@ -292,9 +297,12 @@ slots: {}
     resolved.properties.file.src,
     `https://media.example.test/derived/media/images/${IMAGE_SHA}/hero.jpg`
   );
-  assert.deepEqual(mediaCalls.at(-1).context, { collection: "images" });
+  assert.deepEqual(mediaCalls.at(-1).context, {
+    collection: "images",
+    mediaFolder: "content/media"
+  });
   assert.equal(
-    (await adapter.get("shared_images", "hero")).item.type,
+    (await adapter.get("shared_images", "aaaaaaaaaaaaaaa")).item.type,
     "shared_image"
   );
 
@@ -321,7 +329,7 @@ slots: {}
       });
     }
   });
-  const automaticallyResolved = (await automatic.get("pages", "home"))
+  const automaticallyResolved = (await automatic.get("pages", HOME_ID))
     .item.properties.hero.record;
   assert.equal(
     new URL(automaticallyResolved.properties.file.src).origin,
@@ -344,7 +352,7 @@ test("can use the image service independently from content persistence", async (
     projectRoot: root,
     imageServiceBaseUrl: "https://images.example.test"
   });
-  const imageRecord = (await adapter.get("pages", "home"))
+  const imageRecord = (await adapter.get("pages", HOME_ID))
     .item.slots.content[0].properties.asset.record;
 
   assert.equal(
@@ -356,7 +364,7 @@ test("can use the image service independently from content persistence", async (
       collection: "images"
     })
   );
-  assert.equal(imageRecord.properties.download, FILE_SOURCE);
+  assert.equal(imageRecord.properties.download, `/${FILE_SOURCE}`);
 });
 
 test("keeps GitHub-backed images and files on public media URLs", async (t) => {
@@ -365,16 +373,16 @@ test("keeps GitHub-backed images and files on public media URLs", async (t) => {
     projectRoot: root,
     publicBase: "/project/"
   });
-  const imageRecord = (await adapter.get("pages", "home"))
+  const imageRecord = (await adapter.get("pages", HOME_ID))
     .item.slots.content[0].properties.asset.record;
 
   assert.equal(
     imageRecord.properties.file.src,
-    `/project${GITHUB_IMAGE_SOURCE}`
+    `/project/${GITHUB_IMAGE_SOURCE}`
   );
   assert.equal(
     imageRecord.properties.download,
-    `/project${FILE_SOURCE}`
+    `/project/${FILE_SOURCE}`
   );
 });
 
@@ -396,7 +404,7 @@ test("uses the shared media service defaults for an API default connector", asyn
 );
   await writeFile(path.join(root, "cms.config.yml"), apiConfig, "utf8");
   const adapter = await createFilesystemContentAdapter({ projectRoot: root });
-  const imageRecord = (await adapter.get("pages", "home"))
+  const imageRecord = (await adapter.get("pages", HOME_ID))
     .item.slots.content[0].properties.asset.record;
 
   assert.equal(
@@ -424,10 +432,10 @@ test("supports an absolute public base without changing external media URLs", as
     publicBase: "https://example.test/project/"
   });
 
-  const page = await adapter.get("pages", "home");
+  const page = await adapter.get("pages", HOME_ID);
   assert.equal(
     page.item.slots.content[0].properties.asset.record.properties.file.src,
-    `https://example.test/project${GITHUB_IMAGE_SOURCE}`
+    `https://example.test/project/${GITHUB_IMAGE_SOURCE}`
   );
 });
 
@@ -435,7 +443,8 @@ test("validates YAML records instead of silently returning malformed content", a
   const root = await fixture(t);
   await writeFile(
     path.join(root, "content", "pages", "broken.yml"),
-    `id: broken
+    `id: brokenpage00001
+filename: broken
 type: unknown
 properties: {}
 slots: {}
@@ -457,7 +466,8 @@ test("rejects traversal, mismatched record IDs, and symlinked records", async (t
 
   await writeFile(
     path.join(root, "content", "pages", "wrong.yml"),
-    `id: another-id
+    `id: wrongpage000001
+filename: another-name
 type: page
 order: 0
 properties:
@@ -467,14 +477,15 @@ slots: {}
     "utf8"
   );
   await assert.rejects(
-    adapter.get("pages", "wrong"),
-    /contains id "another-id"/
+    adapter.get("pages", "wrongpage000001"),
+    /contains filename "another-name"/
   );
 
   const outside = path.join(root, "outside.yml");
   await writeFile(
     outside,
-    `id: linked
+    `id: linkedpage00001
+filename: linked
 type: page
 order: 0
 properties:
@@ -485,7 +496,7 @@ slots: {}
   );
   await symlink(outside, path.join(root, "content", "pages", "linked.yml"));
   await assert.rejects(
-    adapter.get("pages", "linked"),
+    adapter.get("pages", "linkedpage00001"),
     /must be a regular file/
   );
 });

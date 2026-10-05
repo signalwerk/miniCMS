@@ -345,6 +345,9 @@ async function createApiAdapter({
     if (["image", "file"].includes(options.widget)) {
       query.set("widget", options.widget);
     }
+    if (typeof options.mediaFolder === "string" && options.mediaFolder) {
+      query.set("media_folder", options.mediaFolder);
+    }
     if (["reuse", "copy"].includes(options.duplicate)) {
       query.set("duplicate", options.duplicate);
     }
@@ -409,13 +412,13 @@ async function createApiAdapter({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(record)
       }),
-    rename: (collection, id, nextId) =>
+    rename: (collection, id, filename) =>
       request(
         `/api/collections/${encodeURIComponent(collection)}/${encodeURIComponent(id)}/rename`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id: nextId })
+          body: JSON.stringify({ filename })
         }
       ),
     uploadMedia,

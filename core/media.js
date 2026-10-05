@@ -81,6 +81,23 @@ function configuredCollectionMediaAccept(
   collection,
   widgets = ["image", "file"]
 ) {
+  return [
+    ...new Set(
+      configuredCollectionMediaFields(config, collection, widgets).flatMap(
+        ({ field }) => acceptTokens(
+          field.accept ??
+            (field.widget === "file" ? DEFAULT_FILE_ACCEPT : DEFAULT_IMAGE_ACCEPT)
+        )
+      )
+    )
+  ];
+}
+
+function configuredCollectionMediaFields(
+  config,
+  collection,
+  widgets = ["image", "file"]
+) {
   const acceptedWidgets = new Set(
     (Array.isArray(widgets) ? widgets : [widgets]).filter((widget) =>
       ["image", "file"].includes(widget)
@@ -105,14 +122,9 @@ function configuredCollectionMediaAccept(
     const type = config?.node_types?.[typeName];
     if (!type) continue;
 
-    for (const field of Object.values(type.fields ?? {})) {
+    for (const [name, field] of Object.entries(type.fields ?? {})) {
       if (!acceptedWidgets.has(field?.widget)) continue;
-      configured.push(
-        ...acceptTokens(
-          field.accept ??
-            (field.widget === "file" ? DEFAULT_FILE_ACCEPT : DEFAULT_IMAGE_ACCEPT)
-        )
-      );
+      configured.push({ typeName, name, field });
     }
     for (const slot of Object.values(type.slots ?? {})) {
       if (Array.isArray(slot?.allowed_types)) {
@@ -121,7 +133,7 @@ function configuredCollectionMediaAccept(
     }
   }
 
-  return [...new Set(configured)];
+  return configured;
 }
 
 const configuredImageAccept = configuredMediaAccept;
@@ -268,19 +280,73 @@ function imageAssetMediaPath(
   {
     storage = "api",
     collection,
-    publicFolder = "/media"
+    mediaFolder
   } = {}
 ) {
   const asset = imageAsset(value);
   if (!asset) return "";
-  const prefix = String(publicFolder || "/media").replace(/\/+$/, "");
   if (storage === "github") {
-    return `${prefix}/${asset.hash}/${encodeMediaSegment(asset.filename)}`;
+    const folder = normalizedMediaFolder(mediaFolder);
+    return folder
+      ? `${folder}/${asset.hash}/${encodeMediaSegment(asset.filename)}`
+      : "";
   }
   if (storage !== "api") return "";
   const collectionName = String(collection ?? "");
   if (!MEDIA_COLLECTION_PATTERN.test(collectionName)) return "";
-  return `${prefix}/${encodeMediaSegment(collectionName)}/${asset.hash}/${encodeMediaSegment(asset.filename)}`;
+  return `/media/${encodeMediaSegment(collectionName)}/${asset.hash}/${encodeMediaSegment(asset.filename)}`;
+}
+
+function normalizedMediaFolder(value) {
+  const folder = String(value ?? "").replace(/^\/+|\/+$/g, "");
+  if (!folder.startsWith("content/")) return "";
+  const segments = folder.split("/");
+  return segments.every(
+    (segment) =>
+      segment &&
+      segment !== "." &&
+      segment !== ".." &&
+      !/[\\\u0000-\u001f\u007f]/.test(segment)
+  )
+    ? folder
+    : "";
+}
+
+function configuredMediaFolders(config, collection) {
+  const fields = collection
+    ? configuredCollectionMediaFields(config, collection)
+    : Object.values(config?.node_types ?? {}).flatMap((type) =>
+        Object.values(type?.fields ?? {})
+          .filter((field) => ["image", "file"].includes(field?.widget))
+          .map((field) => ({ field }))
+      );
+  return [
+    ...new Set(
+      fields
+        .map(({ field }) => normalizedMediaFolder(field.media_folder))
+        .filter(Boolean)
+    )
+  ];
+}
+
+function uploadFieldAccept(config, collection, widget, mediaFolder) {
+  const folder = normalizedMediaFolder(mediaFolder);
+  const fields = folder
+    ? configuredCollectionMediaFields(config, collection, widget).filter(
+        ({ field }) => normalizedMediaFolder(field.media_folder) === folder
+      )
+    : [];
+  if (!fields.length) return null;
+  return [
+    ...new Set(
+      fields.flatMap(({ field }) =>
+        acceptTokens(
+          field.accept ??
+            (field.widget === "file" ? DEFAULT_FILE_ACCEPT : DEFAULT_IMAGE_ACCEPT)
+        )
+      )
+    )
+  ];
 }
 
 function mediaValueSource(value) {
@@ -294,13 +360,15 @@ function recordMediaSources(record, config) {
     const fields = config?.node_types?.[node?.type]?.fields ?? {};
     for (const [fieldName, field] of Object.entries(fields)) {
       if (!["image", "file"].includes(field?.widget)) continue;
+      const mediaFolder = normalizedMediaFolder(field.media_folder);
+      if (!mediaFolder) continue;
       const value = node?.properties?.[fieldName];
       if (field.widget === "image") {
         const asset = imageAsset(value);
-        if (asset) sources.push({ widget: "image", value: asset });
+        if (asset) sources.push({ widget: "image", value: asset, mediaFolder });
       } else {
         const source = mediaValueSource(value);
-        if (source) sources.push({ widget: "file", value: source });
+        if (source) sources.push({ widget: "file", value: source, mediaFolder });
       }
     }
     for (const children of Object.values(node?.slots ?? {})) {
@@ -311,24 +379,11 @@ function recordMediaSources(record, config) {
   return sources;
 }
 
-function mediaStoragePath(source, config) {
+function mediaStoragePath(source, mediaFolder) {
   const value = mediaValueSource(source);
-  if (!value) return null;
-  const mediaFolder = String(
-    config?.site?.media_folder || "content/media"
-  ).replace(/^\/+|\/+$/g, "");
-  const publicFolder = String(
-    config?.site?.public_folder || "/media"
-  ).replace(/\/+$/, "");
-  let relativePath = "";
-  if (value.startsWith(`${publicFolder}/`)) {
-    relativePath = value.slice(publicFolder.length + 1);
-  } else if (value.startsWith(`${mediaFolder}/`)) {
-    relativePath = value.slice(mediaFolder.length + 1);
-  } else {
-    return null;
-  }
-  relativePath = relativePath.split(/[?#]/, 1)[0];
+  const folder = normalizedMediaFolder(mediaFolder);
+  if (!value || !folder || !value.startsWith(`${folder}/`)) return null;
+  const relativePath = value.slice(folder.length + 1).split(/[?#]/, 1)[0];
   let segments;
   try {
     segments = relativePath.split("/").map((segment) => decodeURIComponent(segment));
@@ -350,40 +405,37 @@ function mediaStoragePath(source, config) {
   ) {
     return null;
   }
-  return `${mediaFolder}/${segments.join("/")}`;
+  return `${folder}/${segments.join("/")}`;
 }
 
-function apiMediaStoragePath(source, config) {
-  const storagePath = mediaStoragePath(source, config);
-  if (!storagePath) return null;
-  const mediaFolder = String(
-    config?.site?.media_folder || "content/media"
-  ).replace(/^\/+|\/+$/g, "");
-  const relative = storagePath.slice(mediaFolder.length + 1);
-  const segments = relative.split("/");
-  if (segments.length !== 3 || !IMAGE_HASH_PATTERN.test(segments[1])) {
+function apiMediaStoragePath(source, mediaFolder, collection) {
+  const value = mediaValueSource(source);
+  const folder = normalizedMediaFolder(mediaFolder);
+  if (!value || !folder || !MEDIA_COLLECTION_PATTERN.test(String(collection ?? ""))) {
     return null;
   }
-  return `${mediaFolder}/${segments[0]}/${segments[1]}/asset.dat`;
+  const pathname = value.split(/[?#]/, 1)[0];
+  const prefix = `/media/${encodeMediaSegment(collection)}/`;
+  if (!pathname.startsWith(prefix)) return null;
+  const segments = pathname.slice(prefix.length).split("/");
+  if (segments.length !== 2 || !IMAGE_HASH_PATTERN.test(segments[0])) return null;
+  return `${folder}/${collection}/${segments[0]}/asset.dat`;
 }
 
 function recordMediaStoragePaths(record, config, options = {}) {
   const storage = options.storage || "github";
-  const mediaFolder = String(
-    config?.site?.media_folder || "content/media"
-  ).replace(/^\/+|\/+$/g, "");
   const collection = String(options.collection ?? "");
   const paths = recordMediaSources(record, config).flatMap((entry) => {
     if (entry.widget === "image") {
       if (storage === "api") {
         if (!MEDIA_COLLECTION_PATTERN.test(collection)) return [];
-        return [`${mediaFolder}/${collection}/${entry.value.hash}/asset.dat`];
+        return [`${entry.mediaFolder}/${collection}/${entry.value.hash}/asset.dat`];
       }
-      return [`${mediaFolder}/${entry.value.hash}/${entry.value.filename}`];
+      return [`${entry.mediaFolder}/${entry.value.hash}/${entry.value.filename}`];
     }
     const path = storage === "api"
-      ? apiMediaStoragePath(entry.value, config)
-      : mediaStoragePath(entry.value, config);
+      ? apiMediaStoragePath(entry.value, entry.mediaFolder, collection)
+      : mediaStoragePath(entry.value, entry.mediaFolder);
     return path ? [path] : [];
   });
   return [...new Set(paths)];
@@ -412,8 +464,11 @@ export {
   IMAGE_HASH_PATTERN,
   acceptTokens,
   configuredCollectionMediaAccept,
+  configuredCollectionMediaFields,
   configuredImageAccept,
   configuredMediaAccept,
+  configuredMediaFolders,
+  encodeMediaSegment,
   imageAsset,
   imageAssetMediaPath,
   isCanonicalImageAsset,
@@ -424,9 +479,11 @@ export {
   mediaStoragePath,
   mediaValueSource,
   normalizedMediaFilename,
+  normalizedMediaFolder,
   recordMediaFilenames,
   recordMediaSources,
   recordMediaStoragePaths,
   sha256Hex,
+  uploadFieldAccept,
   validateMediaAccept
 };

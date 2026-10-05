@@ -199,6 +199,7 @@ test("keeps scalar values readable when a non-image widget uses image display", 
   assert.equal(
     displayValue("/media/previews/card.png", {
       widget: "file",
+      media_folder: "content/media",
       display: "image"
     }),
     "/media/previews/card.png"

@@ -208,15 +208,18 @@ test("builds an info route for the original source metadata", () => {
 
 test("maps API-backed raw media into the fixed service namespace", () => {
   const config = {
-    site: {
-      media_folder: "content/uploads",
-      public_folder: "/assets/library"
+    node_types: {
+      document: {
+        fields: {
+          attachment: { widget: "file", media_folder: "content/uploads" },
+          archive: { widget: "file", media_folder: "content/assets/library" }
+        }
+      }
     }
   };
-  const publicFile =
-    `/assets/library/files/${CONTENT_SHA}/report.pdf?download=1`;
+  const serviceFile = `/media/files/${CONTENT_SHA}/report.pdf?download=1`;
   assert.equal(
-    buildImageServiceMediaUrl(publicFile, {
+    buildImageServiceMediaUrl(serviceFile, {
       baseUrl: "https://content.example.test",
       config
     }),
@@ -232,14 +235,13 @@ test("maps API-backed raw media into the fixed service namespace", () => {
   assert.equal(
     imageServiceMediaPath(
       `content/assets/library/files/${CONTENT_SHA}/report.pdf`,
-      {
-      site: {
-        media_folder: "content/assets/library",
-        public_folder: "/content"
-      }
-      }
+      config
     ),
     `/media/files/${CONTENT_SHA}/report.pdf`
+  );
+  assert.equal(
+    imageServiceMediaPath(`content/unconfigured/${CONTENT_SHA}/report.pdf`, config),
+    `/content/unconfigured/${CONTENT_SHA}/report.pdf`
   );
   assert.equal(
     buildImageServiceMediaUrl("https://cdn.example.test/report.pdf", {
@@ -447,15 +449,18 @@ test("normalizes service origins and maps configured public media paths", () => 
   );
   assert.equal(
     imageServiceMediaPath(
-      `/assets/library/files/${CONTENT_SHA}/report.pdf?download=1`,
+      `content/uploads/${CONTENT_SHA}/report.pdf?download=1`,
       {
-      site: {
-        media_folder: "content/uploads",
-        public_folder: "/assets/library"
-      }
+        node_types: {
+          document: {
+            fields: {
+              attachment: { widget: "file", media_folder: "content/uploads" }
+            }
+          }
+        }
       }
     ),
-    `/media/files/${CONTENT_SHA}/report.pdf?download=1`
+    `/media/${CONTENT_SHA}/report.pdf?download=1`
   );
   assert.equal(
     buildImageServiceMediaUrl("//cdn.example.com/report.pdf", {

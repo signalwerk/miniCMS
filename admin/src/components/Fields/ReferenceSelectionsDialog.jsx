@@ -17,6 +17,7 @@ import {
 } from "../../model/imageGeometry.js";
 import {
   normalizeReferenceValue,
+  referenceFieldMediaFolder,
   referenceItemValue,
   referenceSelectionOptions
 } from "../../model/reference.js";
@@ -85,6 +86,7 @@ function firstSelectedAnnotation(definitions, optionsByName, draft, kind) {
 
 function ReferenceSelectionsDialog({
   collection,
+  nodeTypes,
   definitions,
   item,
   value,
@@ -116,7 +118,8 @@ function ReferenceSelectionsDialog({
     width: 1600,
     height: 1600,
     fit: "inside",
-    collection: collection.name
+    collection: collection.name,
+    mediaFolder: referenceFieldMediaFolder(item, sourceField, nodeTypes)
   });
   const storedWidth = positiveNumber(sourceValue?.width);
   const storedHeight = positiveNumber(sourceValue?.height);

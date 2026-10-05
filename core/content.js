@@ -1147,6 +1147,28 @@ function validateConfig(config, status = 500, { source = false } = {}) {
       ) {
         field.accept = acceptTokens(field.accept);
       }
+      if (["image", "file"].includes(field.widget)) {
+        if (typeof field.media_folder !== "string" || !field.media_folder) {
+          fail(
+            `Field "${typeName}.${fieldName}" must define media_folder below content/.`
+          );
+        }
+        const mediaFolder = assertContentPath(
+          field.media_folder,
+          `Field "${typeName}.${fieldName}" media_folder`,
+          status
+        );
+        if (mediaFolder === "content") {
+          fail(
+            `Field "${typeName}.${fieldName}" media_folder must be below content/.`
+          );
+        }
+        field.media_folder = mediaFolder;
+      } else if (field.media_folder !== undefined) {
+        fail(
+          `Field "${typeName}.${fieldName}" may define media_folder only for an image or file widget.`
+        );
+      }
       if (
         field.widget === "image" &&
         field.default !== undefined &&
@@ -1602,23 +1624,33 @@ function validateConfig(config, status = 500, { source = false } = {}) {
     collectionFoldersByConnector.set(connector, configured);
   }
 
-  const mediaFolder = assertContentPath(
-    config.site?.media_folder || "content/media",
-    "site.media_folder",
-    status
-  );
-  if (mediaFolder === "content") {
-    fail("site.media_folder must be below content/.");
+  if (
+    config.site?.media_folder !== undefined ||
+    config.site?.public_folder !== undefined
+  ) {
+    fail(
+      "site.media_folder and site.public_folder are not supported; configure media_folder on each image or file field."
+    );
   }
-  for (const collection of collectionFoldersByConnector.get("default") ?? []) {
-    if (
-      mediaFolder === collection.folder ||
-      mediaFolder.startsWith(`${collection.folder}/`) ||
-      collection.folder.startsWith(`${mediaFolder}/`)
-    ) {
-      fail(
-        `site.media_folder overlaps collection "${collection.name}" folder.`
-      );
+  const defaultCollectionFolders = collectionFoldersByConnector.get("default") ?? [];
+  for (const [typeName, type] of Object.entries(config.node_types)) {
+    if (Object.hasOwn(type, "remote_type") || Object.hasOwn(type, "connector")) {
+      continue;
+    }
+    for (const [fieldName, field] of Object.entries(type.fields ?? {})) {
+      if (!["image", "file"].includes(field.widget)) continue;
+      const mediaFolder = field.media_folder;
+      for (const collection of defaultCollectionFolders) {
+        if (
+          mediaFolder === collection.folder ||
+          mediaFolder.startsWith(`${collection.folder}/`) ||
+          collection.folder.startsWith(`${mediaFolder}/`)
+        ) {
+          fail(
+            `Field "${typeName}.${fieldName}" media_folder overlaps collection "${collection.name}" folder.`
+          );
+        }
+      }
     }
   }
   const imageCache = config.site?.image_processing?.cache;
@@ -1792,31 +1824,22 @@ function validateConfig(config, status = 500, { source = false } = {}) {
           );
         }
         const referenceView = targetCollection.views?.reference;
-        const valueField = referenceView?.value;
+        const valueField = referenceView?.value ?? "id";
         const titleField = referenceView?.title;
-        if (typeof valueField !== "string" || !valueField) {
-          fail(
-            `Collection "${field.collection}" must publish a reference value field for tags.`
-          );
-        }
         if (typeof titleField !== "string" || !titleField) {
           fail(
             `Collection "${field.collection}" must publish a reference title field for tags.`
           );
         }
-        if (["id", "$id"].includes(valueField)) {
-          fail(
-            `Collection "${field.collection}" must publish an opaque generated-ID field for tags, not its record ID.`
-          );
-        }
+        const recordIdentity = ["id", "$id"].includes(valueField);
         const tagTypes = [
           ...new Set([targetCollection.node_type, ...targetTypes])
         ];
         for (const targetType of tagTypes) {
           const targetFields = config.node_types[targetType]?.fields ?? {};
-          if (targetFields[valueField]?.widget !== "id") {
+          if (!recordIdentity && targetFields[valueField]?.widget !== "id") {
             fail(
-              `Collection "${field.collection}" tags value field "${valueField}" must use the id widget on type "${targetType}".`
+              `Collection "${field.collection}" tags value field "${valueField}" must be the record ID or use the id widget on type "${targetType}".`
             );
           }
           if (targetFields[titleField]?.widget !== "string") {
@@ -1909,7 +1932,10 @@ function validateRecord(record, collection, config, status = 400) {
       "The request body must be a complete record object."
     );
   }
-  assertSafeName(record.id, "record id", status);
+  if (typeof record.id !== "string" || !ID_PATTERN.test(record.id)) {
+    throw contentError(status, "Record id must be an opaque generated ID.");
+  }
+  assertSafeName(record.filename, "record filename", status);
 
   const allowedRootTypes = collection.allowed_types ?? [collection.node_type];
   if (!allowedRootTypes.includes(record.type)) {
@@ -2076,6 +2102,7 @@ function summarizeRecord(record, metadata, collection) {
   const titleField = collection.views?.reference?.title || "title";
   return {
     id: record.id,
+    filename: record.filename,
     hierarchy_id: hierarchyId,
     type: record.type,
     parent,

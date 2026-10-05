@@ -234,7 +234,8 @@ contains:
 The production default remains GitHub. The reserved `development` connector
 remains API and is selected explicitly only by the local admin host. Collection
 folders stay distinct, non-overlapping descendants of `content/`, and they may
-not overlap `site.media_folder`.
+not overlap any field's `media_folder`. Every `image` and `file` field declares
+`media_folder: content/media`; there is no site-level media or public folder.
 
 Do not put secrets or access tokens in this public config.
 
@@ -242,8 +243,8 @@ Do not put secrets or access tokens in this public config.
 
 Create a small valid record so the first static deployment has `/`. Generate
 every opaque ID with `createId()` from `miniCMS/core/id.js`; opaque IDs match
-`^[a-z0-9]{15}$`. The record's top-level `id` and YAML filename stem remain a
-readable storage key such as `home`.
+`^[a-z0-9]{15}$`. The record's top-level `id` is such an opaque ID too, while
+`filename` is the readable YAML filename stem such as `home`.
 
 Prefer a one-time Node script that imports these shared helpers:
 
@@ -258,11 +259,11 @@ const config = validateSourceConfig(
 );
 const usedIds = new Set();
 const record = {
-  id: "home",
+  id: createId(usedIds),
+  filename: "home",
   type: "page",
   order: 0,
   properties: {
-    content_id: createId(usedIds),
     parent_id: null,
     title: "Home",
     slug: "",
@@ -307,7 +308,7 @@ await mkdir("content/media", { recursive: true });
 await writeFile("content/pages/home.yml", dumpYaml(record), "utf8");
 ```
 
-A complete record is always `{id, type, order, properties, slots}`. Every
+A complete record is always `{id, filename, type, order, properties, slots}`. Every
 nested child is `{id, type, properties, slots}` with optional `order`. Do not
 invent partial-node storage or persist resolved URLs.
 
@@ -444,7 +445,7 @@ filesystem adapter. Never expose it in browser code or built files.
 
 Implement a pure route manifest for `pages`:
 
-- Build hierarchy identity from `content_id` and `parent_id`.
+- Build hierarchy identity from the record `id` and `parent_id`.
 - Derive a slash-free segment from each record's `slug`.
 - An empty slug on the root page produces `/`.
 - Child paths include every visible ancestor's segment.
@@ -642,9 +643,9 @@ the renderer. Honor per-node alt/caption overrides before library values.
 The content `image` node's optional `link` URL property is adapter-resolved as
 `{url, link}`. Preserve valid absolute HTTP(S) destinations. A configured
 internal destination remains stored as
-`minicms://link/pages/<content_id>`; accept it for rendering only when the
+`minicms://link/pages/<record id>`; accept it for rendering only when the
 resolved link metadata exactly matches that collection and reference, the
-target's current `content_id` still matches, and the site route model proves
+target's record `id` still matches, and the site route model proves
 the target plus all ancestors are visible and valid. Derive the base-aware
 current path at render time. Wrap only the image frame/viewport in the anchor,
 leaving `figcaption` outside. Missing, malformed, hidden, mismatched, and
@@ -894,9 +895,11 @@ Do not trigger a global Vite full reload: `/admin/` is served by the same Astro
 process, and a global reload discards unsaved editor state. The live preview
 already receives current unsaved drafts directly from miniCMS.
 
-Add a build-done integration that writes `dist/.nojekyll` and copies
-`content/media/` to `dist/media/` when the default connector is GitHub. Make an
-empty/missing media directory harmless, or track it from the start. Do not copy
+Add a build-done integration that writes `dist/.nojekyll` and, when the default
+connector is GitHub, copies every local field `media_folder` (for example
+`content/media/`) to the same repository-relative path in `dist/` (for example
+`dist/content/media/`), because GitHub media values resolve to those paths
+below the site base. Make an empty/missing media directory harmless, or track it from the start. Do not copy
 media owned by future named remote connectors. Do not copy miniCMS or
 miniCMS-api into `dist/`.
 
@@ -952,7 +955,7 @@ Exercise the actual workflow rather than checking only that processes listen:
    and `/admin/` remains mounted.
 8. In a Markdown field, create a **Content link** to a page through the
    searchable picker. Confirm storage contains
-   `minicms://link/pages/<content_id>`, then change that page's slug or parent
+   `minicms://link/pages/<record id>`, then change that page's slug or parent
    and verify both preview and static output point to its new base-aware path
    without rewriting the Markdown. A missing or hidden target must render as
    non-navigable text and no `minicms://link` URI may reach browser HTML.
@@ -1081,7 +1084,7 @@ index.html                         # from the Home page
 admin/index.html
 admin/cms.config.yml
 admin/preview.js
-media/                             # when local media exists
+content/media/                     # when local media exists
 ```
 
 Verify that:

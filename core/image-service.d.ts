@@ -69,8 +69,6 @@ export interface ImageServiceOptions {
     | {
         site?: {
           image_processing?: ImageProcessingConfig;
-          media_folder?: string;
-          public_folder?: string;
         };
       };
   width?: number | null;

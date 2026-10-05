@@ -44,8 +44,8 @@ const config = {
           collection: "pages",
           value_field: "$id"
         },
-        download: { widget: "file" },
-        poster: { widget: "image" }
+        download: { widget: "file", media_folder: "content/media" },
+        poster: { widget: "image", media_folder: "content/media" }
       },
       slots: { content: { allowed_types: ["image"] } }
     },
@@ -58,7 +58,7 @@ const config = {
       fields: {
         uuid: { widget: "uuid" },
         title: { widget: "string" },
-        file: { widget: "image" }
+        file: { widget: "image", media_folder: "content/media" }
       }
     }
   },
@@ -437,7 +437,7 @@ function markdownReferenceFixture() {
         fields: {
           content_id: { widget: "id" },
           title: { widget: "string" },
-          image: { widget: "image" }
+          image: { widget: "image", media_folder: "content/media" }
         }
       }
     },

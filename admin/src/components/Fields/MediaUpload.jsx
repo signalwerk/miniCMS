@@ -121,6 +121,7 @@ function useMediaUpload({
   accept,
   defaultAccept,
   collectionName,
+  mediaFolder,
   widget,
   onUploaded
 }) {
@@ -144,6 +145,7 @@ function useMediaUpload({
     try {
       const result = await adapter.uploadMedia(file, collectionName, {
         widget,
+        mediaFolder,
         ...(duplicateMode ? { duplicate: duplicateMode } : {})
       });
       if (result?.duplicate) {

@@ -69,7 +69,7 @@ function remoteConfig() {
       image: {
         fields: {
           title: { widget: "string" },
-          file: { widget: "image" }
+          file: { widget: "image", media_folder: "content/media" }
         }
       }
     },
@@ -635,6 +635,7 @@ test("selects development and routes collection operations through remote aliase
   await adapter.remove("shared_images", "renamed");
   await adapter.uploadMedia({ name: "new.jpg" }, "shared_images", {
     widget: "image",
+    media_folder: "content/media",
     duplicate: "reuse"
   });
   for (const method of ["record", "save", "rename", "remove"]) {

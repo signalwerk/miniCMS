@@ -189,7 +189,12 @@ function resolveImagePresentation(adapter, value, field, options = {}) {
   if (field?.display !== "image") return "";
   if (field.widget === "image") {
     const asset = imageAssetValue(value);
-    return asset ? adapter.resolveImageUrl?.(asset, options) || "" : "";
+    return asset
+      ? adapter.resolveImageUrl?.(asset, {
+          ...options,
+          mediaFolder: field.media_folder
+        }) || ""
+      : "";
   }
   if (typeof value !== "string" || !value) return "";
   return adapter.resolveMediaUrl?.(value, {

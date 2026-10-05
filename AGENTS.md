@@ -223,7 +223,15 @@ changing shared core modules it has imported.
 - Fields are optional by default. Omit `required` for optional fields and
   persist only `required: true`; legacy `required: false` input normalizes away
   when configuration is validated or saved.
-- Records contain `id`, `type`, `order`, `properties`, and typed `slots`.
+- Records contain `id`, `filename`, `type`, `order`, `properties`, and typed
+  `slots`. `id` is an opaque generated `[a-z0-9]{15}` identity used by every
+  reference, tag, hierarchy parent, inline reference/link, API route, and URL
+  hash; it never changes. `filename` is the readable YAML filename stem rendered
+  from the collection `slug` template; it must match the stored path, and a
+  rename changes only it. Adapters locate records by `id` (the API and
+  filesystem reader scan the folder; GitHub resolves paths from its listed
+  record cache) and reject duplicate IDs or mismatched filenames. Generated
+  root IDs avoid existing record and generated-field IDs.
 - A slot may configure an ordered `default` array of flat templates containing
   exactly `{type, properties?}`. Template types must be allowed by that slot;
   optional properties may override only known scalar fields (`string`, `text`,
@@ -240,9 +248,11 @@ changing shared core modules it has imported.
   as empty, record validation rejects too few children, and content deletion or
   cross-slot dragging may not reduce a surviving parent below that minimum.
 - Collection folders and media folders must be strict descendants of consumer
-  `content/`. Concrete collections owned by one connector may not use equal or
-  nested folders, and default collection folders may not overlap the media
-  folder.
+  `content/`. Every `image`/`file` field requires its own `media_folder`; there
+  is no `site.media_folder` or `site.public_folder` (both are rejected). Public
+  URL mapping of media is a consumer build concern. Concrete collections owned
+  by one connector may not use equal or nested folders, and default collection
+  folders may not overlap a local field's media folder.
 - YAML uses `js-yaml`’s JSON schema so dates remain strings.
 - Saving Settings normalizes YAML formatting and does not preserve source
   comments; keep important project knowledge in `AGENTS.md`, not YAML comments.
@@ -251,7 +261,12 @@ changing shared core modules it has imported.
   streaming and returns a structured image result plus
   `/media/<collection>/<sha256>/<filename>`; the browser never supplies the
   hash. GitHub computes SHA-256 in the browser and stores media at
-  `<media_folder>/<sha256>/<Unicode-NFC-original-filename>`.
+  `<media_folder>/<sha256>/<Unicode-NFC-original-filename>`; GitHub file values
+  persist that encoded repository path. Upload widgets pass the field's
+  `mediaFolder`; adapters accept it only when a matching field of that widget
+  is reachable from the collection (`uploadFieldAccept`). Image URL resolution
+  receives the field's `mediaFolder` (GitHub falls back only to a collection's
+  single configured folder).
 - GitHub writes are serialized per adapter and use one Git tree/commit/ref
   transaction per editor operation, so overlapping actions in one editor do
   not race the branch against each other;
@@ -331,8 +346,9 @@ translation and collection-key migration rewrite exact canonical URL-field
 values as well as actual Markdown link destinations, without rewriting custom
 schemes embedded in arbitrary plain text. A `tags`
 field names one target collection and persists an ordered, unique array of its
-opaque generated IDs. The target publishes its generated-ID and string-label
-fields through `views.reference.value` and `views.reference.title`; the shared
+opaque generated IDs. The target publishes its string label through
+`views.reference.title`; identity is the record ID unless
+`views.reference.value` names a generated-ID field; the shared
 read adapter resolves each stored ID to the standard reference envelope while
 retaining the ID in `ref`. A tag lookup that misses a cached target index
 refreshes that collection once, so an inline-created tag resolves in the live
@@ -341,9 +357,7 @@ tag immediately writes a complete target record through the active adapter,
 then selects it. Like media upload, that independent write survives discarding
 the source record draft. A concurrent filename conflict refreshes the target
 collection and retries once unless the same label already exists. Tags have no
-configured default or per-type filter;
-their published value must be a generated-ID property such as `content_id`,
-because `id` and `$id` denote the readable top-level record ID. Inline creation
+configured default or per-type filter. Inline creation
 uses the target collection's `node_type`, which must remain in its
 `allowed_types` when that list is configured.
 Select options may be scalars or `{label, value}` mappings. Uploads are
@@ -356,9 +370,8 @@ recognizes both `.tif` and `.tiff`. The file default accepts all types.
 Rejected media errors include the normalized MIME type received from the
 browser or request header; use the shared media error formatter.
 Opaque IDs generated by miniCMS always match `[a-z0-9]{15}`. This covers
-generated-ID field values, descendant content nodes, and image annotations.
-Top-level record IDs remain readable storage keys/filename stems and are not
-part of this opaque-ID contract. Every non-empty image value is strictly
+record IDs, generated-ID field values, descendant content nodes, and image
+annotations. Every non-empty image value is strictly
 `{hash, filename, ...annotations}`; `hash` is lowercase SHA-256 and `filename`
 is the Unicode-NFC original basename. Persisted `src`, `path`, `sha`, and
 legacy path strings are invalid. Content resolution adds `src` only to its
@@ -395,7 +408,7 @@ Inspector panel omits that field.
 Its stable full-record draft carries defaults, collision-aware generated IDs,
 root hierarchy/order, and empty slots. A `slug` widget derives from its template;
 for backward compatibility only, an empty plain field named `slug` receives the
-final collision-safe record ID. Visible required fields validate before the
+final collision-safe filename. Visible required fields validate before the
 active adapter writes it. A successful adapter result is selected
 automatically, while a failed write leaves the complete draft mounted. One
 filename conflict refresh rebuilds storage identity without reusing an
@@ -491,7 +504,7 @@ Panel and group order is their mapping order in YAML; do not add or interpret
 numeric `position` keys. Inspector panel focus is runtime UI behavior and must
 not require a panel or group configuration key.
 Collections may set `delete_files_with_record: true`. Deletion then discovers
-only `file`/`image` field values, maps them into the configured media folder,
+only `file`/`image` field values, maps them into each field's media folder,
 and deletes them with the YAML record. The separate API uses rollback-safe
 filesystem renames; GitHub scans all concrete collections and preserves media
 paths referenced by another record before its one-tree commit. Deletion
@@ -642,8 +655,8 @@ grip, and delete action visible while collapsed.
   creation time. Collection creation offers only content types owned by that
   connector. Existing ownership and remote identity are read-only in the
   ordinary editor; moving data between connectors is not implied by editing
-  schema. Every newly created content type starts with ordered required
-  `content_id` (generated `id`, read-only) and `title` (`string`) fields.
+  schema. Every newly created content type starts with a required `title`
+  (`string`) field.
   Remote-owned collections and types use the same full forms as local
   definitions, with remote type slots and relations limited to aliases owned by
   that connector.

@@ -31,8 +31,15 @@ test("normalizes safe image identities and builds encoded storage URLs", async (
   assert.equal(isCanonicalImageAsset({ hash, filename: decomposed }), false);
   assert.equal(isCanonicalImageAsset({ hash, filename }), true);
   assert.equal(
+    imageAssetMediaPath(
+      { hash, filename },
+      { storage: "github", mediaFolder: "content/media/library" }
+    ),
+    `content/media/library/${hash}/Gr%C3%BC%C3%9Fe%20%28final%29.png`
+  );
+  assert.equal(
     imageAssetMediaPath({ hash, filename }, { storage: "github" }),
-    `/media/${hash}/Gr%C3%BC%C3%9Fe%20%28final%29.png`
+    ""
   );
   assert.equal(mediaFilenameWithSuffix(filename, 2), "Grüße (final)-2.png");
   assert.equal(
@@ -102,8 +109,8 @@ test("collects accepted image types from configured image fields", () => {
     node_types: {
       page: {
         fields: {
-          hero: { widget: "image", accept: ["image/png", ".svg"] },
-          thumbnail: { widget: "image", accept: ["image/webp", "image/png"] },
+          hero: { widget: "image", media_folder: "content/media", accept: ["image/png", ".svg"] },
+          thumbnail: { widget: "image", media_folder: "content/media", accept: ["image/webp", "image/png"] },
           title: { widget: "string" }
         }
       }
@@ -120,8 +127,8 @@ test("collects image and file upload types from configuration", () => {
       node_types: {
         asset: {
           fields: {
-            preview: { widget: "image", accept: ["image/png"] },
-            download: { widget: "file", accept: ["application/pdf", ".zip"] }
+            preview: { widget: "image", media_folder: "content/media", accept: ["image/png"] },
+            download: { widget: "file", media_folder: "content/media", accept: ["application/pdf", ".zip"] }
           }
         }
       }
@@ -138,15 +145,15 @@ test("scopes upload types to node types reachable from one collection", () => {
       },
       gallery: {
         fields: {
-          image: { widget: "image", accept: ["image/png", ".tiff"] }
+          image: { widget: "image", media_folder: "content/media", accept: ["image/png", ".tiff"] }
         },
         slots: { nested: { allowed_types: ["page"] } }
       },
       download: {
-        fields: { file: { widget: "file", accept: ["*/*"] } }
+        fields: { file: { widget: "file", media_folder: "content/media", accept: ["*/*"] } }
       },
       child: {
-        fields: { attachment: { widget: "file", accept: [".zip"] } }
+        fields: { attachment: { widget: "file", media_folder: "content/media", accept: [".zip"] } }
       }
     },
     collections: {
@@ -188,14 +195,12 @@ test("scopes upload types to node types reachable from one collection", () => {
 test("resolves only configured upload fields inside the media folder", () => {
   const config = {
     site: {
-      media_folder: "content/media",
-      public_folder: "/media"
     },
     node_types: {
       asset: {
         fields: {
-          image: { widget: "image" },
-          file: { widget: "file" },
+          image: { widget: "image", media_folder: "content/media" },
+          file: { widget: "file", media_folder: "content/media" },
           reference: { widget: "reference" }
         }
       }
@@ -217,6 +222,7 @@ test("resolves only configured upload fields inside the media folder", () => {
   assert.deepEqual(recordMediaSources(record, config), [
     {
       widget: "image",
+      mediaFolder: "content/media",
       value: {
         hash: "c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc",
         filename: "preview.png"
@@ -224,17 +230,30 @@ test("resolves only configured upload fields inside the media folder", () => {
     },
     {
       widget: "file",
+      mediaFolder: "content/media",
       value: "/media/assets/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/report.pdf"
     }
   ]);
+  const githubRecord = structuredClone(record);
+  githubRecord.properties.file =
+    "content/media/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/Final%20report.pdf";
+  assert.deepEqual(
+    recordMediaStoragePaths(githubRecord, config, {
+      storage: "github",
+      collection: "assets"
+    }),
+    [
+      "content/media/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/preview.png",
+      "content/media/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/Final report.pdf"
+    ]
+  );
   assert.deepEqual(
     recordMediaStoragePaths(record, config, {
       storage: "github",
       collection: "assets"
     }),
     [
-      "content/media/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/preview.png",
-      "content/media/assets/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/report.pdf"
+      "content/media/c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc/preview.png"
     ]
   );
   assert.deepEqual(
@@ -258,8 +277,8 @@ test("collects nested upload names for deletion warnings", () => {
       },
       asset: {
         fields: {
-          image: { widget: "image" },
-          file: { widget: "file" }
+          image: { widget: "image", media_folder: "content/media" },
+          file: { widget: "file", media_folder: "content/media" }
         }
       }
     }

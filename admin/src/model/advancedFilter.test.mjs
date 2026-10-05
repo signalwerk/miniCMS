@@ -37,7 +37,7 @@ const fields = {
     multiple: true
   },
   tags: { label: "Tags", widget: "tags", collection: "tags" },
-  hero: { label: "Hero", widget: "image" },
+  hero: { label: "Hero", widget: "image", media_folder: "content/media" },
   $updated_at: { label: "Updated", display: "datetime" }
 };
 

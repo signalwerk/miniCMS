@@ -22,6 +22,7 @@ function FileUploadField({ id, field, value, collectionName, onChange }) {
     accept: field.accept,
     defaultAccept: DEFAULT_FILE_ACCEPT,
     collectionName,
+    mediaFolder: field.media_folder,
     widget: "file",
     onUploaded: (result) => onChange(result.path)
   });
@@ -40,7 +41,10 @@ function FileUploadField({ id, field, value, collectionName, onChange }) {
       {value ? (
         <a
           className="file-upload-field__file"
-          href={adapter.resolveMediaUrl(value, { collection: collectionName })}
+          href={adapter.resolveMediaUrl(value, {
+            collection: collectionName,
+            mediaFolder: field.media_folder
+          })}
           target="_blank"
           rel="noreferrer"
         >

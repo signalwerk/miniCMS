@@ -1,4 +1,9 @@
-import { imageAsset, imageAssetMediaPath } from "./media.js";
+import {
+  configuredMediaFolders,
+  encodeMediaSegment,
+  imageAsset,
+  imageAssetMediaPath
+} from "./media.js";
 
 const IMAGE_FITS = Object.freeze([
   "cover",
@@ -582,8 +587,7 @@ function imageServicePath(value, options = {}) {
   }
   const assetPath = imageAssetMediaPath(asset, {
     storage: "api",
-    collection: options.collection,
-    publicFolder: "/media"
+    collection: options.collection
   });
   if (!assetPath) {
     throw imageServiceError(
@@ -779,8 +783,7 @@ function imageServiceMediaPath(value, config, collection) {
   if (asset) {
     const route = imageAssetMediaPath(asset, {
       storage: "api",
-      collection,
-      publicFolder: "/media"
+      collection
     });
     if (!route) {
       throw imageServiceError(
@@ -796,19 +799,12 @@ function imageServiceMediaPath(value, config, collection) {
   const suffix = suffixIndex < 0 ? "" : source.slice(suffixIndex);
   const normalizedPath = sourcePath(pathname);
   const relativePath = normalizedPath.replace(/^\/+/, "");
-  const publicFolder = String(config?.site?.public_folder ?? "/media")
-    .replace(/^\/+|\/+$/g, "");
-  const mediaFolder = String(config?.site?.media_folder ?? "content/media")
-    .replace(/^\/+|\/+$/g, "");
-
-  for (const prefix of new Set([mediaFolder, publicFolder, "media"])) {
-    if (!prefix) continue;
+  for (const prefix of [...configuredMediaFolders(config), "media"]) {
     if (relativePath === prefix) return `/media${suffix}`;
     if (relativePath.startsWith(`${prefix}/`)) {
       return `/media/${relativePath.slice(prefix.length + 1)}${suffix}`;
     }
   }
-  if (!publicFolder) return `/media/${relativePath}${suffix}`;
   return `/${relativePath}${suffix}`;
 }
 
@@ -843,13 +839,11 @@ function parseContentAddressedMediaPath(value, config) {
     return null;
   }
   const asset = imageAsset({ hash: sha, filename });
-  const canonicalPath = asset
-    ? imageAssetMediaPath(asset, {
-        storage: collection ? "api" : "github",
-        collection,
-        publicFolder: "/media"
-      })
-    : "";
+  const canonicalPath = !asset
+    ? ""
+    : collection
+      ? imageAssetMediaPath(asset, { storage: "api", collection })
+      : `/media/${asset.hash}/${encodeMediaSegment(asset.filename)}`;
   if (
     (collection !== null && !safeMediaSegment(collection)) ||
     !CONTENT_SHA_PATTERN.test(sha) ||

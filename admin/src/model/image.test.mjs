@@ -54,7 +54,7 @@ test("resolves structured image widgets and scalar image presentations separatel
     resolveImagePresentation(
       adapter,
       value,
-      { widget: "image", display: "image" },
+      { widget: "image", media_folder: "content/media", display: "image" },
       { collection: "images", width: 320 }
     ),
     "/derived/image.webp"
@@ -63,13 +63,17 @@ test("resolves structured image widgets and scalar image presentations separatel
     resolveImagePresentation(
       adapter,
       "/media/previews/card.png",
-      { widget: "file", display: "image" },
+      { widget: "file", media_folder: "content/media", display: "image" },
       { collection: "previews", width: 320 }
     ),
     "/raw/preview.png"
   );
   assert.deepEqual(calls, [
-    ["image", value, { collection: "images", width: 320 }],
+    [
+      "image",
+      value,
+      { collection: "images", width: 320, mediaFolder: "content/media" }
+    ],
     ["media", "/media/previews/card.png", { collection: "previews" }]
   ]);
 });

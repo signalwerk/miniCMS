@@ -371,7 +371,7 @@ test("regenerates field and annotation IDs across a copied subtree", () => {
     media_image: {
       fields: {
         content_id: { widget: "id" },
-        file: { widget: "image" }
+        file: { widget: "image", media_folder: "content/media" }
       }
     }
   });

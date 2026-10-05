@@ -25,14 +25,28 @@ package.json
 ```
 
 Collections point to folders inside `content/`. Each YAML record is read and
-saved as a complete object with `id`, `type`, `order`, `properties`, and typed
-`slots`.
+saved as a complete object with `id`, `filename`, `type`, `order`,
+`properties`, and typed `slots`:
 
-The `id` widget, descendant slot nodes, and image annotations use opaque IDs
-matching `^[a-z0-9]{15}$`. A record's top-level `id` is different: it is the
-readable storage key and YAML filename stem. Legacy configurations using the
-`uuid` widget are accepted and normalized to `id` without rewriting stored
-values.
+```yaml
+id: ynjggj2sfwol415
+filename: about-2026-09
+type: page
+order: 0
+properties:
+  title: About
+slots: {}
+```
+
+Record IDs, the `id` widget, descendant slot nodes, and image annotations all
+use opaque generated IDs matching `^[a-z0-9]{15}$`. The record `id` is the
+stable identity used by references, tags, hierarchy parents, inline references,
+content links, API routes, and editor URLs; it never changes. `filename` is the
+readable YAML filename stem (`<folder>/<filename>.<extension>`), generated from
+the collection's `slug` template, and it must match the stored file. Renaming a
+record changes only its filename, so references survive it. Legacy
+configurations using the `uuid` widget are accepted and normalized to `id`
+without rewriting stored values.
 
 The editor keeps its active selection in the URL hash. `#pages` opens a
 collection, `#pages/<record>` restores a selected record, and
@@ -143,8 +157,8 @@ Settings preflights every imported, edited, and newly created remote definition
 before writing. Collection and content-type creation choose an owner from the
 trusted connectors already present when the editor loaded; a collection can
 use only a content type owned by that connector. Every new content type starts
-with a required, read-only generated `content_id` field followed by a required
-string `title` field. A newly added or changed
+with a required string `title` field; its records receive generated IDs
+automatically. A newly added or changed
 connector can be saved while it is unused; reload the editor from that new
 bootstrap configuration before creating or importing definitions on it. This
 keeps runtime origins pinned to the consumer page while ensuring a missing
@@ -188,12 +202,24 @@ would create competing write queues for one branch.
 Raw files use `resolveMediaUrl`; images use the separate `resolveImageUrl`
 capability. The owning local collection accompanies every media request so the
 composite can choose the right connector. API mode builds image-service URLs
-from an image's hash and filename. API raw URLs use
-`/media/<collection>/<sha256>/<filename>` while GitHub raw URLs use
-`<public_folder>/<sha256>/<encoded-filename>` and store the bytes at
-`<media_folder>/<sha256>/<filename>`. The filesystem service scopes accepted
-upload types to fields reachable from the receiving collection and its nested
-slot types.
+from an image's hash and filename. Every `image` and `file` field declares
+its own required `media_folder` below `content/`; there is no project-wide
+media or public folder. API raw URLs use
+`/media/<collection>/<sha256>/<filename>`. GitHub stores the bytes at
+`<media_folder>/<sha256>/<filename>`, file fields persist that encoded
+repository path, and image fields derive it from the field's folder. Mapping
+those repository paths onto public website URLs is the consumer build's
+concern. Uploads name the field's media folder, and both adapters scope
+accepted upload types to fields with that folder reachable from the receiving
+collection and its nested slot types.
+
+```yaml
+media_image:
+  fields:
+    file:
+      widget: image
+      media_folder: content/media
+```
 
 `minicms build` is project-independent: it does not inspect or copy consumer
 configuration, content, media, preview code, or site output.
@@ -586,7 +612,6 @@ node_types:
         collection: tags
   tag:
     fields:
-      content_id: {label: ID, widget: id, readonly: true, required: true}
       name: {label: Name, widget: string, required: true}
 
 collections:
@@ -599,7 +624,7 @@ collections:
     identifier_field: name
     views:
       list: {type: tree}
-      reference: {value: content_id, title: name}
+      reference: {title: name}
 ```
 
 The Inspector uses a creatable multi-select. Selecting writes only the tag ID
@@ -612,9 +637,8 @@ website receives the full tag record. A newly created tag also resolves in the
 live preview immediately when an earlier tag lookup populated its relation
 cache. Inline creation uses the target collection's `node_type`; if the
 collection defines `allowed_types`, that primary type must be included.
-Tags do not support defaults or per-type filters. Publish a generated-ID
-property such as `content_id`; `id` and `$id` refer to the readable top-level
-record ID and are not valid tag identities.
+Tags do not support defaults or per-type filters. Their identity is the target
+record ID unless `views.reference.value` names another generated-ID field.
 
 The `markdown` widget lazy-loads a controlled BlockNote editor as its default
 visual view. **Code** switches to the exact Markdown source. Focus is supplied
@@ -839,7 +863,6 @@ collections:
     node_type: media_image
     views:
       reference:
-        value: content_id
         image: file
         title: title
         selections:
@@ -958,7 +981,9 @@ New API uploads use a readable, content-addressed route. For example:
 
 The raw-media parser accepts canonical API
 `/media/<collection>/<sha256>/<encoded-filename>` and GitHub
-`/media/<sha256>/<encoded-filename>` paths. Image derivative construction uses
+`/media/<sha256>/<encoded-filename>` service paths. A GitHub repository path
+below any configured field `media_folder` maps onto that two-segment service
+form. Image derivative construction uses
 the structured asset plus its owning collection, so derivative routes always
 retain the three-segment service namespace. The configured cache schema is the
 first path segment; generated raster files mirror the remaining canonical URL
@@ -974,7 +999,7 @@ collections:
     delete_files_with_record: true
 ```
 
-Only paths inside the configured `site.media_folder` are eligible for this
+Only paths inside the owning field's `media_folder` are eligible for this
 cleanup. GitHub scans concrete collections before deleting and preserves a
 media path still referenced by another record; it applies the remaining record
 and upload deletions in one commit.
@@ -1032,9 +1057,9 @@ contains only the browser adapter for this contract:
 - `GET /api/collections/:collection/:id`
 - `POST /api/collections/:collection`
 - `PUT /api/collections/:collection/:id`
-- `POST /api/collections/:collection/:id/rename`
+- `POST /api/collections/:collection/:id/rename` with `{filename}`
 - `DELETE /api/collections/:collection/:id`
-- `POST /api/media/:collection?filename=<name>&widget=<image|file>&duplicate=<reuse|copy>`
+- `POST /api/media/:collection?filename=<name>&widget=<image|file>&media_folder=<field folder>&duplicate=<reuse|copy>`
 - `GET|HEAD /media/:collection/:sha256/:filename`
 - `GET|HEAD /:schema/media/:collection/:sha256/:operations/:filename.:format`
 

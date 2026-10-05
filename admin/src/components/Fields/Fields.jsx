@@ -46,6 +46,7 @@ import {
   hasReferenceValue,
   normalizeReferenceValue,
   normalizeReferenceValues,
+  referenceFieldMediaFolder,
   referenceImageSource,
   referenceItemLabel,
   referenceItemValue,
@@ -319,7 +320,7 @@ function UrlField({ id, field, value, collections, onChange }) {
   );
 }
 
-function ReferenceCard({ item, view, collection, compact = false }) {
+function ReferenceCard({ item, view, collection, nodeTypes, compact = false }) {
   const adapter = useAdapter();
   const ReferenceIcon = iconFor(collection?.icon, FilesIcon);
   const source = referenceImageSource(item, view, collection);
@@ -330,7 +331,8 @@ function ReferenceCard({ item, view, collection, compact = false }) {
         width: 320,
         height: 320,
         fit: "inside",
-        collection: collection.name
+        collection: collection.name,
+        mediaFolder: referenceFieldMediaFolder(item, view.image, nodeTypes)
       })
       : "";
   const title = referenceItemLabel(item, view, collection);
@@ -669,6 +671,7 @@ function ReferenceField({
                   item={option.item}
                   view={referenceView}
                   collection={targetCollection}
+                  nodeTypes={nodeTypes}
                   compact
                 />
               ) : (
@@ -697,6 +700,7 @@ function ReferenceField({
           item={selected}
           view={referenceView}
           collection={targetCollection}
+          nodeTypes={nodeTypes}
           compact
         />
       ) : hasReference ? (
@@ -766,6 +770,7 @@ function ReferenceField({
       {selectionsOpen && selected && (
         <ReferenceSelectionsDialog
           collection={targetCollection}
+          nodeTypes={nodeTypes}
           definitions={selectionDefinitions}
           item={selected}
           value={value}
@@ -926,6 +931,7 @@ function ReferenceField({
                           item={item}
                           view={referenceView}
                           collection={targetCollection}
+                          nodeTypes={nodeTypes}
                         />
                         {optionSelected && (
                           <Check size={15} />

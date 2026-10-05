@@ -1709,26 +1709,6 @@ function SiteEditor({
         update={update}
         onDelete={onDeleteReferenceSet}
       />
-      <AdvancedSection
-        title="Media paths"
-      >
-        <FormField label="Media storage folder">
-          <TextInput
-            value={site.media_folder}
-            onChange={(value) => update((next) => {
-              next.site.media_folder = value;
-            })}
-          />
-        </FormField>
-        <FormField label="Public media URL">
-          <TextInput
-            value={site.public_folder}
-            onChange={(value) => update((next) => {
-              next.site.public_folder = value;
-            })}
-          />
-        </FormField>
-      </AdvancedSection>
       <AdvancedSection title="Image processing">
         <div className="configuration-entry-card__grid">
           <FormField label="Maximum width">
@@ -2148,6 +2128,9 @@ function FieldEditor({
               }
               if (!["image", "file"].includes(value)) {
                 delete nextField.accept;
+                delete nextField.media_folder;
+              } else if (!nextField.media_folder) {
+                nextField.media_folder = "content/media";
               }
               if (value !== "markdown") {
                 delete nextField.blocknote;
@@ -2209,6 +2192,17 @@ function FieldEditor({
             placeholder="{{title}}-{{field2}}"
             onChange={(value) => onChange((nextField) => {
               nextField.template = value;
+            })}
+          />
+        </FormField>
+      )}
+      {["image", "file"].includes(widget) && (
+        <FormField label="Media storage folder">
+          <TextInput
+            value={field.media_folder}
+            placeholder="content/media"
+            onChange={(value) => onChange((nextField) => {
+              nextField.media_folder = value;
             })}
           />
         </FormField>

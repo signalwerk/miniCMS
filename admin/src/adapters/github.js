@@ -10,7 +10,7 @@ import {
   validateRecord
 } from "../../../core/content.js";
 import {
-  configuredCollectionMediaAccept,
+  configuredMediaFolders,
   imageAsset,
   imageAssetMediaPath,
   mediaAcceptErrorMessage,
@@ -18,7 +18,8 @@ import {
   mediaFilenameWithSuffix,
   normalizedMediaFilename,
   recordMediaStoragePaths,
-  sha256Hex
+  sha256Hex,
+  uploadFieldAccept
 } from "../../../core/media.js";
 import {
   isRemoteCollection,
@@ -625,12 +626,12 @@ function createGitHubAdapter({
             }
             const expectedSourcePath = recordPath(
               sourceCollection,
-              record.id
+              record.filename
             );
             if (entry.path !== expectedSourcePath) {
               throw contentError(
                 409,
-                `Collection "${sourceName}" record "${entry.path}" does not match its record id "${record.id}".`
+                `Collection "${sourceName}" record "${entry.path}" does not match its filename "${record.filename}".`
               );
             }
             const migrated = migrateRecordSchemaKeys(
@@ -644,7 +645,7 @@ function createGitHubAdapter({
             return {
               sourceName,
               sourcePath: entry.path,
-              targetPath: recordPath(targetCollection, migrated.id),
+              targetPath: recordPath(targetCollection, migrated.filename),
               record,
               migrated
             };
@@ -929,28 +930,73 @@ function createGitHubAdapter({
     };
   }
 
-  function recordPath(collection, id) {
-    assertSafeName(id, "record id");
+  function recordPath(collection, filename) {
+    assertSafeName(filename, "record filename");
     const extension = collectionExtension(collection);
-    return `${collection.folder}/${id}.${extension}`;
+    return `${collection.folder}/${filename}.${extension}`;
+  }
+
+  function cachedRecordPath(collection, id) {
+    const prefix = `${collection.folder}/`;
+    for (const [path, entry] of recordCache) {
+      if (
+        path.startsWith(prefix) &&
+        !path.slice(prefix.length).includes("/") &&
+        entry.record?.id === id
+      ) {
+        return path;
+      }
+    }
+    return null;
+  }
+
+  async function readRecordAt(collection, id, path) {
+    let source;
+    try {
+      source = await readRepositoryFile(path);
+    } catch (error) {
+      if (error.status === 404) return null;
+      throw error;
+    }
+    const record = parseYaml(source.text);
+    if (record?.id !== id) return null;
+    assertRecordFilename(collection, path, record);
+    recordCache.set(path, {
+      ...(recordCache.get(path) ?? {}),
+      record,
+      sha: source.sha
+    });
+    return record;
   }
 
   async function readRecord(collection, id) {
-    const path = recordPath(collection, id);
+    assertSafeName(id, "record id");
+    const cachedPath = cachedRecordPath(collection, id);
+    const cached = cachedPath
+      ? await readRecordAt(collection, id, cachedPath)
+      : null;
+    if (cached) return cached;
+    await list(collection.name);
+    const listedPath = cachedRecordPath(collection, id);
+    const record = listedPath
+      ? await readRecordAt(collection, id, listedPath)
+      : null;
+    if (!record) throw contentError(404, `Record "${id}" does not exist.`);
+    return record;
+  }
+
+  function assertRecordFilename(collection, path, record) {
+    let expectedPath = null;
     try {
-      const source = await readRepositoryFile(path);
-      const record = parseYaml(source.text);
-      recordCache.set(path, {
-        ...(recordCache.get(path) ?? {}),
-        record,
-        sha: source.sha
-      });
-      return record;
-    } catch (error) {
-      if (error.status === 404) {
-        throw contentError(404, `Record "${id}" does not exist.`);
-      }
-      throw error;
+      expectedPath = recordPath(collection, record?.filename);
+    } catch {
+      expectedPath = null;
+    }
+    if (path !== expectedPath) {
+      throw contentError(
+        409,
+        `Record file "${path}" contains filename "${record?.filename ?? ""}".`
+      );
     }
   }
 
@@ -967,6 +1013,7 @@ function createGitHubAdapter({
           lastCommitForPath(entry.path)
         ]);
         const record = parseYaml(source.text);
+        assertRecordFilename(collection, entry.path, record);
         const updatedAt = recordTimestamp(commit);
         const metadata = {
           created_at: null,
@@ -991,11 +1038,11 @@ function createGitHubAdapter({
     const { config, collection } =
       await collectionConfiguration(collectionName);
     validateRecord(record, collection, config);
-    const path = recordPath(collection, record.id);
+    const path = recordPath(collection, record.filename);
     const cached = recordCache.get(path);
     const commit = await commitChanges(
       [{ path, text: dumpYaml(record) }],
-      `Update ${collection.label_singular || collection.name} ${record.id}`
+      `Update ${collection.label_singular || collection.name} ${record.filename}`
     );
     const metadata = {
       created_at: cached ? cached.created_at : commit.updatedAt,
@@ -1013,16 +1060,16 @@ function createGitHubAdapter({
     const { config, collection } =
       await collectionConfiguration(collectionName);
     validateRecord(record, collection, config);
-    const path = recordPath(collection, record.id);
+    const path = recordPath(collection, record.filename);
     try {
       await readRepositoryFile(path);
-      throw contentError(409, `Record "${record.id}" already exists.`);
+      throw contentError(409, `Record filename "${record.filename}" already exists.`);
     } catch (error) {
       if (error.status !== 404) throw error;
     }
     const commit = await commitChanges(
       [{ path, text: dumpYaml(record) }],
-      `Create ${collection.label_singular || collection.name} ${record.id}`
+      `Create ${collection.label_singular || collection.name} ${record.filename}`
     );
     const metadata = {
       created_at: commit.updatedAt,
@@ -1035,42 +1082,31 @@ function createGitHubAdapter({
     };
   }
 
-  async function rename(collectionName, oldId, nextId) {
+  async function rename(collectionName, id, filename) {
     await ensureAuthenticated();
-    assertSafeName(nextId, "record id");
-    if (oldId === nextId) {
-      throw contentError(400, "The new record id must be different.");
+    assertSafeName(filename, "record filename");
+    const { config, collection } = await collectionConfiguration(collectionName);
+    const record = await readRecord(collection, id);
+    if (record.filename === filename) {
+      throw contentError(400, "The new filename must be different.");
     }
-    const { config, collection } =
-      await collectionConfiguration(collectionName);
-    const oldPath = recordPath(collection, oldId);
-    const nextPath = recordPath(collection, nextId);
-    const record = await readRecord(collection, oldId);
+    const oldPath = recordPath(collection, record.filename);
+    const nextPath = recordPath(collection, filename);
     try {
       await readRepositoryFile(nextPath);
-      throw contentError(409, `Record "${nextId}" already exists.`);
+      throw contentError(409, `Record filename "${filename}" already exists.`);
     } catch (error) {
       if (error.status !== 404) throw error;
     }
 
-    if (collection.hierarchy?.enabled && !collection.hierarchy?.id_field) {
-      const collectionItems = await list(collectionName);
-      if (collectionItems.items.some((item) => item.parent === oldId)) {
-        throw contentError(
-          409,
-          `Record "${oldId}" has child records and its hierarchy uses the filename as its id.`
-        );
-      }
-    }
-
-    const renamedRecord = { ...record, id: nextId };
+    const renamedRecord = { ...record, filename };
     validateRecord(renamedRecord, collection, config);
     const commit = await commitChanges(
       [
         { path: nextPath, text: dumpYaml(renamedRecord) },
         { path: oldPath, delete: true }
       ],
-      `Rename ${collection.label_singular || collection.name} ${oldId} to ${nextId}`
+      `Rename ${collection.label_singular || collection.name} ${record.filename} to ${filename}`
     );
     const oldMetadata = recordCache.get(oldPath);
     const metadata = {
@@ -1100,7 +1136,7 @@ function createGitHubAdapter({
         : await list(name);
       for (const item of result.items ?? []) {
         if (name === deletingCollection && item.id === deletingId) continue;
-        const path = recordPath(definition, item.id);
+        const path = recordPath(definition, item.filename);
         const record = recordCache.get(path)?.record ??
           await readRecord(definition, item.id);
         for (const mediaPath of recordMediaStoragePaths(record, config, {
@@ -1117,8 +1153,8 @@ function createGitHubAdapter({
   async function remove(collectionName, id) {
     await ensureAuthenticated();
     const { config, collection } = await collectionConfiguration(collectionName);
-    const path = recordPath(collection, id);
     const record = await readRecord(collection, id);
+    const path = recordPath(collection, record.filename);
     const deletingHierarchyId = hierarchyValue(
       record,
       collection,
@@ -1169,7 +1205,7 @@ function createGitHubAdapter({
           delete: true
         }))
       ],
-      `Delete ${collection.label_singular || collection.name} ${id}`
+      `Delete ${collection.label_singular || collection.name} ${record.filename}`
     );
     recordCache.delete(path);
   }
@@ -1267,20 +1303,17 @@ function createGitHubAdapter({
     return { saved: true, config: validated };
   }
 
-  function mediaResult(config, hash, filename) {
+  function mediaResult(config, hash, filename, mediaFolder) {
     const asset = imageAsset({ hash, filename });
-    const mediaFolder = normalizeRepositoryPath(
-      config.site?.media_folder || "content/media",
-      "media folder"
-    );
+    const normalizedMediaFolder = normalizeRepositoryPath(mediaFolder, "media folder");
     return {
       hash: asset.hash,
       filename: asset.filename,
       path: imageAssetMediaPath(asset, {
         storage: "github",
-        publicFolder: config.site?.public_folder || "/media"
+        mediaFolder: normalizedMediaFolder
       }),
-      storage_path: `${mediaFolder}/${asset.hash}/${asset.filename}`
+      storage_path: `${normalizedMediaFolder}/${asset.hash}/${asset.filename}`
     };
   }
 
@@ -1290,11 +1323,19 @@ function createGitHubAdapter({
     if (!["image", "file"].includes(options.widget)) {
       throw contentError(400, 'The upload widget must be "image" or "file".');
     }
-    const acceptedTypes = configuredCollectionMediaAccept(
+    const mediaFolder = normalizeRepositoryPath(options.mediaFolder, "media folder");
+    const acceptedTypes = uploadFieldAccept(
       config,
       collection,
-      options.widget
+      options.widget,
+      mediaFolder
     );
+    if (!acceptedTypes) {
+      throw contentError(
+        400,
+        `No ${options.widget} field in collection "${collectionName}" stores media in "${mediaFolder}".`
+      );
+    }
     if (!mediaFileMatchesAccept(file, acceptedTypes)) {
       throw contentError(
         400,
@@ -1316,10 +1357,6 @@ function createGitHubAdapter({
       : globalThis.crypto;
     const hash = await sha256Hex(bytes, cryptoImplementation);
 
-    const mediaFolder = normalizeRepositoryPath(
-      config.site?.media_folder || "content/media",
-      "media folder"
-    );
     const entries = (await listDirectory(`${mediaFolder}/${hash}`))
       .filter((entry) => entry.type === "file")
       .sort((left, right) => left.name.localeCompare(right.name));
@@ -1361,13 +1398,13 @@ function createGitHubAdapter({
     }
 
     if (existingEntry && options.duplicate === "reuse") {
-      return { ...mediaResult(config, hash, existingEntry.name), reused: true };
+      return { ...mediaResult(config, hash, existingEntry.name, mediaFolder), reused: true };
     }
     if (existingEntry && options.duplicate !== "copy") {
       return {
         duplicate: true,
-        existing: mediaResult(config, hash, existingEntry.name),
-        copy: mediaResult(config, hash, storedFilename)
+        existing: mediaResult(config, hash, existingEntry.name, mediaFolder),
+        copy: mediaResult(config, hash, storedFilename, mediaFolder)
       };
     }
 
@@ -1376,7 +1413,7 @@ function createGitHubAdapter({
       [{ path: storagePath, bytes, media: true }],
       `Upload media ${storedFilename}`
     );
-    return mediaResult(config, hash, storedFilename);
+    return mediaResult(config, hash, storedFilename, mediaFolder);
   }
 
   function rawRepositoryUrl(repositoryPath) {
@@ -1397,46 +1434,26 @@ function createGitHubAdapter({
   function resolveMediaUrl(path) {
     if (!path) return "";
     if (/^(?:https?:|blob:|data:)/i.test(path)) return path;
-    const config = currentConfig || bootstrapConfig;
-    const publicFolder = String(
-      config.site?.public_folder || "/media"
-    ).replace(/\/+$/, "");
-    const normalizedPath = String(path).split(/[?#]/)[0];
-    const prefix = `${publicFolder}/`;
-    const relativeMediaPath = normalizedPath.startsWith(prefix)
-      ? normalizedPath.slice(prefix.length)
-      : normalizedPath.replace(/^\/?media\//, "").replace(/^\/+/, "");
-    const mediaFolder = normalizeRepositoryPath(
-      config.site?.media_folder || "content/media",
-      "media folder"
-    );
-    let decodedRelativePath;
-    try {
-      decodedRelativePath = relativeMediaPath
-        .split("/")
-        .map((segment) => decodeURIComponent(segment))
-        .join("/");
-    } catch {
-      throw contentError(400, "Invalid media path.");
-    }
+    return rawRepositoryUrl(normalizeMediaRepositoryPath(path));
+  }
+
+  function resolveImageUrl(value, options = {}) {
+    const asset = imageAsset(value);
+    const mediaFolder = options.mediaFolder ||
+      singleCollectionMediaFolder(options.collection);
+    if (!asset || !mediaFolder) return "";
     return rawRepositoryUrl(
-      normalizeMediaRepositoryPath(`${mediaFolder}/${decodedRelativePath}`)
+      normalizeMediaRepositoryPath(
+        `${normalizeRepositoryPath(mediaFolder, "media folder")}/${asset.hash}/${asset.filename}`
+      )
     );
   }
 
-  function resolveImageUrl(value) {
-    const asset = imageAsset(value);
-    if (!asset) return "";
+  function singleCollectionMediaFolder(collectionName) {
     const config = currentConfig || bootstrapConfig;
-    const mediaFolder = normalizeRepositoryPath(
-      config.site?.media_folder || "content/media",
-      "media folder"
-    );
-    return rawRepositoryUrl(
-      normalizeMediaRepositoryPath(
-        `${mediaFolder}/${asset.hash}/${asset.filename}`
-      )
-    );
+    const collection = config.collections?.[collectionName];
+    const folders = collection ? configuredMediaFolders(config, collection) : [];
+    return folders.length === 1 ? folders[0] : "";
   }
 
   return {

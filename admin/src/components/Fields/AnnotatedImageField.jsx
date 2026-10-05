@@ -120,6 +120,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
     accept: field.accept,
     defaultAccept: DEFAULT_IMAGE_ACCEPT,
     collectionName,
+    mediaFolder: field.media_folder,
     widget: "image",
     onUploaded: (result) =>
       replaceValue({ hash: result.hash, filename: result.filename })
@@ -477,7 +478,8 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
           width: 2048,
           height: 2048,
           fit: "inside",
-          collection: collectionName
+          collection: collectionName,
+          mediaFolder: field.media_folder
         })}
         alt=""
         draggable={false}
@@ -725,7 +727,8 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
                 width: 640,
                 height: 480,
                 fit: "inside",
-                collection: collectionName
+                collection: collectionName,
+                mediaFolder: field.media_folder
               })}
               alt=""
               onLoad={(event) => {

@@ -105,9 +105,9 @@ function compactReferenceValue(value) {
 function referenceItemValue(item, name, collection) {
   if (!name || name === "id" || name === "$id") return item?.id ?? "";
   const extension = String(collection?.extension || "yml").replace(/^\./, "");
-  if (name === "$filename") return `${item?.id ?? ""}.${extension}`;
+  if (name === "$filename") return `${item?.filename ?? ""}.${extension}`;
   if (name === "$storage_path") {
-    return `${String(collection?.folder || "").replace(/\/$/, "")}/${item?.id ?? ""}.${extension}`;
+    return `${String(collection?.folder || "").replace(/\/$/, "")}/${item?.filename ?? ""}.${extension}`;
   }
   if (name === "$created_at") return item?.created_at;
   if (name === "$updated_at") return item?.updated_at;
@@ -232,8 +232,7 @@ function generatedIdFieldNames(type) {
 function generatedIdsInItems(items, fieldNames) {
   return new Set(
     (Array.isArray(items) ? items : []).flatMap((item) =>
-      fieldNames
-        .map((fieldName) => item?.properties?.[fieldName])
+      [item?.id, ...fieldNames.map((fieldName) => item?.properties?.[fieldName])]
         .filter((value) => typeof value === "string" && value)
     )
   );
@@ -266,7 +265,6 @@ function createReferencedRecordDraft({
   const generatedFields = generatedIdFieldNames(creation.type);
   const usedGeneratedIds = generatedIdsInItems(items, generatedFields);
   const draft = instantiateNode(creation.typeName, nodeTypes, {
-    id: "",
     order: nextRootOrder(items),
     usedIds: usedGeneratedIds
   });
@@ -378,13 +376,17 @@ function finalizeReferencedRecordDraft({
   items,
   date
 }) {
+  const usedIds = generatedIdsInItems(items, generatedIdFieldNames(creation.type));
+  const id = ID_PATTERN.test(draft?.id) && !usedIds.has(draft.id)
+    ? draft.id
+    : createId(usedIds);
   const properties = collisionSafeGeneratedProperties(
     populateInitialSlugFields(
       creation.type,
       referenceRecordSlugFields(draft, creation, collection)
     ),
     creation.type,
-    items
+    [...(Array.isArray(items) ? items : []), { id }]
   );
   const fallbackFields = [
     collection?.identifier_field,
@@ -394,26 +396,27 @@ function finalizeReferencedRecordDraft({
   const fallbackName = fallbackFields
     .map((fieldName) => referenceText(properties[fieldName]).trim())
     .find(Boolean);
-  const renderedId = collection?.slug
+  const renderedFilename = collection?.slug
     ? renderSlugTemplate(collection.slug, {
         fields: properties,
         identifierField: collection.identifier_field || "title",
         date
       })
-    : draft?.id || fallbackName || "item";
-  const id = uniqueFilenameStem(
-    renderedId,
-    new Set((Array.isArray(items) ? items : []).map((item) => item.id))
+    : fallbackName || "item";
+  const filename = uniqueFilenameStem(
+    renderedFilename,
+    new Set((Array.isArray(items) ? items : []).map((item) => item.filename))
   );
   if (
     Object.hasOwn(properties, "slug") &&
     !properties.slug &&
     creation.type.fields?.slug?.widget !== "slug"
   ) {
-    properties.slug = id;
+    properties.slug = filename;
   }
   return {
     id,
+    filename,
     type: creation.typeName,
     order: nextRootOrder(items),
     properties,
@@ -566,7 +569,7 @@ function createReferencedRecord({
   const parentField = collection?.hierarchy?.parent_field;
   if (parentField) properties[parentField] = null;
 
-  const id = uniqueFilenameStem(
+  const filename = uniqueFilenameStem(
     collection?.slug
       ? renderSlugTemplate(collection.slug, {
           fields: properties,
@@ -575,9 +578,9 @@ function createReferencedRecord({
           date
         })
       : name,
-    new Set(items.map((item) => item.id))
+    new Set(items.map((item) => item.filename))
   );
-  record.id = id;
+  record.filename = filename;
   if (optionForItem && !optionForItem(record)) {
     throw new Error("The new item would not provide a usable reference value.");
   }
@@ -674,6 +677,10 @@ function referenceImageSource(item, view, collection) {
     (typeof value === "string" && value ? value : null);
 }
 
+function referenceFieldMediaFolder(item, fieldName, nodeTypes) {
+  return nodeTypes?.[item?.type]?.fields?.[fieldName]?.media_folder ?? "";
+}
+
 function referenceSelectionDefinitions(field, collection) {
   const published = collection?.views?.reference?.selections;
   if (!isMapping(published) || !Array.isArray(field?.selections)) return [];
@@ -734,6 +741,7 @@ export {
   normalizedReferenceLabel,
   referenceCreationConfig,
   referenceRecordCreationConfig,
+  referenceFieldMediaFolder,
   referenceImageSource,
   referenceItemLabel,
   referenceItemValue,

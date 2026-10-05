@@ -597,12 +597,7 @@ function normalizeSchemaRenames(
   return normalized;
 }
 
-function migratedApiFileValue(
-  value,
-  collectionRenames,
-  currentConfig,
-  nextConfig
-) {
+function migratedApiFileValue(value, collectionRenames, currentConfig) {
   if (typeof value !== "string") return value;
   const parsed = parseContentAddressedMediaPath(value, currentConfig);
   const target = parsed?.collection
@@ -613,8 +608,7 @@ function migratedApiFileValue(
     { hash: parsed.hash, filename: parsed.filename },
     {
       storage: "api",
-      collection: parsed.collection,
-      publicFolder: currentConfig.site?.public_folder ?? "/media"
+      collection: parsed.collection
     }
   );
   if (value !== currentPath) return value;
@@ -622,8 +616,7 @@ function migratedApiFileValue(
     { hash: parsed.hash, filename: parsed.filename },
     {
       storage: "api",
-      collection: target,
-      publicFolder: nextConfig.site?.public_folder ?? "/media"
+      collection: target
     }
   );
 }
@@ -682,8 +675,7 @@ function migrateRecordSchemaKeys(
         nextNode.properties[fieldName] = migratedApiFileValue(
           nextNode.properties[fieldName],
           renames.collections,
-          currentConfig,
-          nextConfig
+          currentConfig
         );
       }
     }

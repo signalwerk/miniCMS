@@ -313,14 +313,14 @@ async function createFilesystemContentAdapter({
     return String(collection.extension || "yml").replace(/^\./, "");
   }
 
-  async function readRecordFile(collectionName, collection, folder, id, file) {
-    assertSafeName(id, "record id");
+  async function readRecordFile(collectionName, collection, folder, filename, file) {
+    assertSafeName(filename, "record filename");
     assertInside(folder, file, "Record path");
     const metadata = await missingAsNull(() => fs.lstat(file));
     if (!metadata) return null;
     if (metadata.isSymbolicLink() || !metadata.isFile()) {
       throw new Error(
-        `Record "${collectionName}/${id}" must be a regular file.`
+        `Record "${collectionName}/${filename}" must be a regular file.`
       );
     }
     const record = validateRecord(
@@ -328,9 +328,9 @@ async function createFilesystemContentAdapter({
       collection,
       config
     );
-    if (record.id !== id) {
+    if (record.filename !== filename) {
       throw new Error(
-        `Record file "${collectionName}/${id}" contains id "${record.id}".`
+        `Record file "${collectionName}/${filename}" contains filename "${record.filename}".`
       );
     }
     return record;
@@ -338,10 +338,10 @@ async function createFilesystemContentAdapter({
 
   async function readRecord(collectionName, id) {
     assertSafeName(id, "record id");
-    const { collection, folder } = await collectionFolder(collectionName);
-    if (!folder) return null;
-    const file = path.join(folder, `${id}.${extensionFor(collection)}`);
-    return readRecordFile(collectionName, collection, folder, id, file);
+    return (
+      (await listRecords(collectionName)).find((record) => record.id === id) ??
+      null
+    );
   }
 
   async function listRecords(collectionName) {
@@ -353,28 +353,37 @@ async function createFilesystemContentAdapter({
       entries
         .filter((entry) => entry.name.endsWith(suffix))
         .map(async (entry) => {
-          const id = entry.name.slice(0, -suffix.length);
-          assertSafeName(id, "record id");
+          const filename = entry.name.slice(0, -suffix.length);
+          assertSafeName(filename, "record filename");
           if (entry.isSymbolicLink() || !entry.isFile()) {
             throw new Error(
-              `Record "${collectionName}/${id}" must be a regular file.`
+              `Record "${collectionName}/${filename}" must be a regular file.`
             );
           }
           return readRecordFile(
             collectionName,
             collection,
             folder,
-            id,
+            filename,
             path.join(folder, entry.name)
           );
         })
     );
+    const ids = new Set();
+    for (const record of records) {
+      if (ids.has(record.id)) {
+        throw new Error(
+          `Collection "${collectionName}" contains record id "${record.id}" more than once.`
+        );
+      }
+      ids.add(record.id);
+    }
     return records.sort(
       (left, right) =>
         (Number.isFinite(left.order) ? left.order : 0) -
           (Number.isFinite(right.order) ? right.order : 0) ||
-        String(left.properties?.title || left.id).localeCompare(
-          String(right.properties?.title || right.id)
+        String(left.properties?.title || left.filename).localeCompare(
+          String(right.properties?.title || right.filename)
         )
     );
   }
@@ -439,11 +448,11 @@ async function createFilesystemContentAdapter({
           fit: "inside",
           collection: context.collection
         })
-    : (value) =>
+    : (value, context = {}) =>
         publicUrl(
           imageAssetMediaPath(value, {
             storage: "github",
-            publicFolder: config.site?.public_folder || "/media"
+            mediaFolder: context.mediaFolder
           }),
           publicBase
         );
@@ -496,7 +505,7 @@ async function createFilesystemContentAdapter({
       return resolveMediaUrl(
         imageAssetMediaPath(value, {
           storage: "github",
-          publicFolder: config.site?.public_folder || "/media"
+          mediaFolder: context.mediaFolder
         }),
         context
       );
