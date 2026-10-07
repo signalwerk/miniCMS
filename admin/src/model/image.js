@@ -192,6 +192,7 @@ function resolveImagePresentation(adapter, value, field, options = {}) {
     return asset
       ? adapter.resolveImageUrl?.(asset, {
           ...options,
+          ...imageRenderingOptions(field),
           mediaFolder: field.media_folder
         }) || ""
       : "";
@@ -200,6 +201,10 @@ function resolveImagePresentation(adapter, value, field, options = {}) {
   return adapter.resolveMediaUrl?.(value, {
     collection: options.collection
   }) || "";
+}
+
+function imageRenderingOptions(field) {
+  return field?.image_rendering === undefined ? {} : { rendering: field.image_rendering };
 }
 
 function imageInfoCoordinateSize(value) {
@@ -249,6 +254,7 @@ export {
   imageAssetValue,
   imageFilename,
   imageInfoCoordinateSize,
+  imageRenderingOptions,
   hasImageValue,
   normalizeImageValue,
   resolveImagePresentation,

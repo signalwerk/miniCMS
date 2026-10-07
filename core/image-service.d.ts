@@ -35,6 +35,10 @@ export interface ImageOperation {
   options?: Record<string, string | number>;
 }
 
+export interface ImageRenderingConfig {
+  flatten?: { alpha?: "remove"; background?: string };
+}
+
 export interface ContentAddressedMediaPath {
   readonly collection: string | null;
   readonly sha: string;
@@ -62,6 +66,7 @@ export interface ParsedImageServiceUrl {
 export type ImageSource = ImageAsset;
 
 export interface ImageServiceOptions {
+  rendering?: ImageRenderingConfig;
   baseUrl?: string;
   config?:
     | ImageProcessingConfig
@@ -89,6 +94,7 @@ export function buildImageServiceUrl(
   value: ImageSource,
   options?: ImageServiceOptions
 ): string;
+export function validateImageRenderingConfig(value: ImageRenderingConfig | undefined): void;
 export function buildImageServiceMediaUrl(
   value: string | ImageAsset,
   options?: Pick<ImageServiceOptions, "baseUrl" | "config" | "collection">

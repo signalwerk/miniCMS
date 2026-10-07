@@ -210,6 +210,13 @@ changing shared core modules it has imported.
   is validated or saved. GitHub image URL behavior must remain unchanged.
   JPEG output accepts distinct `jpg` and `jpeg` format values and preserves
   the selected extension in canonical derivative URLs.
+- Optional field / list-column / inspector-reference `image_rendering.flatten`
+  configures editor transparency handling (`alpha: remove`, hex `background`).
+  Settings uses guided advanced controls. View overrides inherit the field;
+  `{}` explicitly restores normal rendering. `resolveImageUrl` receives it as
+  `rendering`; the shared image helper prepends flatten to default resize/quality.
+  Unconfigured URLs, metadata, original bytes, SVG and GitHub behavior stay the
+  same. Both inspector previews and annotation canvases must honor the setting.
 - Named API connectors require a credential-free HTTPS `api_url`. The reserved
   default and development connectors may omit it for same-origin/runtime
   selection; development alone may configure a loopback HTTP origin. Every API

@@ -512,3 +512,23 @@ test("derives a readable derivative name from the original asset filename", () =
     "gru-e-aus-zurich-final.webp"
   );
 });
+
+test("optional editor flattening preserves default size, quality, format and schema", () => {
+  const source = imageValue("Poster.tif");
+  const options = { collection: "images", width: 640, height: 480, fit: "inside" };
+  const baseline = imageServicePath(source, options);
+  assert.equal(imageServicePath(source, { ...options, rendering: {} }), baseline);
+  const flattened = imageServicePath(source, {
+    ...options, rendering: { flatten: { alpha: "remove", background: "ffffff" } }
+  });
+  assert.equal(flattened, baseline.replace("/resize@", "/flatten@background:ffffff,alpha:remove;resize@"));
+  const normal = parseImageServiceUrl(baseline);
+  const rendered = parseImageServiceUrl(flattened);
+  assert.deepEqual(rendered.operations.slice(1), normal.operations);
+  assert.equal(rendered.format, normal.format);
+  assert.equal(rendered.schema, normal.schema);
+  assert.equal(imageServicePath(source, { ...options, info: true, rendering: { flatten: { alpha: "remove" } } }),
+    imageServicePath(source, { ...options, info: true }));
+  assert.equal(imageServicePath(imageValue("Poster.svg"), { ...options, rendering: { flatten: { alpha: "remove" } } }),
+    imageServicePath(imageValue("Poster.svg"), options));
+});

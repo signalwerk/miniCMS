@@ -250,3 +250,16 @@ test("never lets extra metadata override image identity or persist source keys",
     { future: "kept", hash: HASH, filename: "original.png" }
   );
 });
+
+test("passes optional scoped rendering to image presentations without changing default options", () => {
+  const calls = [];
+  const adapter = { resolveImageUrl(value, options) { calls.push(options); return "/image"; } };
+  const field = { widget: "image", media_folder: "content/media", display: "image" };
+  const options = { collection: "images", width: 320, height: 320, fit: "inside" };
+  resolveImagePresentation(adapter, asset("image.tif"), field, options);
+  resolveImagePresentation(adapter, asset("image.tif"), {
+    ...field, image_rendering: { flatten: { alpha: "remove", background: "ffffff" } }
+  }, options);
+  assert.deepEqual(calls[0], { ...options, mediaFolder: "content/media" });
+  assert.deepEqual(calls[1], { ...calls[0], rendering: { flatten: { alpha: "remove", background: "ffffff" } } });
+});

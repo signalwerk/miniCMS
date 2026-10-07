@@ -346,3 +346,10 @@ test("never exposes relation IDs while table labels load or are missing", () => 
   assert.equal(displayValue("", referenceField, ready), "—");
   assert.equal(displayValue([], tagField, ready), "—");
 });
+
+test("inspector rendering overrides remain separate from the image field default", () => {
+  const type = { fields: { image: { widget: "image", image_rendering: { flatten: { background: "fff", alpha: "remove" } } } },
+    views: { detail: { panels: { inspector: { groups: { media: { fields: [{ field: "image", image_rendering: {} }] } } } } } } };
+  assert.deepEqual(groupsForPanel(type, "inspector")[0].fields[0].image_rendering, {});
+  assert.deepEqual(type.fields.image.image_rendering, { flatten: { background: "fff", alpha: "remove" } });
+});

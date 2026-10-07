@@ -1832,3 +1832,25 @@ test("uses reference presentation for collection summary titles", () => {
 
   assert.equal(summary.title, "Research");
 });
+
+test("validates optional image rendering on fields, list columns and inspector references", () => {
+  const config = fixtureConfig();
+  const rendering = { flatten: { alpha: "remove", background: "ffffff" } };
+  config.node_types.page.fields.image.image_rendering = rendering;
+  config.collections.pages.views = { list: { type: "table", columns: [{ field: "image", display: "image", image_rendering: rendering }] } };
+  config.node_types.page.views = { detail: { panels: { inspector: { groups: { media: { fields: [{ field: "image", image_rendering: {} }] } } } } } };
+  assert.doesNotThrow(() => validateSourceConfig(config));
+  for (const invalid of [null, false, "flatten", { operations: "noop" }, { flatten: {} }, { flatten: { background: "not-a-color" } }, { flatten: { alpha: "keep" } }, { flatten: { value: "fff" } }]) {
+    for (const target of ["field", "column", "inspector"]) {
+      const changed = structuredClone(config);
+      const reference = target === "field" ? changed.node_types.page.fields.image
+        : target === "column" ? changed.collections.pages.views.list.columns[0]
+        : changed.node_types.page.views.detail.panels.inspector.groups.media.fields[0];
+      reference.image_rendering = invalid;
+      assert.throws(() => validateSourceConfig(changed), /image_rendering|flatten/);
+    }
+  }
+  const scalar = fixtureConfig();
+  scalar.node_types.page.fields.title.image_rendering = rendering;
+  assert.throws(() => validateSourceConfig(scalar), /requires an image widget/);
+});

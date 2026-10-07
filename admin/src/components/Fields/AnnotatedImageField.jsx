@@ -20,6 +20,7 @@ import {
   imageCoordinateSize,
   imageFilename,
   imageInfoCoordinateSize,
+  imageRenderingOptions,
   normalizeImageValue
 } from "../../model/image.js";
 import {
@@ -475,6 +476,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
     >
       <img
         src={api.resolveImageUrl(asset, {
+          ...imageRenderingOptions(field),
           width: 2048,
           height: 2048,
           fit: "inside",
@@ -724,6 +726,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
             <img
               className="image-field__preview"
               src={api.resolveImageUrl(asset, {
+                ...imageRenderingOptions(field),
                 width: 640,
                 height: 480,
                 fit: "inside",

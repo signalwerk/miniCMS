@@ -539,12 +539,34 @@ function serializeImageOperations(operations) {
   return serialized;
 }
 
+function validateImageRenderingConfig(rendering) {
+  if (rendering === undefined) return;
+  if (!isMapping(rendering) || Object.keys(rendering).some((key) => key !== "flatten")) {
+    throw imageServiceError("image_rendering must be a mapping containing only flatten.");
+  }
+  if (rendering.flatten !== undefined) {
+    if (!isMapping(rendering.flatten)) {
+      throw imageServiceError("image_rendering.flatten must be a mapping.");
+    }
+    exactOptions(rendering.flatten, ["background", "alpha"], "image_rendering.flatten");
+    normalizedOperation({ type: "flatten", options: rendering.flatten });
+  }
+}
+
+function imageRenderingOperations(rendering) {
+  validateImageRenderingConfig(rendering);
+  return rendering?.flatten
+    ? [normalizedOperation({ type: "flatten", options: rendering.flatten })]
+    : [];
+}
+
 function configuredOperations(processing, overrides) {
+  const rendering = imageRenderingOperations(overrides.rendering);
   if (overrides.operations !== undefined) {
     if (typeof overrides.operations === "string") {
-      return parseImageOperations(overrides.operations);
+      return [...rendering, ...parseImageOperations(overrides.operations)];
     }
-    return overrides.operations.map(normalizedOperation);
+    return [...rendering, ...overrides.operations.map(normalizedOperation)];
   }
   const requestedWidth = overrides.width === undefined
     ? processing.width
@@ -561,6 +583,7 @@ function configuredOperations(processing, overrides) {
   const fit = overrides.fit ?? processing.fit;
   const quality = overrides.quality ?? processing.quality;
   return [
+    ...rendering,
     ...(
       width === null && height === null
         ? []
@@ -889,6 +912,7 @@ export {
   IMAGE_FORMATS,
   buildImageServiceMediaUrl,
   buildImageServiceUrl,
+  validateImageRenderingConfig,
   imageServiceMediaPath,
   imageServicePath,
   imageServiceSlug,

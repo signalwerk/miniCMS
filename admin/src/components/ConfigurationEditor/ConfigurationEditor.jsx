@@ -683,6 +683,35 @@ function AdvancedSection({ title, children }) {
   );
 }
 
+function ImageRenderingEditor({ value, onChange, inherited = false }) {
+  const mode = value?.flatten ? "flatten" : value === undefined ? "" : "default";
+  return (
+    <div className="configuration-entry-card__grid">
+      <FormField label="Image rendering">
+        <SelectInput
+          value={mode}
+          onChange={(next) => onChange(next === "flatten"
+            ? { flatten: { alpha: "remove", background: "ffffff" } }
+            : next === "default" ? {} : undefined)}
+        >
+          <option value="">{inherited ? "Use field rendering" : "Default rendering"}</option>
+          {inherited && <option value="default">Default rendering</option>}
+          <option value="flatten">Flatten transparency</option>
+        </SelectInput>
+      </FormField>
+      {mode === "flatten" && (
+        <FormField label="Background color" hint="Hex color, for example ffffff for white.">
+          <TextInput
+            value={value.flatten.background ?? "ffffff"}
+            placeholder="ffffff"
+            onChange={(background) => onChange({ flatten: { alpha: "remove", background } })}
+          />
+        </FormField>
+      )}
+    </div>
+  );
+}
+
 function EntryActions({
   count,
   onDuplicate,
@@ -2132,6 +2161,7 @@ function FieldEditor({
               } else if (!nextField.media_folder) {
                 nextField.media_folder = "content/media";
               }
+              if (value !== "image") delete nextField.image_rendering;
               if (value !== "markdown") {
                 delete nextField.blocknote;
               }
@@ -2467,6 +2497,15 @@ function FieldEditor({
       <AdvancedSection
         title="Advanced field settings"
       >
+        {field.widget === "image" && (
+          <ImageRenderingEditor
+            value={field.image_rendering}
+            onChange={(value) => onChange((nextField) => {
+              if (value === undefined) delete nextField.image_rendering;
+              else nextField.image_rendering = value;
+            })}
+          />
+        )}
         <FormField label="Help text" optional>
           <TextInput
             value={field.hint}
@@ -3159,6 +3198,18 @@ function InspectorFieldsEditor({ references = [], fields, onChange }) {
                 />
               </FormField>
             </div>
+            {(fields.find(([key]) => key === configured.field)?.[2] === "image" || configured.image_rendering) && (
+              <AdvancedSection title="Image rendering">
+                <ImageRenderingEditor
+                  inherited
+                  value={configured.image_rendering}
+                  onChange={(value) => updateReference(index, (nextReference) => {
+                    if (value === undefined) delete nextReference.image_rendering;
+                    else nextReference.image_rendering = value;
+                  })}
+                />
+              </AdvancedSection>
+            )}
           </article>
           );
         }}
@@ -3332,7 +3383,8 @@ function InspectorLayoutEditor({
   const panels = type.views?.detail?.panels ?? {};
   const fields = Object.entries(type.fields ?? {}).map(([key, field]) => [
     key,
-    field.label || key
+    field.label || key,
+    field.widget
   ]);
   return (
     <AdvancedSection
@@ -3796,6 +3848,18 @@ function TableColumnEditor({
                 </SelectInput>
               </FormField>
             </div>
+            {(fields.find(([key]) => key === configured.field)?.[2] === "image" || configured.image_rendering) && (
+              <ImageRenderingEditor
+                inherited
+                value={configured.image_rendering}
+                onChange={(value) => {
+                  const nextColumn = { ...configured };
+                  if (value === undefined) delete nextColumn.image_rendering;
+                  else nextColumn.image_rendering = value;
+                  onChange(nextColumn);
+                }}
+              />
+            )}
             <div className="configuration-inline-setting">
               <span><strong>Sortable</strong></span>
               <Switch
@@ -3818,7 +3882,8 @@ function TableColumnsEditor({ collection, type, updateCollection }) {
   const fields = [
     ...Object.entries(type?.fields ?? {}).map(([key, field]) => [
       key,
-      field.label || key
+      field.label || key,
+      field.widget
     ]),
     ...SYSTEM_FIELD_OPTIONS
   ];

@@ -964,6 +964,43 @@ defaults change. JPEG output may use either `format: jpg` or `format: jpeg`;
 the selected extension is retained in generated URLs. SVG sources use an exact
 byte passthrough route and never enter the raster processor.
 
+Editor images can optionally flatten transparency onto a background without
+changing the project's default resize, fit, format, quality, or schema. Set
+`image_rendering` on an image field for the editor preview and annotation
+canvas, or on a collection list column / inspector field reference to override
+that presentation independently:
+
+```yaml
+node_types:
+  media_image:
+    fields:
+      file:
+        widget: image
+        media_folder: content/media
+        image_rendering:
+          flatten: { alpha: remove, background: ffffff }
+collections:
+  images:
+    # Other collection settings omitted.
+    views:
+      list:
+        columns:
+          - field: file
+            display: image
+            image_rendering:
+              flatten: { alpha: remove, background: ffffff }
+```
+
+Settings exposes **Image rendering → Flatten transparency** and a background
+color under advanced field settings, column behavior, and inspector field
+references. Unset presentation overrides inherit the field setting; an explicit
+`image_rendering: {}` restores default rendering for that presentation. With no
+settings, generated URLs stay identical to the previous defaults. Flattening is
+prepended to the normal operation stack; original bytes, metadata requests,
+annotation coordinates, SVG passthrough, and GitHub raw-media URLs are unchanged.
+Only image widgets support this setting. Background accepts 3, 4, 6, or 8 digit
+hex colors; alpha may only be `remove`.
+
 Renderers can call `prependImageServiceOperations(url, operations)` from
 `@signalwerk/minicms/content` to add one source-space crop to an
 already resolved canonical raster derivative. Crop geometry may use decimal

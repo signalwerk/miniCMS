@@ -2,6 +2,7 @@ import yaml from "js-yaml";
 import { ID_PATTERN } from "./id.js";
 import {
   normalizeHttpOrigin,
+  validateImageRenderingConfig,
   validateImageProcessingConfig
 } from "./image-service.js";
 import {
@@ -327,6 +328,7 @@ function validateFieldReference(reference, fields, context, status = 500) {
   if (!isMapping(configuration) || typeof configuration.field !== "string") {
     throw contentError(status, `${context} must contain field references.`);
   }
+  validateFieldImageRendering(configuration, fields[configuration.field], context, status);
   if (
     !SYSTEM_FIELDS.has(configuration.field) &&
     !fields[configuration.field]
@@ -371,6 +373,18 @@ function validateFieldReference(reference, fields, context, status = 500) {
       status,
       `${context} uses unsupported alignment "${configuration.align}".`
     );
+  }
+}
+
+function validateFieldImageRendering(configuration, field, context, status) {
+  if (configuration.image_rendering === undefined) return;
+  if (field?.widget !== "image") {
+    throw contentError(status, `${context} image_rendering requires an image widget.`);
+  }
+  try {
+    validateImageRenderingConfig(configuration.image_rendering);
+  } catch (error) {
+    throw contentError(status, `${context}: ${error.message}`);
   }
 }
 
@@ -974,6 +988,7 @@ function validateConfig(config, status = 500, { source = false } = {}) {
       if (!isMapping(field)) {
         fail(`Field "${typeName}.${fieldName}" must be a mapping.`);
       }
+      validateFieldImageRendering(field, field, `Field "${typeName}.${fieldName}"`, status);
       if (!FIELD_WIDGETS.has(field.widget)) {
         fail(
           `Field "${typeName}.${fieldName}" uses unsupported widget "${field.widget ?? ""}".`
