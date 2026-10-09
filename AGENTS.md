@@ -607,9 +607,18 @@ grip, and delete action visible while collapsed.
   Inspector panels use Command/Ctrl+Left/Right for previous/next and remain
   mounted during record loading. Navigation uses the existing unsaved-change
   confirmation and pauses during loading, saving, previews and nested dialogs.
+- List selection immediately renders an Inspector-only preview from the list
+  summary's root properties. Summary metadata is not a record, and summaries
+  omit nested slots/custom root fields: always fetch the complete record before
+  enabling edits or saves. Keep the preview separate from the authoritative
+  `record` state; show an `aria-busy` translucent spinner overlay and make
+  Inspector fields/actions inert until hydration. Selection load tokens reject
+  stale responses. Focus-mode exit stays available while loading.
 - Discard confirmations explicitly enable Command/Ctrl+D (never deletion
   dialogs). Their buttons show the shared `Shortcut`/`PrimaryShortcut` outlined
-  keyboard badges from Common; the Save action reuses the same component.
+  keyboard badges from Common; Save and Cancel reuse the same component (Cancel
+  shows Esc). Confirmation dialogs allow 600px width and wrap whole buttons on
+  small screens, keeping button labels on one line.
 - A collection load without a record route selects no record. A valid deep
   selection hash restores its record and optional content node after refresh.
 - Multiple tree selections show only their selection count in the inspector.
@@ -700,6 +709,8 @@ grip, and delete action visible while collapsed.
 - Icon settings use the accessible preview picker backed by `ICON_NAMES` and
   `iconFor` in `model/editor.js`. Add supported icons to that shared registry;
   do not reintroduce plain icon-name selects or a second option list.
+- Inspector image previews reserve fixed height before image load: 220px for
+  editable image fields and 160px for read-only image details, with contain fit.
 - Image fields keep a compact inspector preview and open region/point editing
   in a dedicated modal. Regions use the standard eight resize handles plus
   move and rotation. Pointer and keyboard rotation use 1-degree steps normally,

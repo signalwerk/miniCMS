@@ -65,6 +65,7 @@ import {
   iconFor,
   isInspectorFocusShortcut,
   isSaveShortcut,
+  inspectorRecordFromSummary,
   nextTreeSelection,
   readLayoutPreferences,
   refreshGeneratedIdFields,
@@ -117,6 +118,7 @@ export default function App({ PreviewComponent = null }) {
   const [activeCollection, setActiveCollection] = useState("");
   const [items, setItems] = useState([]);
   const [record, setRecord] = useState(null);
+  const [loadingRecordSummary, setLoadingRecordSummary] = useState(null);
   const [selectedId, setSelectedId] = useState("");
   const [selectedRecordIds, setSelectedRecordIds] = useState(new Set());
   const [recordSelectionAnchor, setRecordSelectionAnchor] = useState("");
@@ -191,6 +193,10 @@ export default function App({ PreviewComponent = null }) {
   );
   const previewRecord =
     previewRecordDraft?.source === record ? previewRecordDraft.record : record;
+  // Summaries can paint the Inspector, but only a fetched record is editable.
+  const inspectorRecord =
+    record ?? (loading && isTableView ? loadingRecordSummary : null);
+  const inspectorNode = getNode(inspectorRecord, selectedId);
   const selectedNode = getNode(record, selectedId);
   const selectedNodePath = getNodePath(record, selectedId);
   const selectedSlotTarget = useMemo(
@@ -206,16 +212,16 @@ export default function App({ PreviewComponent = null }) {
   const selectedSlotLabel = selectedSlotTarget
     ? selectedSlotTarget.slot.label || selectedSlotTarget.slotName
     : "";
-  const selectedNodeType = selectedNode ? nodeTypes[selectedNode.type] : null;
+  const selectedNodeType = inspectorNode ? nodeTypes[inspectorNode.type] : null;
   const selectedIsDocument = Boolean(
-    selectedNode && record && selectedNode.id === record.id
+    inspectorNode && inspectorRecord && inspectorNode.id === inspectorRecord.id
   );
   const inspectorPanels = panelsFor(selectedNodeType, selectedIsDocument);
   const effectivePanel =
     inspectorPanels.find((panel) => panel.name === activePanel)?.name ||
     inspectorPanels[0].name;
   const inspectorPanelFocused = Boolean(
-    selectedNode &&
+    inspectorNode &&
       inspectorFocus?.nodeId === selectedId &&
       inspectorFocus?.panelName === effectivePanel
   );
@@ -343,7 +349,8 @@ export default function App({ PreviewComponent = null }) {
       id,
       preferredContentId = null,
       selectionLoadToken = null,
-      focusPanel = null
+      focusPanel = null,
+      summary = null
     ) => {
       const loadToken =
         selectionLoadToken ?? ++selectionLoadTokenRef.current;
@@ -354,7 +361,15 @@ export default function App({ PreviewComponent = null }) {
       });
       setLoading(true);
       setError("");
-      if (!focusPanel) {
+      const summaryRecord = inspectorRecordFromSummary(summary);
+      setLoadingRecordSummary(summaryRecord);
+      if (summaryRecord) {
+        setRecord(null);
+        setSelectedId(summaryRecord.id);
+        if (focusPanel) {
+          setInspectorFocus({ nodeId: summaryRecord.id, panelName: focusPanel });
+        }
+      } else if (!focusPanel) {
         setRecord(null);
         setSelectedId("");
       }
@@ -379,6 +394,7 @@ export default function App({ PreviewComponent = null }) {
         if (focusPanel) {
           setInspectorFocus({ nodeId: nextSelectedId, panelName: focusPanel });
         }
+        setLoadingRecordSummary(null);
         setRecord(nextRecord);
         setSelectedId(nextSelectedId);
         setSelectedContentIds(new Set([nextSelectedId]));
@@ -403,6 +419,7 @@ export default function App({ PreviewComponent = null }) {
           return;
         }
         setError(loadError.message);
+        setLoadingRecordSummary(null);
         setRecord(null);
         setSelectedId("");
         setSelectedRecordIds(new Set());
@@ -427,6 +444,7 @@ export default function App({ PreviewComponent = null }) {
     ) => {
       const loadToken = ++selectionLoadTokenRef.current;
       activeCollectionRef.current = collectionName;
+      setLoadingRecordSummary(null);
       setActiveCollection(collectionName);
       setActiveTreeSelection("collection");
       setRecord(null);
@@ -469,7 +487,9 @@ export default function App({ PreviewComponent = null }) {
             collectionName,
             nextId,
             preferredContentId,
-            loadToken
+            loadToken,
+            null,
+            result.items.find((item) => item.id === nextId)
           );
         } else {
           setLoading(false);
@@ -689,7 +709,10 @@ export default function App({ PreviewComponent = null }) {
           return loadRecord(
             activeCollection,
             requestedSelection.recordId,
-            requestedSelection.contentId
+            requestedSelection.contentId,
+            null,
+            null,
+            isTableView ? items.find((item) => item.id === requestedSelection.recordId) : null
           );
         }
 
@@ -931,7 +954,8 @@ export default function App({ PreviewComponent = null }) {
       setSelectedRecordIds(new Set([id]));
       setRecordSelectionAnchor(id);
       return loadRecord(activeCollection, id, null, null,
-        inspectorPanelFocused ? effectivePanel : null);
+        inspectorPanelFocused ? effectivePanel : null,
+        isTableView ? items.find((item) => item.id === id) : null);
     });
   }
 
@@ -1033,6 +1057,7 @@ export default function App({ PreviewComponent = null }) {
   }
 
   function changeRecord(update) {
+    if (!record || loading) return;
     setRecord((current) => update(current));
     setDirty(true);
   }
@@ -2403,7 +2428,7 @@ export default function App({ PreviewComponent = null }) {
                 collections={collections}
                 items={treeItems}
                 nodeTypes={nodeTypes}
-                selectedId={record?.id}
+                selectedId={inspectorRecord?.id}
                 loading={loading}
                 search={search}
                 editing={saving}
@@ -2688,13 +2713,14 @@ export default function App({ PreviewComponent = null }) {
               label={multipleTreeSelection.label}
               icon={multipleTreeSelection.icon}
             />
-          ) : loading && !record ? (
+          ) : loading && !inspectorRecord ? (
             <div className="panel-loader">
               <Spinner />
             </div>
           ) : (
             <Inspector
-              record={record}
+              record={inspectorRecord}
+              loading={loading}
               selectedId={selectedId}
               nodeTypes={nodeTypes}
               collection={collection}

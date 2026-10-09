@@ -12,6 +12,7 @@ import {
   isInspectorFocusShortcut,
   instantiateNode,
   isSaveShortcut,
+  inspectorRecordFromSummary,
   isDiscardShortcut,
   nextListSelection,
   referenceItemsForField,
@@ -647,4 +648,21 @@ test("discard shortcut requires Command or Control with D and no extra modifiers
   assert.equal(isDiscardShortcut({ key: "d" }), false);
   assert.equal(isDiscardShortcut({ key: "d", metaKey: true, shiftKey: true }), false);
   assert.equal(isDiscardShortcut({ key: "d", ctrlKey: true, altKey: true }), false);
+});
+
+test("inspector summary previews retain root properties without pretending to be full records", () => {
+  const summary = {
+    id: "image0000000001", type: "image", title: "List title",
+    filename: "poster-image0000000001", hierarchy_id: "alias",
+    updated_at: "2026-10-09T00:00:00Z", hidden: true,
+    properties: { title: "Poster", image: { hash: "abc", filename: "poster.tif" }, crops: [{ x: 3 }] }
+  };
+  const preview = inspectorRecordFromSummary(summary);
+  assert.deepEqual(preview, {
+    id: summary.id, type: summary.type, properties: summary.properties, slots: {}
+  });
+  preview.properties.crops[0].x = 10;
+  assert.equal(summary.properties.crops[0].x, 3);
+  assert.equal(inspectorRecordFromSummary(null), null);
+  assert.deepEqual(inspectorRecordFromSummary({ id: "empty", type: "page" }).properties, {});
 });

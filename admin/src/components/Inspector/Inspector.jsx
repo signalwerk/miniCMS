@@ -20,7 +20,7 @@ import {
   isolateFocusSurface
 } from "../../model/focus.js";
 import { panelsFor } from "../../model/views.js";
-import { EmptyState } from "../Common/Common.jsx";
+import { EmptyState, Spinner } from "../Common/Common.jsx";
 import { Field } from "../Fields/Fields.jsx";
 import { InspectorPanelFields } from "./InspectorPanelFields.jsx";
 
@@ -33,6 +33,7 @@ function Inspector({
   items,
   activePanel,
   focused = false,
+  loading = false,
   onFocus,
   onExitFocus,
   onPropertyChange,
@@ -97,6 +98,12 @@ function Inspector({
     };
   }, [focused]);
 
+  useEffect(() => {
+    if (loading && focused) {
+      inspectorRef.current?.querySelector("[data-inspector-focus-exit]")?.focus();
+    }
+  }, [loading, focused]);
+
   const node = getNode(record, selectedId);
   if (!node) {
     return <EmptyState title="Nothing selected">Choose an item from the content tree.</EmptyState>;
@@ -113,11 +120,12 @@ function Inspector({
     <div
       ref={inspectorRef}
       className={cx("inspector", focused && "inspector--focus")}
+      aria-busy={loading}
       role={focused ? "dialog" : undefined}
       aria-modal={focused ? true : undefined}
       aria-label={focused ? `${currentPanel.label} focus mode` : undefined}
     >
-      <div className="inspector__identity">
+      <div className="inspector__identity" inert={loading || undefined}>
         <span className={cx("node-icon", `node-icon--${type.kind || "content"}`)}>
           <TypeIcon size={16} />
         </span>
@@ -184,6 +192,7 @@ function Inspector({
         panelName={currentPanel.name}
         includeInfo={isDocument}
         panelFocused={focused}
+        loading={loading}
         collection={collection}
         item={currentItem}
         onRenameFile={onRenameFile}
@@ -206,6 +215,12 @@ function Inspector({
           />
         )}
       />
+
+      {loading && (
+        <div className="inspector__loading-overlay" role="status" aria-label="Loading full record">
+          <span className="inspector__loading-indicator"><Spinner small /></span>
+        </div>
+      )}
 
       {!isDocument && location && (
         <div className="inspector__footer">

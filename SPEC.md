@@ -424,7 +424,11 @@ wrapping; without a selection, Up starts at the last record and Down at the
 first. Text inputs and editable controls retain their ordinary arrow behavior.
 In a focused list-view Inspector, Command/Ctrl+Right selects the next record
 and Command/Ctrl+Left the previous, keeping panel focus. Unsaved changes use
-the existing Cancel/Save/Discard confirmation. Command/Ctrl+D activates Discard
+the existing Cancel/Save/Discard confirmation. Selecting a list row immediately
+shows its root properties in the Inspector with a translucent loading overlay.
+The list summary omits nested content and other full-record fields, so the
+editor still fetches the complete record; editing and saving stay unavailable
+until it arrives. The summary preview is never used as the record to save. Command/Ctrl+D activates Discard
 only within a discard confirmation; its button displays the shortcut in a
 shared rounded outlined keyboard badge.
 

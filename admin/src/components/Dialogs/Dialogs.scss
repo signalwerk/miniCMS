@@ -55,7 +55,7 @@
 }
 
 .confirmation-dialog {
-  width: min(460px, 100%);
+  width: min(600px, 100%);
 }
 
 .dialog__top > div {
@@ -350,4 +350,13 @@
 .dialog .inline-error {
   color: #ffaaa4;
   background: #402724;
+}
+
+.confirmation-dialog .dialog__footer {
+  flex-wrap: wrap;
+}
+
+.confirmation-dialog .dialog__footer .button {
+  flex-shrink: 0;
+  white-space: nowrap;
 }

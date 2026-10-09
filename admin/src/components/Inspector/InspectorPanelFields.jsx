@@ -108,6 +108,7 @@ function InspectorPanelFields({
   type,
   panelName,
   includeInfo = false,
+  loading = false,
   panelFocused = false,
   collection,
   item,
@@ -123,7 +124,7 @@ function InspectorPanelFields({
   );
 
   return (
-    <div className="inspector__fields">
+    <div className="inspector__fields" inert={loading || undefined}>
       {groups.map((group) => (
         <InspectorGroup
           key={`${node.id}-${panelName}-${group.name}`}

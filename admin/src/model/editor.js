@@ -627,6 +627,17 @@ function isDiscardShortcut(event) {
   );
 }
 
+// Inspector-only preview: summaries are not complete, saveable records.
+function inspectorRecordFromSummary(summary) {
+  if (!summary) return null;
+  return {
+    id: summary.id,
+    type: summary.type,
+    properties: structuredClone(summary.properties ?? {}),
+    slots: {}
+  };
+}
+
 function nextListSelection(items, selectedId, direction) {
   if (!items.length) return null;
   const index = items.findIndex((item) => item.id === selectedId);
@@ -917,6 +928,7 @@ export {
   isSaveShortcut,
   isDiscardShortcut,
   nextListSelection,
+  inspectorRecordFromSummary,
   instantiateNode,
   nextTreeSelection,
   optionValue,

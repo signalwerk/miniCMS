@@ -27,7 +27,7 @@ import {
   renderSlugTemplate,
   slugTemplateFieldNames
 } from "../../../../core/slug.js";
-import { ChoiceTabs, EmptyState, PrimaryShortcut, Spinner } from "../Common/Common.jsx";
+import { ChoiceTabs, EmptyState, PrimaryShortcut, Shortcut, Spinner } from "../Common/Common.jsx";
 import { Field } from "../Fields/Fields.jsx";
 import {
   focusableElements,
@@ -432,10 +432,12 @@ function ConfirmationDialog({
             type="button"
             className="button button--secondary"
             autoFocus={!hasSecondaryAction}
+            aria-keyshortcuts="Escape"
             onClick={onCancel}
             disabled={busy}
           >
             Cancel
+            <Shortcut keys="Esc" label="Escape" />
           </button>
           <button
             type={hasSecondaryAction ? "button" : "submit"}
