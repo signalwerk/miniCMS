@@ -4992,6 +4992,7 @@ export default function ConfigurationEditor({
       title: "Discard configuration changes?",
       description: "The Settings draft contains changes that have not been saved.",
       confirmLabel: "Discard changes",
+      discard: true,
       danger: true,
       onConfirm: onClose
     });

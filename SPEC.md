@@ -419,6 +419,15 @@ collections, media uploads, and stable-ID-backed collection references.
 Inspector groups assign fields, optional custom labels, and order. The active
 panel always exposes a focus action that shows all of that panel's
 groups in a centered editing surface, including the implicit default Inspector.
+List-view Up/Down moves through the current filtered and sorted records without
+wrapping; without a selection, Up starts at the last record and Down at the
+first. Text inputs and editable controls retain their ordinary arrow behavior.
+In a focused list-view Inspector, Command/Ctrl+Right selects the next record
+and Command/Ctrl+Left the previous, keeping panel focus. Unsaved changes use
+the existing Cancel/Save/Discard confirmation. Command/Ctrl+D activates Discard
+only within a discard confirmation; its button displays the shortcut in a
+shared rounded outlined keyboard badge.
+
 Command+Control+Option+Shift+F focuses the active panel directly. Escape exits
 and restores focus. Fine-grained mode, display, appearance, and alignment
 controls belong to table columns; the runtime still reads older detail-field

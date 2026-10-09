@@ -619,6 +619,22 @@ function isSaveShortcut(event) {
   );
 }
 
+function isDiscardShortcut(event) {
+  return (
+    String(event?.key).toLocaleLowerCase() === "d" &&
+    Boolean(event?.metaKey || event?.ctrlKey) &&
+    !event?.altKey && !event?.shiftKey
+  );
+}
+
+function nextListSelection(items, selectedId, direction) {
+  if (!items.length) return null;
+  const index = items.findIndex((item) => item.id === selectedId);
+  if (index < 0) return (direction < 0 ? items.at(-1) : items[0]).id;
+  const next = items[index + direction];
+  return next?.id ?? null;
+}
+
 function isInspectorFocusShortcut(event) {
   return (
     (
@@ -899,6 +915,8 @@ export {
   iconFor,
   isInspectorFocusShortcut,
   isSaveShortcut,
+  isDiscardShortcut,
+  nextListSelection,
   instantiateNode,
   nextTreeSelection,
   optionValue,

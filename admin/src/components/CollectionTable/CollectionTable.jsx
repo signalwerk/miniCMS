@@ -9,7 +9,7 @@ import {
   Search,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./CollectionTable.scss";
 import { useAdapter } from "../../adapters/AdapterContext.jsx";
 import {
@@ -18,7 +18,7 @@ import {
   createEmptyFilter,
   filterFieldKind
 } from "../../model/advancedFilter.js";
-import { cx, typeField, typeFields } from "../../model/editor.js";
+import { cx, nextListSelection, typeField, typeFields } from "../../model/editor.js";
 import { resolveImagePresentation } from "../../model/image.js";
 import {
   renderSlugWidgetTemplate,
@@ -388,6 +388,8 @@ function CollectionTable({
   loading,
   search,
   editing,
+  focusedInspector = false,
+  navigationDisabled = false,
   onSearch,
   onSelect,
   onCreate,
@@ -396,6 +398,8 @@ function CollectionTable({
   onEdit
 }) {
   const adapter = useAdapter();
+  const tableRef = useRef(null);
+  const keyboardSelectionRef = useRef(false);
   const listView = collection.views?.list ?? {};
   const columns = useMemo(() => {
     const configured = listView.columns ?? [];
@@ -713,6 +717,43 @@ function CollectionTable({
     sort
   ]);
 
+  useEffect(() => {
+    function navigate(event) {
+      if (navigationDisabled || loading || editing || event.defaultPrevented ||
+          document.querySelector(".dialog-backdrop") ||
+          event.target?.closest?.("[data-portal], [data-mantine-shared-portal-node], .tags-select__menu-portal, [data-field-popup-open='true']")) return;
+      let direction;
+      if (focusedInspector) {
+        if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey ||
+            !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+        direction = event.key === "ArrowRight" ? 1 : -1;
+      } else {
+        if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey ||
+            !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+        if (event.target?.closest?.("input, textarea, select, button, a, [contenteditable='true'], [role='textbox'], [role='combobox']")) return;
+        if (event.target !== document.body && !tableRef.current?.contains(event.target)) return;
+        direction = event.key === "ArrowDown" ? 1 : -1;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const nextId = nextListSelection(visibleItems, selectedId, direction);
+      if (!nextId) return;
+      keyboardSelectionRef.current = !focusedInspector;
+      onSelect(nextId);
+    }
+    document.addEventListener("keydown", navigate, true);
+    return () => document.removeEventListener("keydown", navigate, true);
+  }, [editing, focusedInspector, loading, navigationDisabled, onSelect, selectedId, visibleItems]);
+
+  useEffect(() => {
+    if (!keyboardSelectionRef.current || loading || navigationDisabled || focusedInspector) return;
+    keyboardSelectionRef.current = false;
+    const row = [...(tableRef.current?.querySelectorAll("tbody tr") ?? [])]
+      .find((entry) => entry.dataset.recordId === selectedId);
+    row?.focus({ preventScroll: true });
+    row?.scrollIntoView({ block: "nearest" });
+  }, [focusedInspector, loading, navigationDisabled, selectedId]);
+
   function changeSort(column) {
     if (!column.sortable) return;
     setSort((current) => ({
@@ -725,7 +766,7 @@ function CollectionTable({
   }
 
   return (
-    <section className="table-pane">
+    <section ref={tableRef} className="table-pane">
       <div className="table-controls">
         <div className="table-toolbar">
           <div className="table-toolbar__identity">
@@ -821,6 +862,7 @@ function CollectionTable({
             {visibleItems.map((item) => (
               <tr
                 key={item.id}
+                data-record-id={item.id}
                 className={cx(
                   item.id === selectedId && "is-selected",
                   item.hidden && "is-hidden"

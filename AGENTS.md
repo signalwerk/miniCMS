@@ -601,6 +601,15 @@ grip, and delete action visible while collapsed.
   and restores focus. Do not add field-local focus controls, configuration, or
   persistence; the capture-phase global save shortcut must continue to work in
   BlockNote and Code views.
+- List-view Up/Down selects adjacent records in current filtered/sorted order;
+  an absent selection starts at last/first respectively, with no wrapping.
+  Plain arrows leave inputs, editable cells and other controls alone. Focused
+  Inspector panels use Command/Ctrl+Left/Right for previous/next and remain
+  mounted during record loading. Navigation uses the existing unsaved-change
+  confirmation and pauses during loading, saving, previews and nested dialogs.
+- Discard confirmations explicitly enable Command/Ctrl+D (never deletion
+  dialogs). Their buttons show the shared `Shortcut`/`PrimaryShortcut` outlined
+  keyboard badges from Common; the Save action reuses the same component.
 - A collection load without a record route selects no record. A valid deep
   selection hash restores its record and optional content node after refresh.
 - Multiple tree selections show only their selection count in the inspector.

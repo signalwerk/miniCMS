@@ -4,6 +4,15 @@ import "./Common.scss";
 import { cx } from "../../model/editor.js";
 import { externalHttpUrl } from "../../model/views.js";
 
+function Shortcut({ keys, label }) {
+  return <kbd className="shortcut" aria-label={label}>{keys}</kbd>;
+}
+
+function PrimaryShortcut({ keyName }) {
+  const mac = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? "");
+  return <Shortcut keys={`${mac ? "⌘" : "Ctrl+"}${keyName}`} label={`${mac ? "Command" : "Control"}+${keyName}`} />;
+}
+
 function BrandMark() {
   return (
     <div className="brand-mark" aria-hidden="true">
@@ -204,5 +213,7 @@ export {
   ExternalUrlLink,
   MultiSelectionNotice,
   ResizeHandle,
-  Spinner
+  Spinner,
+  Shortcut,
+  PrimaryShortcut
 };

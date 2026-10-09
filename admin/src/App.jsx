@@ -342,7 +342,8 @@ export default function App({ PreviewComponent = null }) {
       collectionName,
       id,
       preferredContentId = null,
-      selectionLoadToken = null
+      selectionLoadToken = null,
+      focusPanel = null
     ) => {
       const loadToken =
         selectionLoadToken ?? ++selectionLoadTokenRef.current;
@@ -353,8 +354,10 @@ export default function App({ PreviewComponent = null }) {
       });
       setLoading(true);
       setError("");
-      setRecord(null);
-      setSelectedId("");
+      if (!focusPanel) {
+        setRecord(null);
+        setSelectedId("");
+      }
       setSelectedContentIds(new Set());
       setContentSelectionAnchor("");
       setSelectedContentSlot(null);
@@ -373,6 +376,9 @@ export default function App({ PreviewComponent = null }) {
         const selectsContentNode =
           Boolean(preferredContentId) &&
           nextSelectedId === preferredContentId;
+        if (focusPanel) {
+          setInspectorFocus({ nodeId: nextSelectedId, panelName: focusPanel });
+        }
         setRecord(nextRecord);
         setSelectedId(nextSelectedId);
         setSelectedContentIds(new Set([nextSelectedId]));
@@ -886,6 +892,7 @@ export default function App({ PreviewComponent = null }) {
       description:
         "The current record has changes that have not been saved. This action cannot be undone.",
       confirmLabel: "Discard changes",
+      discard: true,
       secondaryLabel: "Save changes",
       danger: true,
       onSecondary: async () => {
@@ -923,7 +930,8 @@ export default function App({ PreviewComponent = null }) {
       setActiveTreeSelection("collection");
       setSelectedRecordIds(new Set([id]));
       setRecordSelectionAnchor(id);
-      return loadRecord(activeCollection, id);
+      return loadRecord(activeCollection, id, null, null,
+        inspectorPanelFocused ? effectivePanel : null);
     });
   }
 
@@ -2399,6 +2407,8 @@ export default function App({ PreviewComponent = null }) {
                 loading={loading}
                 search={search}
                 editing={saving}
+                focusedInspector={inspectorPanelFocused}
+                navigationDisabled={Boolean(settingsOpen || confirmation || insertDialog || tablePreviewVisible)}
                 onSearch={setSearch}
                 onSelect={selectRecord}
                 onCreate={() => setInsertDialog("collection")}

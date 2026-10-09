@@ -409,3 +409,18 @@ body.is-resizing-rows * {
 .right-rail .empty-state strong {
   color: #aeb0a7;
 }
+
+.shortcut {
+  @extend %type-consulting;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 1px 5px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-family: inherit;
+  line-height: 1.3;
+  opacity: 0.8;
+  white-space: nowrap;
+}

@@ -18,6 +18,7 @@ import {
   defaultProperties,
   iconFor,
   isSaveShortcut,
+  isDiscardShortcut,
   typeField,
   typeFields
 } from "../../model/editor.js";
@@ -26,7 +27,7 @@ import {
   renderSlugTemplate,
   slugTemplateFieldNames
 } from "../../../../core/slug.js";
-import { ChoiceTabs, EmptyState, Spinner } from "../Common/Common.jsx";
+import { ChoiceTabs, EmptyState, PrimaryShortcut, Spinner } from "../Common/Common.jsx";
 import { Field } from "../Fields/Fields.jsx";
 import {
   focusableElements,
@@ -300,6 +301,7 @@ function ConfirmationDialog({
   description,
   confirmLabel,
   secondaryLabel,
+  discard = false,
   danger = false,
   onCancel,
   onSecondary,
@@ -326,6 +328,12 @@ function ConfirmationDialog({
     function handleKeyboard(event) {
       const backdrops = document.querySelectorAll(".dialog-backdrop");
       if (backdrops[backdrops.length - 1] !== backdropRef.current) return;
+      if (discard && isDiscardShortcut(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!busy) void runAction(onConfirm, "confirm");
+        return;
+      }
       if (isSaveShortcut(event)) {
         if (!hasSecondaryAction) return;
         event.preventDefault();
@@ -357,7 +365,7 @@ function ConfirmationDialog({
     }
     document.addEventListener("keydown", handleKeyboard, true);
     return () => document.removeEventListener("keydown", handleKeyboard, true);
-  }, [busy, hasSecondaryAction, onCancel, onSecondary]);
+  }, [busy, discard, hasSecondaryAction, onCancel, onConfirm, onSecondary]);
 
   async function runAction(action, name) {
     setBusyAction(name);
@@ -441,6 +449,7 @@ function ConfirmationDialog({
                 : undefined
             }
             disabled={busy}
+            aria-keyshortcuts={discard ? "Meta+D Control+D" : undefined}
           >
             {busyAction === "confirm" ? (
               <Spinner small />
@@ -450,6 +459,7 @@ function ConfirmationDialog({
               <Check size={15} />
             )}
             {confirmLabel}
+            {discard && <PrimaryShortcut keyName="D" />}
           </button>
           {hasSecondaryAction && (
             <button
@@ -466,6 +476,7 @@ function ConfirmationDialog({
                 <Check size={15} />
               )}
               {secondaryLabel}
+              <PrimaryShortcut keyName="S" />
             </button>
           )}
         </div>

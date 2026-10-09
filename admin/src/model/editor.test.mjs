@@ -12,6 +12,8 @@ import {
   isInspectorFocusShortcut,
   instantiateNode,
   isSaveShortcut,
+  isDiscardShortcut,
+  nextListSelection,
   referenceItemsForField,
   refreshGeneratedIdFields,
   selectionIdForRecord,
@@ -625,4 +627,24 @@ test("rejects unknown hashes and retains valid malformed parent levels", () => {
     selectionRouteFromHash(routeConfig, "#pages/home/%E0%A4%A"),
     { collectionName: "pages", recordId: "home", contentId: null }
   );
+});
+
+test("list navigation follows visible order, starts at either end, and stops at boundaries", () => {
+  const items = [{ id: "c" }, { id: "a" }, { id: "b" }];
+  assert.equal(nextListSelection(items, "", 1), "c");
+  assert.equal(nextListSelection(items, "", -1), "b");
+  assert.equal(nextListSelection(items, "filtered-out", 1), "c");
+  assert.equal(nextListSelection(items, "c", 1), "a");
+  assert.equal(nextListSelection(items, "b", -1), "a");
+  assert.equal(nextListSelection(items, "c", -1), null);
+  assert.equal(nextListSelection(items, "b", 1), null);
+  assert.equal(nextListSelection([], "", 1), null);
+});
+
+test("discard shortcut requires Command or Control with D and no extra modifiers", () => {
+  assert.equal(isDiscardShortcut({ key: "d", metaKey: true }), true);
+  assert.equal(isDiscardShortcut({ key: "D", ctrlKey: true }), true);
+  assert.equal(isDiscardShortcut({ key: "d" }), false);
+  assert.equal(isDiscardShortcut({ key: "d", metaKey: true, shiftKey: true }), false);
+  assert.equal(isDiscardShortcut({ key: "d", ctrlKey: true, altKey: true }), false);
 });
