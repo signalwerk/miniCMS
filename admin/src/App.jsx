@@ -86,6 +86,8 @@ import {
   instantiateNode
 } from "./model/nodeFactory.js";
 import { panelsFor } from "./model/views.js";
+import { inspectDeletionUsage, repairDeletionUsage } from "./model/referenceDeletion.js";
+import { ReferenceDeletionDialog } from "./components/Dialogs/ReferenceDeletionDialog.jsx";
 import { CollectionTable } from "./components/CollectionTable/CollectionTable.jsx";
 import { useAdapterContext } from "./adapters/AdapterContext.jsx";
 import ConfigurationEditor from "./components/ConfigurationEditor/ConfigurationEditor.jsx";
@@ -1780,6 +1782,10 @@ export default function App({ PreviewComponent = null }) {
 
   async function requestDeleteRecords(recordIds) {
     if (!recordIds.size || saving) return;
+    if (dirty) {
+      setError("Save or discard your changes before checking links and deleting records.");
+      return;
+    }
     const selectedItems = items.filter((item) => recordIds.has(item.id));
     if (!selectedItems.length) return;
     const selectedHierarchyIds = new Set(
@@ -1840,12 +1846,50 @@ export default function App({ PreviewComponent = null }) {
             .map((filename) => `“${filename}”`)
             .join(", ")}.`
       : "";
-    setConfirmation({
+    const deletionCollection = activeCollection;
+    const ids = new Set(recordIds);
+    const details = {
       title: `Delete ${count} ${count === 1 ? singular : plural}?`,
       description: `${recordWarning}${fileWarning}`,
       confirmLabel: count === 1 ? `Delete ${singular}` : `Delete ${count} records`,
-      danger: true,
-      onConfirm: () => deleteRecords(new Set(recordIds))
+      danger: true
+    };
+    setConfirmation({
+      ...details,
+      description: `${details.description} Check for links before continuing.`,
+      confirmLabel: "Check usage",
+      onConfirm: async () => {
+        const plan = await inspectDeletionUsage(api, config, deletionCollection, ids);
+        if (plan.records.length) {
+          setConfirmation({
+            ...details,
+            usagePlan: plan,
+            onResolve: async (resolutions) => {
+              setSaving(true);
+              try {
+                await repairDeletionUsage(api, config, plan, resolutions);
+              } catch (error) {
+                throw new Error(`${error.message} Some links may already have been updated; retry checks the current records.`);
+              } finally {
+                setSaving(false);
+              }
+              await deleteRecords(ids);
+              await loadCollection(deletionCollection);
+            }
+          });
+        } else {
+          setConfirmation({
+            ...details,
+            description: `No links found in this admin’s configured collections. ${details.description}`,
+            onConfirm: async () => {
+              const latest = await inspectDeletionUsage(api, config, deletionCollection, ids);
+              if (latest.records.length) throw new Error("New links were found. Cancel and check usage again.");
+              await deleteRecords(ids);
+            }
+          });
+        }
+        return false;
+      }
     });
   }
 
@@ -2782,12 +2826,18 @@ export default function App({ PreviewComponent = null }) {
         />
       )}
 
-      {confirmation && (
+      {confirmation && (confirmation.usagePlan ? (
+        <ReferenceDeletionDialog
+          {...confirmation}
+          config={config}
+          onCancel={() => setConfirmation(null)}
+        />
+      ) : (
         <ConfirmationDialog
           {...confirmation}
           onCancel={() => setConfirmation(null)}
         />
-      )}
+      ))}
 
       {settingsOpen && (
         <ConfigurationEditor

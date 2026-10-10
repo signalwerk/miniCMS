@@ -137,18 +137,26 @@ function ensureImageAnnotationIds(value) {
 function refreshImageAnnotationIds(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const seen = new Set();
+  const remapped = new Map();
   const refreshed = (items) =>
     Array.isArray(items)
-      ? items.map((item) => ({ ...item, id: createId(seen) }))
+      ? items.map((item) => {
+          const id = createId(seen);
+          if (item.id && !remapped.has(item.id)) remapped.set(item.id, id);
+          return { ...item, id };
+        })
       : items;
+  const regions = refreshed(value.regions);
+  const points = refreshed(value.points);
   return {
     ...value,
     ...(Object.hasOwn(value, "regions")
-      ? { regions: refreshed(value.regions) }
+      ? { regions }
       : {}),
     ...(Object.hasOwn(value, "points")
-      ? { points: refreshed(value.points) }
-      : {})
+      ? { points }
+      : {}),
+    ...(value.default_region ? { default_region: remapped.get(value.default_region) ?? value.default_region } : {})
   };
 }
 
@@ -190,7 +198,7 @@ function resolveImagePresentation(adapter, value, field, options = {}) {
   if (field.widget === "image") {
     const asset = imageAssetValue(value);
     return asset
-      ? adapter.resolveImageUrl?.(asset, {
+      ? adapter.resolveImageUrl?.(value, {
           ...options,
           ...imageRenderingOptions(field),
           mediaFolder: field.media_folder

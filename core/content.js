@@ -1,6 +1,7 @@
 import yaml from "js-yaml";
 import { ID_PATTERN } from "./id.js";
 import {
+  defaultImageRegionOperation,
   normalizeHttpOrigin,
   validateImageRenderingConfig,
   validateImageProcessingConfig
@@ -2025,6 +2026,10 @@ function validateRecord(record, collection, config, status = 400) {
           status,
           `URL field "${node.type}.${fieldName}" must be empty or contain ${urlValueContract(field)}.`
         );
+      }
+      if (field.widget === "image" && value && typeof value === "object") {
+        try { defaultImageRegionOperation(value); }
+        catch (error) { throw contentError(status, `Image field "${node.type}.${fieldName}": ${error.message}`); }
       }
       if (
         field.widget === "slug" &&

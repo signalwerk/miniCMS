@@ -263,3 +263,69 @@ test("passes optional scoped rendering to image presentations without changing d
   assert.deepEqual(calls[0], { ...options, mediaFolder: "content/media" });
   assert.deepEqual(calls[1], { ...calls[0], rendering: { flatten: { alpha: "remove", background: "ffffff" } } });
 });
+
+test("default region survives image editing and follows regenerated IDs when copied", () => {
+  const original = asset("poster.tif", {
+    default_region: "main",
+    regions: [
+      {
+        id: "main",
+        label: "Main",
+        x: 1,
+        y: 2,
+        width: 30,
+        height: 40,
+        rotation: -179,
+      },
+    ],
+  });
+  assert.equal(
+    compactImageValue(normalizeImageValue(original)).default_region,
+    "main",
+  );
+  const copy = refreshImageAnnotationIds(original);
+  assert.equal(copy.default_region, copy.regions[0].id);
+  assert.notEqual(copy.default_region, "main");
+  const calls = [];
+  resolveImagePresentation(
+    {
+      resolveImageUrl(value) {
+        calls.push(value);
+        return "/preview";
+      },
+    },
+    original,
+    { widget: "image", display: "image", media_folder: "content/media" },
+  );
+  assert.deepEqual(calls, [original]);
+});
+
+test("record validation rejects a default region that is absent or duplicated", async () => {
+  const { validateRecord } = await import("../../../core/content.js");
+  const config = {
+    node_types: {
+      photo: {
+        fields: { file: { widget: "image", media_folder: "content/media" } },
+      },
+    },
+  };
+  const collection = { name: "photos", node_type: "photo" };
+  const region = { id: "main", x: 0, y: 0, width: 30, height: 40 };
+  for (const regions of [[], [region, region]])
+    assert.throws(
+      () =>
+        validateRecord(
+          {
+            id: "aaaaaaaaaaaaaaa",
+            type: "photo",
+            properties: {
+              file: asset("poster.tif", { default_region: "main", regions }),
+            },
+            slots: {},
+          },
+          collection,
+          config,
+        ),
+      /default image region/,
+    );
+});

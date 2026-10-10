@@ -563,10 +563,12 @@ function imageRenderingOperations(rendering) {
 function configuredOperations(processing, overrides) {
   const rendering = imageRenderingOperations(overrides.rendering);
   if (overrides.operations !== undefined) {
-    if (typeof overrides.operations === "string") {
-      return [...rendering, ...parseImageOperations(overrides.operations)];
-    }
-    return [...rendering, ...overrides.operations.map(normalizedOperation)];
+    const supplied = typeof overrides.operations === "string"
+      ? parseImageOperations(overrides.operations)
+      : overrides.operations.map(normalizedOperation);
+    return supplied[0]?.type === "crop"
+      ? [supplied[0], ...rendering, ...supplied.slice(1)]
+      : [...rendering, ...supplied];
   }
   const requestedWidth = overrides.width === undefined
     ? processing.width
@@ -600,6 +602,16 @@ function configuredOperations(processing, overrides) {
   ];
 }
 
+/** Resolve an explicitly selected annotation; never select the first region implicitly. */
+function defaultImageRegionOperation(value) {
+  const id = value?.default_region;
+  if (id === undefined || id === null || id === "") return null;
+  const matches = Array.isArray(value.regions) ? value.regions.filter(region => region.id === id) : [];
+  if (typeof id !== "string" || matches.length !== 1) throw imageServiceError("The default image region must name one existing region.");
+  const region = matches[0];
+  return normalizedOperation({ type: "crop", options: { left: region.x, top: region.y, width: region.width, height: region.height, rotation: region.rotation ?? 0 } });
+}
+
 function imageServicePath(value, options = {}) {
   if (value === "" || value === null || value === undefined) return "";
   const asset = imageAsset(value);
@@ -630,9 +642,13 @@ function imageServicePath(value, options = {}) {
   const source = addressedSource.path;
   const processing = normalizeImageProcessingConfig(options.config);
   const svg = isSvgImageSource(source);
-  const operations = options.info || svg
+  let operations = options.info || svg
     ? [{ type: "noop", options: {} }]
     : configuredOperations(processing, options);
+  if (!options.info && !svg && options.useDefaultRegion !== false && !operations.some(operation => operation.type === "crop")) {
+    const crop = defaultImageRegionOperation(value);
+    if (crop) operations = [crop, ...operations];
+  }
   const stack = serializeImageOperations(operations);
   const format = options.info
     ? "json"
@@ -912,6 +928,7 @@ export {
   IMAGE_FORMATS,
   buildImageServiceMediaUrl,
   buildImageServiceUrl,
+  defaultImageRegionOperation,
   validateImageRenderingConfig,
   imageServiceMediaPath,
   imageServicePath,

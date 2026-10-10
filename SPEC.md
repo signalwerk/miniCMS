@@ -1123,3 +1123,43 @@ on subsequent protected API routes. Media URLs and the safe `.json` info
 variant remain public so they work in ordinary image elements and cross-origin
 project previews. See the API package for its authentication, deployment,
 persistence, and route tests.
+
+
+### Deleting referenced records
+
+The record delete confirmation offers **Check usage** before deletion. It reads
+complete records (including nested slots) in configured collections that declare
+references to the target. This includes single/multiple references, tags, and
+opted-in internal URL and Markdown links. A failed scan never means “unused”.
+When used, each selected target requires **Remove links** or a replacement from
+the same collection, excluding all targets selected for deletion. The dialog
+lists linked records and fields. Required links require a replacement; replacing
+an array entry retains order and removes duplicates. Changing a single target
+clears its crop/focus selections; unlinking Markdown preserves the label.
+
+The editor validates all repairs, rereads affected complete records, saves and
+verifies the repairs, and checks for remaining links before deleting targets.
+Partial repair failures leave targets in place; retry reads current content and
+skips links already repaired. Unsaved drafts must be saved or discarded first.
+Checks cover this admin’s configured collections, including connector aliases;
+they cannot find relations in unconfigured external projects. Repair/deletion is
+an editor workflow, not a cross-service transaction or an API foreign-key
+constraint. Another writer can race after the final scan.
+
+
+### Default image region
+
+An image field value can select one reusable crop by storing
+`default_region: <region-id>` beside `regions`. The image widget exposes
+**Default region** with **Full image** and the region labels. Clearing the
+selection restores full-image rendering; merely defining regions does not
+change it. Removing the selected region clears the selection, and copying the
+image remaps the selected ID to the copied region.
+
+`buildImageServiceUrl` uses this region’s source-space x/y/width/height and
+rotation as the first crop operation, before flatten and resizing. Explicit
+crop operations take precedence. `useDefaultRegion: false` opts out for tools
+that need the original canvas. Original downloads, metadata requests and SVG
+passthrough remain uncropped. Content resolvers receive the complete image
+value so renderer URLs can honor the selection. A selected ID must match
+exactly one region with valid crop geometry.

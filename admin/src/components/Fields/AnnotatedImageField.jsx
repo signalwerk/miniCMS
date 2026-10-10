@@ -98,6 +98,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
   const serializedValue = JSON.stringify(value ?? "");
   const asset = imageAssetValue(image);
   const assetKey = imageAssetKey(image);
+  const defaultRegionIndex = image.extra.default_region ? image.regions.findIndex(region => region.id === image.extra.default_region) : -1;
   const rotationInstructionsId = `${id}-rotation-instructions`;
   const storedImageSize = imageCoordinateSize(image);
   const needsServiceInfo = Boolean(
@@ -308,6 +309,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
 
   function removeAnnotation(kind, index) {
     commit((next) => {
+      if (kind === "region" && next.regions[index]?.id === next.extra.default_region) delete next.extra.default_region;
       next[kind === "region" ? "regions" : "points"].splice(index, 1);
     });
     setSelection(null);
@@ -475,8 +477,9 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
       onPointerCancel={endPointer}
     >
       <img
-        src={api.resolveImageUrl(asset, {
+        src={api.resolveImageUrl(compactImageValue(image), {
           ...imageRenderingOptions(field),
+          useDefaultRegion: false,
           width: 2048,
           height: 2048,
           fit: "inside",
@@ -725,7 +728,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
           >
             <img
               className="image-field__preview"
-              src={api.resolveImageUrl(asset, {
+              src={api.resolveImageUrl(compactImageValue(image), {
                 ...imageRenderingOptions(field),
                 width: 640,
                 height: 480,
@@ -766,6 +769,26 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
         )}
       </div>
 
+      {asset && image.regions.length > 0 && (
+        <label className="image-field__default-region" htmlFor={`${id}-default-region`}>
+          <span>Default region</span>
+          <select
+            id={`${id}-default-region`}
+            aria-label="Default region"
+            value={defaultRegionIndex < 0 ? "" : String(defaultRegionIndex)}
+            onChange={event => {
+              const index = event.target.value;
+              commit(next => {
+                if (index === "") delete next.extra.default_region;
+                else next.extra.default_region = next.regions[Number(index)].id;
+              });
+            }}
+          >
+            <option value="">Full image</option>
+            {image.regions.map((region, index) => <option key={region.id || index} value={String(index)}>{region.label}</option>)}
+          </select>
+        </label>
+      )}
       <div className="image-field__actions">
         <button
           type="button"

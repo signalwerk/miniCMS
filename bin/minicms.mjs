@@ -36,6 +36,7 @@ async function runTests() {
     path.join(packageRoot, "admin", "src", "model", "markdown.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "nodeFactory.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "reference.test.mjs"),
+    path.join(packageRoot, "admin", "src", "model", "referenceDeletion.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "referenceSets.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "tags.test.mjs"),
     path.join(packageRoot, "admin", "src", "model", "views.test.mjs"),

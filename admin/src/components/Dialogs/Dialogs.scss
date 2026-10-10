@@ -266,16 +266,6 @@
   border-color: #353630;
 }
 
-.button--secondary {
-  color: #bfc1b8;
-  background: #292a26;
-  border-color: #3b3c37;
-}
-
-.button--secondary:hover {
-  background: #32332e;
-}
-
 .insertion-dialog__search {
   height: 32px;
   color: #777970;
@@ -359,4 +349,22 @@
 .confirmation-dialog .dialog__footer .button {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.reference-deletion-fields {
+  max-height: 50vh;
+  margin: 0;
+  overflow-y: auto;
+  border: 0;
+  min-width: 0;
+}
+.reference-deletion-choice {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+  select { width: 100%; min-width: 0; padding: 8px; }
+}
+.reference-deletion-usage {
+  margin-bottom: 12px;
+  ul { padding-left: 20px; }
 }

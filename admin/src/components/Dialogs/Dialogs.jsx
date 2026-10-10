@@ -305,7 +305,8 @@ function ConfirmationDialog({
   danger = false,
   onCancel,
   onSecondary,
-  onConfirm
+  onConfirm,
+  children
 }) {
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
@@ -371,8 +372,9 @@ function ConfirmationDialog({
     setBusyAction(name);
     setError("");
     try {
-      await action();
-      onCancel();
+      const result = await action();
+      if (result !== false) onCancel();
+      else setBusyAction("");
     } catch (confirmError) {
       setError(confirmError.message);
       setBusyAction("");
@@ -419,6 +421,7 @@ function ConfirmationDialog({
             <X size={18} />
           </button>
         </div>
+        {children && <fieldset className="dialog__body reference-deletion-fields" disabled={busy}>{children}</fieldset>}
         {error && (
           <div className="dialog__body">
             <div className="inline-error" role="alert">

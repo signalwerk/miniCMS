@@ -1618,3 +1618,12 @@ test("publishes one project-facing content entry", async () => {
     "prependImageServiceOperations"
   ]);
 });
+
+test("image URL resolvers receive annotations and default selection for rendering", async () => {
+  const file={hash:HERO_HASH,filename:"poster.tif",default_region:"main",regions:[{id:"main",x:0,y:0,width:30,height:40}]};
+  const calls=[];
+  const adapter=createContentAdapter({config,source:{async list(){return [{id:"test",type:"media_image",properties:{file}}];},async get(){return {id:"test",type:"media_image",properties:{file}};}},resolveImageUrl(value){calls.push(value);return '/cropped';}});
+  const result=await adapter.get("images","test");
+  assert.equal(result.item.properties.file.src,'/cropped');
+  assert.deepEqual(calls,[file]);
+});

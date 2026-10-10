@@ -531,3 +531,10 @@
     border-left: 0;
   }
 }
+
+.image-field__default-region {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  select { width: 100%; min-width: 0; padding: 8px; }
+}

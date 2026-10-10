@@ -33,3 +33,6 @@ export function markdownLinkOccurrencesInMarkdown(
   markdown: unknown
 ): MarkdownLinkOccurrence[];
 export function isInlineLinkUrl(value: unknown): value is string;
+
+/** Return null to unlink and preserve the label, undefined to retain the link. */
+export function rewriteMarkdownLinks(markdown: string, rewrite: (link: MarkdownLinkOccurrence) => string | null | undefined): string;

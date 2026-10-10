@@ -655,7 +655,7 @@ function referenceImageSource(item, view, collection) {
     typeof view?.image === "string" ? view.image.trim() : "";
   if (!field) return null;
   const value = referenceItemValue(item, field, collection);
-  return imageAssetValue(value) ??
+  return imageAssetValue(value) ? value :
     (typeof value === "string" && value ? value : null);
 }
 

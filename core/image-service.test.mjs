@@ -532,3 +532,24 @@ test("optional editor flattening preserves default size, quality, format and sch
   assert.equal(imageServicePath(imageValue("Poster.svg"), { ...options, rendering: { flatten: { alpha: "remove" } } }),
     imageServicePath(imageValue("Poster.svg"), options));
 });
+
+test("selected default region crops before flatten and resize, keeping rotation and full-image opt-out", () => {
+  const value = { ...imageValue("poster.tif"), default_region: "main", regions: [{ id: "main", x: 552, y: 35, width: 679, height: 891, rotation: -179 }] };
+  const options = { collection: "images", rendering: { flatten: { alpha: "remove", background: "ffffff" } } };
+  const route = imageServicePath(value, options);
+  assert.match(route, /\/crop@left:552,top:35,width:679,height:891,rotation:-179;flatten@background:ffffff,alpha:remove;resize@/);
+  assert.equal(imageServicePath(value, {...options, useDefaultRegion: false}), imageServicePath(imageValue("poster.tif"), options));
+  assert.equal(imageServicePath(value, {...options, info: true}), imageServicePath(imageValue("poster.tif"), {...options, info: true}));
+  assert.equal(imageServicePath({ ...value, filename: "poster.svg" }, options), imageServicePath(imageValue("poster.svg"), options));
+});
+test("regions alone never change rendering and explicit crops override the default", () => {
+  const value = { ...imageValue("poster.tif"), regions: [{id: "main", x: 10, y: 10, width: 20, height: 30}] };
+  assert.equal(imageServicePath(value, {collection: "images"}), imageServicePath(imageValue("poster.tif"), {collection: "images"}));
+  const route = imageServicePath({...value, default_region: "main"}, {collection: "images", rendering: {flatten:{alpha:"remove"}}, operations:[{type:"crop",options:{left:1,top:2,width:3,height:4}},{type:"resize",options:{width:800,fit:"inside"}}]});
+  assert.match(route,/\/crop@left:1,top:2,width:3,height:4;flatten@alpha:remove;resize@/);
+  assert.equal((route.match(/crop@/g)||[]).length,1);
+});
+test("invalid default region identities and geometry fail instead of silently rendering the wrong image", () => {
+  const base = {...imageValue("poster.tif"), default_region:"main"};
+  for(const regions of [[],[{id:"other",x:1,y:1,width:2,height:2}],[{id:"main",width:0,height:2}],[{id:"main",x:0,y:0,width:2,height:2},{id:"main",x:0,y:0,width:2,height:2}]]) assert.throws(()=>imageServicePath({...base,regions},{collection:"images"}));
+});

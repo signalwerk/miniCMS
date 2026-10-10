@@ -355,6 +355,23 @@ function markdownLinkOccurrencesInMarkdown(markdown) {
   return occurrences;
 }
 
+/** Rewrite actual link destinations, or unlink while preserving the Markdown label. */
+function rewriteMarkdownLinks(markdown, rewrite) {
+  let result = markdown;
+  for (const occurrence of markdownLinkOccurrencesInMarkdown(markdown).reverse()) {
+    const next = rewrite(occurrence);
+    if (next === undefined || next === occurrence.href) continue;
+    if (next === null) {
+      const labelEnd = closingLabelBracket(markdown, occurrence.offset + 1);
+      const link = inlineLinkAt(markdown, occurrence.offset);
+      result = result.slice(0, occurrence.offset) + markdown.slice(occurrence.offset + 1, labelEnd) + result.slice(link.end);
+    } else {
+      result = result.slice(0, occurrence.destinationStart) + next + result.slice(occurrence.destinationEnd);
+    }
+  }
+  return result;
+}
+
 function inlineLinkOccurrencesInMarkdown(markdown, options = {}) {
   const configuredCollections = Array.isArray(options?.collections)
     ? new Set(options.collections)
@@ -385,5 +402,6 @@ export {
   inlineLinkOccurrencesInMarkdown,
   isInlineLinkUrl,
   markdownLinkOccurrencesInMarkdown,
+  rewriteMarkdownLinks,
   parseInlineLinkUrl
 };

@@ -50,6 +50,7 @@ export interface ContentAddressedMediaPath {
 export interface ImageAsset {
   readonly hash: string;
   readonly filename: string;
+  readonly default_region?: string;
   readonly [key: string]: unknown;
 }
 
@@ -67,6 +68,8 @@ export type ImageSource = ImageAsset;
 
 export interface ImageServiceOptions {
   rendering?: ImageRenderingConfig;
+  /** Render the selected default region; false keeps the original canvas. */
+  useDefaultRegion?: boolean;
   baseUrl?: string;
   config?:
     | ImageProcessingConfig
@@ -131,3 +134,5 @@ export function prependImageServiceOperations(
   operations: ImageOperation[]
 ): string | null;
 export function serializeImageOperations(operations: ImageOperation[]): string;
+
+export function defaultImageRegionOperation(value: ImageSource): ImageOperation | null;

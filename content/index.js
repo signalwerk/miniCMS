@@ -595,7 +595,7 @@ function createContentAdapter({
     }
     if (widget === "image" && imageAsset(value)) {
       const image = cloneValue(value);
-      image.src = await resolveUrl(imageAsset(value), context);
+      image.src = await resolveUrl(value, context);
       return image;
     }
     return cloneValue(value);

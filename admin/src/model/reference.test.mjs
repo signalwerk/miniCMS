@@ -161,10 +161,7 @@ test("uses a reference image only when the target explicitly publishes one", () 
   assert.equal(referenceImageSource(item, { image: "   " }, collection), null);
   assert.deepEqual(
     referenceImageSource(item, { image: "file" }, collection),
-    {
-      hash: "c5a4c3f1bb4b1ba46407335be8e668361cf6c0383fc266a3657c268bf31ed2cc",
-      filename: "example.jpg"
-    }
+    item.properties.file
   );
   assert.equal(
     referenceImageSource(

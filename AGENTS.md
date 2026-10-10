@@ -34,6 +34,9 @@ Preserve useful guidance and remove stale information.
   shown. Do not reintroduce a meta-configuration that describes this editor.
 - `admin/src/styles.scss` contains only global foundations;
   `styles/_typography.scss` owns the shared Sass typography placeholders.
+- Shared secondary-button colors belong in `Common.scss`. Keep their dark
+  workspace colors there; global overrides in `Dialogs.scss` depend on import
+  order and can expose the obsolete light theme when new dialogs are imported.
 - `core/content.js`: browser/Node-compatible YAML, validation, safe
   repository paths, and record summaries. `media.js` owns the canonical image
   asset `{hash, filename}` contract, Unicode-NFC basename validation, upload
@@ -317,6 +320,21 @@ changing shared core modules it has imported.
 - GitHub supplies the latest path commit for `$updated_at`, but not file birth
   time; existing GitHub records expose `$created_at` as empty after reload.
 - Deletion must not orphan hierarchy children.
+- Record deletion now starts with Check usage through the composite adapter.
+  `model/referenceDeletion.js` scans complete records in configured collections
+  whose root/nested types declare incoming references, tags or opted-in URL /
+  Markdown links. Used targets require per-item replacement or unlinking before
+  deletion; replacements exclude the deletion set, preserve array order and
+  uniqueness, and reset target-specific selections. Required fields require a
+  replacement. All repair plans validate before any save; fresh checks and
+  verified complete-record saves precede deletion. Read/write failures stop
+  deletion, and retry rescans after partial repair saves. There is no transaction
+  across adapters or protection against another writer racing after the final
+  scan; usage outside this admin’s configured collections is not discoverable.
+  Dirty drafts must be saved/discarded first. `rewriteMarkdownLinks` in the
+  shared inline-link grammar unlinks actual Markdown links while retaining
+  labels and ignoring code/images. Changes need a published browser bundle
+  before live admins receive this flow.
 - Generated-ID fields, descendant content-node IDs, and image annotation IDs
   regenerate across duplicated subtrees.
 - Slug templates support field tokens plus date/time tokens; the record id
@@ -709,6 +727,16 @@ grip, and delete action visible while collapsed.
 - Icon settings use the accessible preview picker backed by `ICON_NAMES` and
   `iconFor` in `model/editor.js`. Add supported icons to that shared registry;
   do not reintroduce plain icon-name selects or a second option list.
+- Image values may store `default_region`, the ID of exactly one entry in
+  their `regions` array. Unset means the full image; regions alone never select
+  a crop. The shared image URL helper prepends its rotated source-space crop
+  before flatten/resize, skips it for metadata/SVG and `useDefaultRegion: false`,
+  and lets an explicit crop override it. Content adapters and image/list/reference
+  previews retain annotation metadata when resolving URLs. The image widget has
+  a Default region selector; its annotation canvas stays uncropped. Removing the
+  selected region clears the default, and duplication remaps its ID along with
+  annotation IDs. Record validation rejects missing/ambiguous default regions.
+  Publish the browser/shared core before consumers pin this feature.
 - Inspector image previews reserve fixed height before image load: 220px for
   editable image fields and 160px for read-only image details, with contain fit.
 - Image fields keep a compact inspector preview and open region/point editing
