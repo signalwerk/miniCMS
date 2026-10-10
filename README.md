@@ -60,7 +60,7 @@ The initializer extracts this host page from the README:
   </head>
   <body>
     <div id="root"></div>
-    <script src="https://rawcdn.githack.com/signalwerk/miniCMS/d349006/minicms.js"></script>
+    <script src="https://rawcdn.githack.com/signalwerk/miniCMS/4107bdf/minicms.js"></script>
     <script>
       miniCMS.init({
         target: "#root",
