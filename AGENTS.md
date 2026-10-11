@@ -847,3 +847,5 @@ files.
   previews; the editor adds, edits, removes and reorders entries (drag or arrows).
   Storage discovery and content resolution traverse every entry. Duplication
   regenerates entry/annotation IDs while preserving default-region selection.
+- Reference crop/focus selection dialogs and options use the first image of an
+  ordered image field, matching table/reference previews and content resolution.

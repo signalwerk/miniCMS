@@ -826,3 +826,15 @@ test("synthesizes an undeclared title only for a title-based slug", async () => 
   assert.equal(result.option.value, writes[0].id);
   assert.equal(result.items.length, 2);
 });
+
+test("ordered image reference previews and annotation choices use the first entry", () => {
+ const first={id:"image0000000001",hash:"a".repeat(64),filename:"front.tif",regions:[{id:"region000000001",label:"Front",x:1,y:2,width:30,height:40}]};
+ const second={id:"image0000000002",hash:"b".repeat(64),filename:"back.tif",regions:[{id:"region000000002",label:"Back"}]};
+ const item={properties:{images:[first,second]}};
+ assert.deepEqual(referenceImageSource(item,{image:"images"},collection),first);
+ const definition={options:{field:"images",path:"regions",value:"id",label:"label"}};
+ assert.deepEqual(referenceSelectionOptions(item,definition,collection).map(option=>option.value),["region000000001"]);
+ item.properties.images.reverse();
+ assert.deepEqual(referenceImageSource(item,{image:"images"},collection),second);
+ assert.deepEqual(referenceSelectionOptions(item,definition,collection).map(option=>option.value),["region000000002"]);
+});

@@ -18,7 +18,7 @@ import {
 import {
   normalizeReferenceValue,
   referenceFieldMediaFolder,
-  referenceItemValue,
+  referenceImageSource,
   referenceSelectionOptions
 } from "../../model/reference.js";
 import "./ReferenceSelectionsDialog.scss";
@@ -111,7 +111,7 @@ function ReferenceSelectionsDialog({
   const sourceField =
     definitions.find((definition) => definition.options?.field)?.options.field ||
     referenceView.image;
-  const sourceValue = referenceItemValue(item, sourceField, collection);
+  const sourceValue = referenceImageSource(item, { ...referenceView, image: sourceField }, collection);
   const sourceAsset = imageAssetValue(sourceValue);
   const sourceKey = imageAssetKey(sourceValue);
   const source = adapter.resolveImageUrl(sourceAsset, {
