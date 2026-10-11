@@ -853,3 +853,8 @@ files.
 - Image-list primary selection is an optional entry `primary: true` flag. Only
   one is allowed. Reordering preserves selection; removing the primary selects
   the first remaining image. Shared `primaryImageAsset` owns selection/defaults.
+- Ordered image fields show only the compact image list and its edit, primary,
+  reorder and remove actions. Edit and Add open a scrollable modal with a local
+  image draft; Apply changes the record, Cancel/Escape discard the draft.
+  Preserve entry IDs, annotations and primary selection. Nested annotation or
+  upload dialogs own keyboard handling while open; return focus to the trigger.

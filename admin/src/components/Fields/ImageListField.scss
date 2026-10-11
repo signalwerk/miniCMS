@@ -1,15 +1,78 @@
 .image-list-field {
   display: grid;
   gap: 10px;
-  &__items { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
-  &__items li { display: flex; align-items: center; gap: 4px; min-width: 0; }
-  &__select { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px; border: 1px solid #353730; border-radius: 4px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
-  &__select[aria-pressed="true"] { border-color: var(--lime); }
-  &__select img { width: 48px; height: 64px; object-fit: contain; }
-  &__select span { min-width: 0; display: grid; gap: 4px; }
-  &__select strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  &__select small { opacity: .65; }
-  &__actions { display: flex; }
-  &__editor { display: grid; gap: 10px; }
-  &__editor > label { display: grid; gap: 6px; }
+  &__items {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 6px;
+  }
+  &__items li {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+  &__select {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px;
+    border: 1px solid #353730;
+    border-radius: 4px;
+    color: inherit;
+    background: transparent;
+    text-align: left;
+  }
+  &__select[data-primary="true"] {
+    border-color: var(--lime);
+  }
+  &__select img {
+    width: 48px;
+    height: 64px;
+    object-fit: contain;
+  }
+  &__select span {
+    flex: 1;
+    overflow: hidden;
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+  }
+  &__select strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  &__select small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.65;
+  }
+  &__actions {
+    flex-shrink: 0;
+    display: flex;
+  }
+}
+
+.image-list-editor {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(760px, 100%);
+  max-height: calc(100dvh - 40px);
+  &__body {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px;
+    display: grid;
+    gap: 14px;
+  }
+  &__body > label {
+    display: grid;
+    gap: 6px;
+  }
 }

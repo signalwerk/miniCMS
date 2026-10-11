@@ -1179,3 +1179,9 @@ primary. Reordering keeps its primary selection; removing it selects the first
 remaining entry. The Images editor supports adding uploads, editing each image and its
 regions, removing entries, and drag/arrows reordering. Storage cleanup examines
 all assets; the content reader resolves each entry independently, retaining order.
+
+Ordered image fields (`multiple: true`) display a compact list. Each entry's
+edit icon opens its name, upload, default region and annotation controls in a
+modal. Add uses the same modal. Changes remain local until Apply; Cancel or
+Escape discard them. The modal body scrolls independently of its header and
+footer. Primary selection and ordering remain list actions and preserve IDs.
