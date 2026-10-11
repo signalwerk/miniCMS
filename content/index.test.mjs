@@ -1627,3 +1627,13 @@ test("image URL resolvers receive annotations and default selection for renderin
   assert.equal(result.item.properties.file.src,'/cropped');
   assert.deepEqual(calls,[file]);
 });
+
+test("resolves every ordered image while retaining annotations and entry order", async () => {
+ const a={id:"image0000000001",hash:HERO_HASH,filename:"front.tif",regions:[{id:"region000000001",x:1,y:2,width:30,height:40}],default_region:"region000000001"};
+ const b={id:"image0000000002",hash:POSTER_HASH,filename:"reverse.tif"};
+ const raw={id:"record000000001",type:"poster",properties:{images:[a,b]},slots:{}};
+ const adapter=createContentAdapter({config:{node_types:{poster:{fields:{images:{widget:"image",multiple:true,media_folder:"content/media"}}}},collections:{posters:{node_type:"poster",folder:"content/posters"}}},getRaw:()=>raw,listRaw:()=>({items:[raw]}),resolveImageUrl:(asset)=>`/images/${asset.filename}`});
+ const result=await adapter.get("posters",raw.id);
+ assert.deepEqual(result.item.properties.images,[{...a,src:"/images/front.tif"},{...b,src:"/images/reverse.tif"}]);
+ assert.equal(raw.properties.images[0].src,undefined);
+});

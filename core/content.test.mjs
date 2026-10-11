@@ -842,14 +842,14 @@ test("validates and normalizes multiple reference configuration", () => {
       (field) => {
         field.multiple = "yes";
       },
-      /multiple must be true only for a reference widget/
+      /multiple must be true only for a reference or image widget/
     ],
     [
       (field) => {
         field.widget = "string";
         delete field.collection;
       },
-      /multiple must be true only for a reference widget/
+      /multiple must be true only for a reference or image widget/
     ],
     [
       (field) => {
@@ -1853,4 +1853,18 @@ test("validates optional image rendering on fields, list columns and inspector r
   const scalar = fixtureConfig();
   scalar.node_types.page.fields.title.image_rendering = rendering;
   assert.throws(() => validateSourceConfig(scalar), /requires an image widget/);
+});
+
+test("ordered images validate identities and every selected region", () => {
+  const config = fixtureConfig();
+  config.node_types.page.fields.image.multiple = true;
+  validateConfig(config);
+  const a = { id: "image0000000001", hash: "a".repeat(64), filename: "a.tif", regions: [{ id: "region000000001", x: 1, y: 2, width: 30, height: 40, rotation: 12.34 }], default_region: "region000000001" };
+  const b = { id: "image0000000002", hash: "b".repeat(64), filename: "b.tif" };
+  const record = { id: "record000000001", type: "page", properties: { image: [a,b] }, slots: {} };
+  assert.doesNotThrow(() => validateRecord(record, config.collections.pages, config));
+  for (const value of [a, "", [a,{...b,id:a.id}], [{...a,id:"invalid"}], [a,{...b,default_region:"region000000001"}]]) {
+    assert.throws(() => validateRecord({...record,properties:{image:value}}, config.collections.pages, config));
+  }
+  assert.doesNotThrow(() => validateRecord({...record,properties:{image:[]}}, config.collections.pages, config));
 });

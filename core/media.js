@@ -364,8 +364,10 @@ function recordMediaSources(record, config) {
       if (!mediaFolder) continue;
       const value = node?.properties?.[fieldName];
       if (field.widget === "image") {
-        const asset = imageAsset(value);
-        if (asset) sources.push({ widget: "image", value: asset, mediaFolder });
+        for (const image of field.multiple === true && Array.isArray(value) ? value : [value]) {
+          const asset = imageAsset(image);
+          if (asset) sources.push({ widget: "image", value: asset, mediaFolder });
+        }
       } else {
         const source = mediaValueSource(value);
         if (source) sources.push({ widget: "file", value: source, mediaFolder });

@@ -78,6 +78,40 @@ function arrowDelta(event) {
   return null;
 }
 
+function RegionNumberInput({ label, value, min, max, step = 1, onCommit }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  return (
+    <input
+      type="number"
+      aria-label={label}
+      value={draft}
+      min={min}
+      max={max}
+      step={step}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={(event) => {
+        const next = event.target.valueAsNumber;
+        if (Number.isFinite(next)) onCommit(next);
+        setDraft(String(value));
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.stopPropagation();
+          event.currentTarget.blur();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          event.currentTarget.value = String(value);
+          setDraft(String(value));
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
 function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
   const api = useAdapter();
   const canvasRef = useRef(null);
@@ -357,7 +391,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
         rotation: imageRegionRotationFromPoint(
           interaction.original,
           position,
-          imageRotationStep(event),
+          event.altKey && !event.shiftKey ? 0 : imageRotationStep(event),
           interaction.start
         )
       }));
@@ -539,7 +573,7 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
                 className="image-region__rotate"
                 aria-label={`Rotate ${region.label}, ${rotation} degrees`}
                 aria-describedby={rotationInstructionsId}
-                title={`Rotate ${region.label} (${rotation}°; Option/Alt: 0.1°, Shift: 45° snap)`}
+                title={`Rotate ${region.label} (${rotation}°; Option/Alt: no snap while dragging, Shift: 45° snap)`}
                 onPointerDown={(event) =>
                   beginInteraction(event, {
                     kind: "region",
@@ -621,12 +655,14 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
             <div
               className={cx(
                 "image-annotation-row",
+                "image-annotation-row--region",
                 selection?.kind === "region" &&
                   selection.index === index &&
                   "is-selected"
               )}
               key={region.id || `region-row-${index}`}
               onPointerDown={() => setSelection({ kind: "region", index })}
+              onFocus={() => setSelection({ kind: "region", index })}
             >
               <input
                 value={region.label}
@@ -638,10 +674,6 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
                   }))
                 }
               />
-              <code>
-                {region.x}, {region.y} · {region.width} × {region.height} ·{" "}
-                {normalizeImageRotation(region.rotation)}°
-              </code>
               <button
                 type="button"
                 aria-label={`Delete ${region.label}`}
@@ -649,6 +681,23 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
               >
                 <Trash2 size={13} />
               </button>
+              <div className="image-region-numbers">
+                {[
+                  ["x", "X"], ["y", "Y"], ["width", "Width"],
+                  ["height", "Height"], ["rotation", "Rotation °"]
+                ].map(([name, label]) => (
+                  <label key={name}>
+                    <span>{label}</span>
+                    <RegionNumberInput
+                      label={`Region ${index + 1} ${name}`}
+                      value={name === "rotation" ? normalizeImageRotation(region.rotation) : region[name]}
+                      min={name === "width" || name === "height" ? 1 : undefined}
+                      step={name === "rotation" ? "any" : 1}
+                      onCommit={(value) => updateRegion(index, (current) => ({ ...current, [name]: value }))}
+                    />
+                  </label>
+                ))}
+              </div>
             </div>
           ))}
         </section>
@@ -856,8 +905,9 @@ function AnnotatedImageField({ id, field, value, collectionName, onChange }) {
             aria-labelledby={dialogTitleId}
           >
             <p id={rotationInstructionsId} className="visually-hidden">
-              Region rotation uses one-degree steps. Hold Option or Alt for
-              0.1-degree precision, or Shift to snap to 45-degree steps.
+              Region rotation uses one-degree steps. Hold Option or Alt while
+              dragging to disable snapping, or Shift to snap to 45-degree steps.
+              With arrow keys, Option or Alt adjusts rotation by 0.1 degrees.
             </p>
             <div className="dialog__top">
               <span className="dialog__icon">

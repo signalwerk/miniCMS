@@ -16,7 +16,7 @@ function cloneValue(value) {
 function defaultFieldValue(field, generateId = false, usedIds) {
   if (
     field.widget === "tags" ||
-    (field.widget === "reference" && field.multiple === true)
+    (["reference", "image"].includes(field.widget) && field.multiple === true)
   ) {
     return [];
   }

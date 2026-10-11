@@ -161,13 +161,14 @@ function imageRegionRotationFromPoint(
   step = 1,
   startPoint = null
 ) {
-  const normalizedStep = Math.max(0.001, Math.abs(finiteNumber(step, 1)));
+  const normalizedStep = step === 0 ? 0 : Math.max(0.001, Math.abs(finiteNumber(step, 1)));
   let angle;
   if (startPoint) {
     const startAngle = pointerAngle(region, startPoint);
     const currentAngle = pointerAngle(region, point);
     const delta = ((currentAngle - startAngle + 540) % 360) - 180;
     const rotation = normalizeImageRotation(region.rotation);
+    if (!normalizedStep) return normalizeImageRotation(rotation + delta);
     if (normalizedStep !== 45) {
       return normalizeImageRotation(
         rotation + Math.round(delta / normalizedStep) * normalizedStep
@@ -177,6 +178,7 @@ function imageRegionRotationFromPoint(
   } else {
     angle = pointerAngle(region, point) + 90;
   }
+  if (!normalizedStep) return normalizeImageRotation(angle);
   return normalizeImageRotation(
     Math.round(angle / normalizedStep) * normalizedStep
   );

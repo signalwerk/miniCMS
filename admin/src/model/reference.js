@@ -287,7 +287,7 @@ function requiredReferenceFieldHasValue(field, value) {
     return hasReferenceValue(normalizeReferenceValue(value).ref);
   }
   if (field?.widget === "image") {
-    return hasImageValue(value);
+    return field.multiple === true ? Array.isArray(value) && value.length > 0 && value.every(hasImageValue) : hasImageValue(value);
   }
   if (field?.widget === "file") {
     return typeof value === "string" && Boolean(value.trim());
@@ -654,7 +654,8 @@ function referenceImageSource(item, view, collection) {
   const field =
     typeof view?.image === "string" ? view.image.trim() : "";
   if (!field) return null;
-  const value = referenceItemValue(item, field, collection);
+  const raw = referenceItemValue(item, field, collection);
+  const value = Array.isArray(raw) ? raw[0] : raw;
   return imageAssetValue(value) ? value :
     (typeof value === "string" && value ? value : null);
 }
@@ -686,7 +687,7 @@ function referenceSelectionOptions(item, definition, collection) {
   const options = definition?.options;
   if (!isMapping(options) || typeof options.field !== "string") return [];
   const source = referenceItemValue(item, options.field, collection);
-  const candidates = nestedValue(source, options.path);
+  const candidates = nestedValue(Array.isArray(source) ? source[0] : source, options.path);
   if (!Array.isArray(candidates)) return [];
   const valueField = options.value || "id";
   const labelField = options.label || "label";

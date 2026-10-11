@@ -741,11 +741,14 @@ grip, and delete action visible while collapsed.
   editable image fields and 160px for read-only image details, with contain fit.
 - Image fields keep a compact inspector preview and open region/point editing
   in a dedicated modal. Regions use the standard eight resize handles plus
-  move and rotation. Pointer and keyboard rotation use 1-degree steps normally,
-  0.1-degree steps with Option/Alt, and 45-degree snapping with Shift; Shift
+  move and rotation. Rotation uses 1-degree steps normally; Option/Alt disables
+  pointer snapping and uses 0.1-degree keyboard steps. Shift snaps to 45 degrees; Shift
   takes precedence when both modifiers are held. Both annotation kinds support
   pointer and keyboard adjustment. Persist
   source-space geometry, never preview percentages or viewport coordinates.
+  Region rows expose X, Y, width, height and rotation inputs alongside the name.
+  Numeric edits apply on blur/Enter, Escape cancels the draft, invalid/empty
+  values revert, and existing image bounds constrain committed geometry.
 - An empty image field's complete “No image uploaded” stage is a keyboard-
   accessible upload button and retains drag/drop. Once an image exists, the
   preview continues to open annotation editing rather than the file picker.
@@ -838,3 +841,9 @@ coverage beside adapters and shared-helper tests under `core/`. Run `npm test`,
 `npm run build`, and `npm run check:bundle` after adapter or bundle changes.
 Never commit `node_modules/`, `admin/dist/`, `dist/`, logs, or environment
 files.
+
+- Image fields support `multiple: true`: an ordered array of complete annotated
+  assets, each with a unique generated `id`. The first supplies table/reference
+  previews; the editor adds, edits, removes and reorders entries (drag or arrows).
+  Storage discovery and content resolution traverse every entry. Duplication
+  regenerates entry/annotation IDs while preserving default-region selection.

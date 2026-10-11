@@ -1006,10 +1006,10 @@ function validateConfig(config, status = 500, { source = false } = {}) {
         delete field.multiple;
       } else if (
         field.multiple !== undefined &&
-        (field.widget !== "reference" || field.multiple !== true)
+        (!["reference", "image"].includes(field.widget) || field.multiple !== true)
       ) {
         fail(
-          `Field "${typeName}.${fieldName}" multiple must be true only for a reference widget.`
+          `Field "${typeName}.${fieldName}" multiple must be true only for a reference or image widget.`
         );
       }
       if (field.widget === "reference" && field.multiple === true) {
@@ -2027,10 +2027,6 @@ function validateRecord(record, collection, config, status = 400) {
           `URL field "${node.type}.${fieldName}" must be empty or contain ${urlValueContract(field)}.`
         );
       }
-      if (field.widget === "image" && value && typeof value === "object") {
-        try { defaultImageRegionOperation(value); }
-        catch (error) { throw contentError(status, `Image field "${node.type}.${fieldName}": ${error.message}`); }
-      }
       if (
         field.widget === "slug" &&
         (typeof value !== "string" || (value !== "" && !SLUG_PATTERN.test(value)))
@@ -2040,20 +2036,22 @@ function validateRecord(record, collection, config, status = 400) {
           `Slug field "${node.type}.${fieldName}" must be empty or contain lowercase letters and numbers separated by single hyphens.`
         );
       }
-      if (
-        field.widget === "image" &&
-        (
-          value !== "" &&
-          (
-            !isCanonicalImageAsset(value) ||
-            hasLegacyImageSourceKeys(value)
-          )
-        )
-      ) {
-        throw contentError(
-          status,
-          `Image field "${node.type}.${fieldName}" must be empty or contain a hash and original filename.`
-        );
+      if (field.widget === "image") {
+        const images = field.multiple === true ? value : value === "" ? [] : [value];
+        const ids = new Set();
+        if (!Array.isArray(images) || images.some(image => {
+          if (!isCanonicalImageAsset(image) || hasLegacyImageSourceKeys(image)) return true;
+          if (field.multiple !== true) return false;
+          if (!ID_PATTERN.test(image.id ?? "") || ids.has(image.id)) return true;
+          ids.add(image.id);
+          return false;
+        })) {
+          throw contentError(status, `Image field "${node.type}.${fieldName}" must contain ${field.multiple === true ? "an ordered array of images with unique generated IDs" : "a hash and original filename, or an empty string"}.`);
+        }
+        for (const image of images) {
+          try { defaultImageRegionOperation(image); }
+          catch (error) { throw contentError(status, `Image field "${node.type}.${fieldName}": ${error.message}`); }
+        }
       }
     }
 

@@ -445,6 +445,29 @@
   box-shadow: inset 2px 0 var(--lime);
 }
 
+.image-annotation-row--region {
+  grid-template-columns: minmax(80px, 1fr) 28px;
+}
+
+.image-region-numbers {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0 3px 6px 0;
+}
+
+.image-region-numbers label {
+  min-width: 0;
+}
+
+.image-region-numbers span {
+  @extend %type-consulting;
+  display: block;
+  padding: 0 6px;
+  color: #96988f;
+}
+
 .image-editor-dialog .image-annotation-row input {
   @extend %type-normal;
   display: block;

@@ -329,3 +329,17 @@ test("record validation rejects a default region that is absent or duplicated", 
       /default image region/,
     );
 });
+
+test("ordered-image previews select the first entry and copies regenerate identities", () => {
+  const images = [asset("first.tif", {id:"image0000000001",regions:[{id:"region000000001",x:1,y:2,width:3,height:4,rotation:12.345}],default_region:"region000000001"}),asset("second.tif",{id:"image0000000002"})];
+  let received;
+  const adapter={resolveImageUrl(value){received=value;return "preview";}};
+  assert.equal(resolveImagePresentation(adapter,images,{widget:"image",multiple:true,display:"image",media_folder:"content/media"}),"preview");
+  assert.deepEqual(received,images[0]);
+  const copied=refreshImageAnnotationIds(images);
+  assert.equal(copied.length,2);assert.notEqual(copied[0].id,images[0].id);
+  assert.notEqual(copied[0].regions[0].id,images[0].regions[0].id);
+  assert.equal(copied[0].default_region,copied[0].regions[0].id);
+  assert.equal(copied[0].regions[0].rotation,12.345);
+  assert.equal(copied[1].filename,"second.tif");
+});

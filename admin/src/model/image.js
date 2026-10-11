@@ -135,7 +135,8 @@ function ensureImageAnnotationIds(value) {
 }
 
 function refreshImageAnnotationIds(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  if (Array.isArray(value)) return value.map(image => ({ ...refreshImageAnnotationIds(image), id: createId() }));
+  if (!value || typeof value !== "object") return value;
   const seen = new Set();
   const remapped = new Map();
   const refreshed = (items) =>
@@ -196,6 +197,7 @@ function hasImageValue(value) {
 function resolveImagePresentation(adapter, value, field, options = {}) {
   if (field?.display !== "image") return "";
   if (field.widget === "image") {
+    if (field.multiple === true) value = value?.[0];
     const asset = imageAssetValue(value);
     return asset
       ? adapter.resolveImageUrl?.(value, {

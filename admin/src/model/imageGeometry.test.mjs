@@ -116,6 +116,7 @@ test("derives ordinary, precise, and snapped rotation from the pointer", () => {
   };
   assert.equal(imageRegionRotationFromPoint(region, precise), 12);
   assert.equal(imageRegionRotationFromPoint(region, precise, 0.1), 12.3);
+  assert.equal(imageRegionRotationFromPoint(region, precise, 0), 12.34);
 });
 
 test("anchors ordinary and precise pointer steps to a fractional drag start", () => {
@@ -126,6 +127,11 @@ test("anchors ordinary and precise pointer steps to a fractional drag start", ()
     y: center.y + Math.sin((degrees * Math.PI) / 180) * 30
   });
   const start = pointAt(-80);
+
+  assert.equal(
+    imageRegionRotationFromPoint(fractional, pointAt(-79.876543), 0, start),
+    12.423457
+  );
 
   assert.equal(
     imageRegionRotationFromPoint(fractional, pointAt(-79.88), 1, start),

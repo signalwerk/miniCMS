@@ -856,10 +856,14 @@ orientation-aware dimensions instead of the derivative's browser dimensions.
 IDs are immutable; labels and geometry remain editable. The editor
 opens these controls in a dedicated modal and supports multiple labeled regions
 with eight resize handles, move, and rotation plus multiple labeled points.
-Rotation uses 1-degree steps normally, 0.1-degree steps while Option/Alt is
-held, and snaps to 45-degree steps while Shift is held; Shift takes precedence
+Rotation uses 1-degree steps normally. Holding Option/Alt disables snapping
+while dragging and uses 0.1-degree steps with the keyboard. Shift snaps to
+45-degree steps; Shift takes precedence
 when both modifiers are held. All annotations can also be adjusted with the
-keyboard.
+keyboard. Each region also exposes numeric X, Y, width, height and rotation
+inputs. Rotation accepts decimal degrees. Numeric edits apply on Enter or blur;
+Escape cancels the draft and empty/invalid values revert. Geometry remains
+constrained to the source image bounds.
 
 A target collection can publish those annotations as optional selections for
 its references. The source paths are declared once on the collection, and each
@@ -1163,3 +1167,13 @@ that need the original canvas. Original downloads, metadata requests and SVG
 passthrough remain uncropped. Content resolvers receive the complete image
 value so renderer URLs can honor the selection. A selected ID must match
 exactly one region with valid crop geometry.
+
+### Ordered image fields
+
+An `image` field with `multiple: true` stores an ordered array of complete image
+assets (`{id, hash, filename, ...}`), not a scalar or linked-record array. Each
+entry has a unique 15-character generated ID and owns its annotations and optional
+`default_region`. Empty values are `[]`. The first entry supplies list/reference
+previews. The Images editor supports adding uploads, editing each image and its
+regions, removing entries, and drag/arrows reordering. Storage cleanup examines
+all assets; the content reader resolves each entry independently, retaining order.

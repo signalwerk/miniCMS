@@ -351,7 +351,7 @@ function createContentAdapter({
             options.field,
             targetCollection
           );
-          const candidates = nestedValue(source, options.path);
+          const candidates = nestedValue(Array.isArray(source) ? source[0] : source, options.path);
           const valueField = options.value || "id";
           if (Array.isArray(candidates)) {
             value =
@@ -638,12 +638,9 @@ function createContentAdapter({
           recordOverlay
         );
       } else if (field?.widget === "file" || field?.widget === "image") {
-        resolvedProperties[name] = await resolvedMedia(
-          value,
-          field.widget,
-          collectionName,
-          field.media_folder
-        );
+        resolvedProperties[name] = field.widget === "image" && field.multiple === true
+          ? await Promise.all(value.map(image => resolvedMedia(image, "image", collectionName, field.media_folder)))
+          : await resolvedMedia(value, field.widget, collectionName, field.media_folder);
       } else {
         resolvedProperties[name] = cloneValue(value);
       }

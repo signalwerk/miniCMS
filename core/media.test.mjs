@@ -321,3 +321,13 @@ test("validates array accept-list syntax and reads the legacy string shape", () 
   assert.equal(validateMediaAccept(["image/png", ""]), false);
   assert.equal(validateMediaAccept(["svg"]), false);
 });
+
+test("storage discovery includes every ordered image without deleting shared bytes", () => {
+  const config = { node_types: { poster: { fields: { images: { widget: "image", multiple: true, media_folder: "content/media" } } } } };
+  const a = { id: "image0000000001", hash: "a".repeat(64), filename: "a.tif" };
+  const b = { id: "image0000000002", hash: "b".repeat(64), filename: "b.tif" };
+  const record = { type: "poster", properties: { images: [a,b,a] } };
+  assert.deepEqual(recordMediaStoragePaths(record, config, {storage: "api",collection:"posters"}), [
+    `content/media/posters/${a.hash}/asset.dat`, `content/media/posters/${b.hash}/asset.dat`
+  ]);
+});

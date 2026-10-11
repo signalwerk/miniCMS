@@ -1,3 +1,4 @@
+import { ImageListField } from "./ImageListField.jsx";
 import {
   Check,
   ChevronDown,
@@ -1171,14 +1172,9 @@ function Field({
       </div>
     );
   } else if (field.widget === "image") {
+    const ImageControl = field.multiple === true ? ImageListField : AnnotatedImageField;
     control = (
-      <AnnotatedImageField
-        id={id}
-        field={field}
-        value={resolvedValue}
-        collectionName={collectionName}
-        onChange={onChange}
-      />
+      <ImageControl id={id} field={field} value={resolvedValue} collectionName={collectionName} onChange={onChange} />
     );
   } else if (field.widget === "file") {
     control = (

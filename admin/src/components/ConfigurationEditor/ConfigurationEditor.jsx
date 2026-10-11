@@ -2062,7 +2062,7 @@ function FieldEditor({
   );
   const supportsDefault =
     widget !== "tags" &&
-    !(widget === "reference" && field.multiple === true) &&
+    !(["reference", "image"].includes(widget) && field.multiple === true) &&
     widget !== "slug" &&
     !isGeneratedIdWidget(widget);
   const internalUrlDefault = widget === "url"
@@ -2476,9 +2476,9 @@ function FieldEditor({
           )}
         </div>
       )}
-      {widget === "reference" && (
+      {["reference", "image"].includes(widget) && (
         <div className="configuration-inline-setting">
-          <span><strong>Allow multiple selections</strong></span>
+          <span><strong>{widget === "image" ? "Allow multiple images" : "Allow multiple selections"}</strong></span>
           <Switch
             checked={field.multiple === true}
             label={`${field.label || fieldKey} allow multiple selections`}
