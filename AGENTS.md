@@ -843,9 +843,13 @@ Never commit `node_modules/`, `admin/dist/`, `dist/`, logs, or environment
 files.
 
 - Image fields support `multiple: true`: an ordered array of complete annotated
-  assets, each with a unique generated `id`. The first supplies table/reference
-  previews; the editor adds, edits, removes and reorders entries (drag or arrows).
+  assets, each with a unique generated `id`. The explicitly marked `primary: true` entry supplies table/reference
+  previews (first entry when unset); the editor adds, edits, removes and reorders entries (drag or arrows).
   Storage discovery and content resolution traverse every entry. Duplication
   regenerates entry/annotation IDs while preserving default-region selection.
-- Reference crop/focus selection dialogs and options use the first image of an
+- Reference crop/focus selection dialogs and options use the primary image of an
   ordered image field, matching table/reference previews and content resolution.
+
+- Image-list primary selection is an optional entry `primary: true` flag. Only
+  one is allowed. Reordering preserves selection; removing the primary selects
+  the first remaining image. Shared `primaryImageAsset` owns selection/defaults.

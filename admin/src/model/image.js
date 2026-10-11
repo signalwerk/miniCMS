@@ -1,6 +1,6 @@
 import { normalizeImageRotation } from "./imageGeometry.js";
 import { createId } from "../../../core/id.js";
-import { imageAsset } from "../../../core/media.js";
+import { imageAsset, primaryImageAsset } from "../../../core/media.js";
 
 function integer(value, fallback = 0) {
   const number = Number(value);
@@ -197,7 +197,7 @@ function hasImageValue(value) {
 function resolveImagePresentation(adapter, value, field, options = {}) {
   if (field?.display !== "image") return "";
   if (field.widget === "image") {
-    if (field.multiple === true) value = value?.[0];
+    if (field.multiple === true) value = primaryImageAsset(value);
     const asset = imageAssetValue(value);
     return asset
       ? adapter.resolveImageUrl?.(value, {

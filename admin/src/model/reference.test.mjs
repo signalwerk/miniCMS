@@ -837,4 +837,7 @@ test("ordered image reference previews and annotation choices use the first entr
  item.properties.images.reverse();
  assert.deepEqual(referenceImageSource(item,{image:"images"},collection),second);
  assert.deepEqual(referenceSelectionOptions(item,definition,collection).map(option=>option.value),["region000000002"]);
+ first.primary=true;
+ assert.deepEqual(referenceImageSource(item,{image:"images"},collection),first);
+ assert.deepEqual(referenceSelectionOptions(item,definition,collection).map(option=>option.value),["region000000001"]);
 });

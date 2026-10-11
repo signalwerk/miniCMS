@@ -3,7 +3,7 @@ import {
   inlineLinkOccurrencesInMarkdown,
   parseInlineLinkUrl
 } from "../core/inline-link.js";
-import { imageAsset } from "../core/media.js";
+import { imageAsset, primaryImageAsset } from "../core/media.js";
 
 function isMapping(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -351,7 +351,7 @@ function createContentAdapter({
             options.field,
             targetCollection
           );
-          const candidates = nestedValue(Array.isArray(source) ? source[0] : source, options.path);
+          const candidates = nestedValue(primaryImageAsset(source), options.path);
           const valueField = options.value || "id";
           if (Array.isArray(candidates)) {
             value =

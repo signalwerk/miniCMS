@@ -1,3 +1,4 @@
+import { primaryImageAsset } from "../../../core/media.js";
 import {
   ID_PATTERN,
   createId,
@@ -655,7 +656,7 @@ function referenceImageSource(item, view, collection) {
     typeof view?.image === "string" ? view.image.trim() : "";
   if (!field) return null;
   const raw = referenceItemValue(item, field, collection);
-  const value = Array.isArray(raw) ? raw[0] : raw;
+  const value = primaryImageAsset(raw);
   return imageAssetValue(value) ? value :
     (typeof value === "string" && value ? value : null);
 }
@@ -687,7 +688,7 @@ function referenceSelectionOptions(item, definition, collection) {
   const options = definition?.options;
   if (!isMapping(options) || typeof options.field !== "string") return [];
   const source = referenceItemValue(item, options.field, collection);
-  const candidates = nestedValue(Array.isArray(source) ? source[0] : source, options.path);
+  const candidates = nestedValue(primaryImageAsset(source), options.path);
   if (!Array.isArray(candidates)) return [];
   const valueField = options.value || "id";
   const labelField = options.label || "label";

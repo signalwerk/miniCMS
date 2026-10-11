@@ -1173,7 +1173,9 @@ exactly one region with valid crop geometry.
 An `image` field with `multiple: true` stores an ordered array of complete image
 assets (`{id, hash, filename, ...}`), not a scalar or linked-record array. Each
 entry has a unique 15-character generated ID and owns its annotations and optional
-`default_region`. Empty values are `[]`. The first entry supplies list/reference
-previews. The Images editor supports adding uploads, editing each image and its
+`default_region`. Empty values are `[]`. The entry marked `primary: true` supplies list/reference
+previews; without a selection the first entry is used. Only one entry may be
+primary. Reordering keeps its primary selection; removing it selects the first
+remaining entry. The Images editor supports adding uploads, editing each image and its
 regions, removing entries, and drag/arrows reordering. Storage cleanup examines
 all assets; the content reader resolves each entry independently, retaining order.

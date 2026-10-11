@@ -9,6 +9,7 @@ import {
 import {
   acceptTokens,
   isCanonicalImageAsset,
+  primaryImageAsset,
   validateMediaAccept
 } from "./media.js";
 import {
@@ -2048,7 +2049,12 @@ function validateRecord(record, collection, config, status = 400) {
         })) {
           throw contentError(status, `Image field "${node.type}.${fieldName}" must contain ${field.multiple === true ? "an ordered array of images with unique generated IDs" : "a hash and original filename, or an empty string"}.`);
         }
+        try { primaryImageAsset(images); }
+        catch (error) { throw contentError(status, `Image field "${node.type}.${fieldName}": ${error.message}`); }
         for (const image of images) {
+          if (field.multiple === true && image.primary !== undefined && typeof image.primary !== "boolean") {
+            throw contentError(status, `Image field "${node.type}.${fieldName}" primary must be a boolean.`);
+          }
           try { defaultImageRegionOperation(image); }
           catch (error) { throw contentError(status, `Image field "${node.type}.${fieldName}": ${error.message}`); }
         }

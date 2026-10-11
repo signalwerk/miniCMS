@@ -354,6 +354,14 @@ function mediaValueSource(value) {
   return "";
 }
 
+// An explicit selection is independent of array order; otherwise use the first.
+function primaryImageAsset(value) {
+  if (!Array.isArray(value)) return value;
+  const selected = value.filter(image => image?.primary === true);
+  if (selected.length > 1) throw new Error("An image list can have only one primary image.");
+  return selected[0] ?? value[0] ?? null;
+}
+
 function recordMediaSources(record, config) {
   const sources = [];
   const visit = (node) => {
@@ -482,6 +490,7 @@ export {
   mediaValueSource,
   normalizedMediaFilename,
   normalizedMediaFolder,
+  primaryImageAsset,
   recordMediaFilenames,
   recordMediaSources,
   recordMediaStoragePaths,

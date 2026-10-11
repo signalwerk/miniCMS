@@ -331,3 +331,13 @@ test("storage discovery includes every ordered image without deleting shared byt
     `content/media/posters/${a.hash}/asset.dat`, `content/media/posters/${b.hash}/asset.dat`
   ]);
 });
+
+test("primary selection is independent of order with a first-image default", async () => {
+ const {primaryImageAsset}=await import("./media.js");
+ const a={id:"image0000000001",hash:"a".repeat(64),filename:"a.tif"};
+ const b={id:"image0000000002",hash:"b".repeat(64),filename:"b.tif",primary:true};
+ assert.equal(primaryImageAsset([a,b]),b);assert.equal(primaryImageAsset([b,a]),b);
+ assert.equal(primaryImageAsset([a,{...b,primary:false}]),a);
+ assert.equal(primaryImageAsset([]),null);assert.equal(primaryImageAsset(a),a);
+ assert.throws(()=>primaryImageAsset([{...a,primary:true},b]),/only one primary/);
+});

@@ -1868,3 +1868,12 @@ test("ordered images validate identities and every selected region", () => {
   }
   assert.doesNotThrow(() => validateRecord({...record,properties:{image:[]}}, config.collections.pages, config));
 });
+
+test("ordered images reject ambiguous or malformed primary selections",()=>{
+ const config=fixtureConfig();config.node_types.page.fields.image.multiple=true;
+ const images=[{id:"image0000000001",hash:"a".repeat(64),filename:"a.tif"},{id:"image0000000002",hash:"b".repeat(64),filename:"b.tif",primary:true}];
+ const record={id:"record000000001",type:"page",properties:{image:images},slots:{}};
+ assert.doesNotThrow(()=>validateRecord(record,config.collections.pages,config));
+ assert.throws(()=>validateRecord({...record,properties:{image:[{...images[0],primary:true},images[1]]}},config.collections.pages,config),/only one primary/);
+ assert.throws(()=>validateRecord({...record,properties:{image:[{...images[0],primary:"yes"}]}},config.collections.pages,config),/boolean/);
+});

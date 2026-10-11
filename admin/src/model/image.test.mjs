@@ -343,3 +343,9 @@ test("ordered-image previews select the first entry and copies regenerate identi
   assert.equal(copied[0].regions[0].rotation,12.345);
   assert.equal(copied[1].filename,"second.tif");
 });
+
+test("preview and duplicated images retain explicit primary selection",()=>{
+ const images=[asset("first.tif",{id:"image0000000001"}),asset("chosen.tif",{id:"image0000000002",primary:true})];
+ let received;resolveImagePresentation({resolveImageUrl(value){received=value;return "preview";}},images,{widget:"image",multiple:true,display:"image"});
+ assert.equal(received,images[1]);const copied=refreshImageAnnotationIds(images);assert.equal(copied[1].primary,true);assert.notEqual(copied[1].id,images[1].id);
+});

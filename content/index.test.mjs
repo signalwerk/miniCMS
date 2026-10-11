@@ -1637,3 +1637,12 @@ test("resolves every ordered image while retaining annotations and entry order",
  assert.deepEqual(result.item.properties.images,[{...a,src:"/images/front.tif"},{...b,src:"/images/reverse.tif"}]);
  assert.equal(raw.properties.images[0].src,undefined);
 });
+
+test("reference crop selection resolves the explicitly primary ordered image",async()=>{
+ const target=structuredClone(image),manifest=structuredClone(config);
+ manifest.node_types[target.type].fields.file.multiple=true;
+ target.properties.file=[{hash:POSTER_HASH,filename:"other.tif",id:"image0000000001"},{...image.properties.file,id:"image0000000002",primary:true}];
+ const {adapter}=sourceAdapter({pages:[home],images:[target]},{config:manifest});
+ const result=await adapter.get("pages",home.id);
+ assert.deepEqual(result.item.properties.hero.selections.crop.value,image.properties.file.regions[0]);
+});
